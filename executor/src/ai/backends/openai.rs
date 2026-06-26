@@ -114,6 +114,18 @@ pub fn build_chat_body(
     }
     full_messages.extend(non_system);
 
+    // Some local-model Jinja chat templates (e.g. Qwen3, gpt-oss) require at
+    // least one user-role message and reject a system-only message list with
+    // "No user query found in messages." On the first executor turn the
+    // conversation history is empty, so inject a minimal placeholder that
+    // satisfies the template constraint without affecting model behaviour.
+    let has_user = full_messages
+        .iter()
+        .any(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"));
+    if !has_user {
+        full_messages.push(json!({"role": "user", "content": "."}));
+    }
+
     let mut body = json!({
         "model": model,
         "max_tokens": sampling.max_tokens,
