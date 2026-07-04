@@ -3505,6 +3505,158 @@ async fn loop_emits_output_filtered_event_for_filtered_bash() {
     assert_eq!(filter_name, "generic");
 }
 
+// ── M23 phase-01: commit-then-clean-status completion detector ────────
+
+/// Runs `git`, asserting success, from `dir` — test setup helper only.
+fn run_git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .expect("git should be installed");
+    assert!(status.success(), "git {args:?} failed");
+}
+
+#[tokio::test]
+async fn commits_then_clean_status_completes_without_a_third_model_call() {
+    let dir = TempDir::new().unwrap();
+    run_git(dir.path(), &["init"]);
+    run_git(dir.path(), &["config", "user.email", "t@t.com"]);
+    run_git(dir.path(), &["config", "user.name", "t"]);
+    std::fs::write(dir.path().join("a.txt"), "1").unwrap();
+    run_git(dir.path(), &["add", "-A"]);
+    run_git(dir.path(), &["commit", "-m", "init"]);
+
+    // Simulate the model's own prior edit already on disk, uncommitted. `-am`
+    // only stages already-tracked *modified* files (not new untracked ones), so
+    // this modifies the tracked `a.txt` rather than adding a new file — keeps the
+    // single `git commit -am` call sufficient to actually commit something.
+    std::fs::write(dir.path().join("a.txt"), "1-modified").unwrap();
+
+    let scope = Scope::new(dir.path()).unwrap();
+    let mut registry = ToolRegistry::new();
+    registry.register(read_file(scope.clone()));
+    registry.register(write_file(scope.clone()));
+    registry.register(patch(scope.clone()));
+    registry.register(bash_with_filter(scope, 30, true));
+
+    // Exactly two scripted turns: commit, then a clean-status check. If the
+    // detector fails to force completion on the second turn, the loop asks for a
+    // third model call the mock has no script for — it returns no events, which
+    // surfaces as something other than a 2-call `Complete` result, not a silent
+    // pass.
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "bash",
+            json!({ "command": "git commit -am 'modify a'" }),
+        )],
+        vec![native(
+            "bash",
+            json!({ "command": "git status --porcelain" }),
+        )],
+    ]);
+    let budget = Budget::new(1_000_000);
+
+    let result = execute_phase(&input(), deps(&client, &registry, &budget, 8, dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    assert_eq!(
+        client.calls().len(),
+        2,
+        "should force-complete right after the clean status check, before a 3rd model call"
+    );
+}
+
+#[tokio::test]
+async fn clean_status_before_any_commit_does_not_force_completion() {
+    let dir = TempDir::new().unwrap();
+    run_git(dir.path(), &["init"]);
+    run_git(dir.path(), &["config", "user.email", "t@t.com"]);
+    run_git(dir.path(), &["config", "user.name", "t"]);
+    std::fs::write(dir.path().join("a.txt"), "1").unwrap();
+    run_git(dir.path(), &["add", "-A"]);
+    run_git(dir.path(), &["commit", "-m", "init"]);
+    // Tree is already clean at this point (nothing since the commit above) — no
+    // commit happened *this session*, so a clean status here must NOT trigger
+    // completion; the loop should proceed to the next scripted turn normally.
+
+    let scope = Scope::new(dir.path()).unwrap();
+    let mut registry = ToolRegistry::new();
+    registry.register(read_file(scope.clone()));
+    registry.register(write_file(scope.clone()));
+    registry.register(patch(scope.clone()));
+    registry.register(bash_with_filter(scope, 30, true));
+
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "bash",
+            json!({ "command": "git status --porcelain" }),
+        )],
+        vec![token("done")],
+    ]);
+    let budget = Budget::new(1_000_000);
+
+    let result = execute_phase(&input(), deps(&client, &registry, &budget, 8, dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    assert_eq!(
+        client.calls().len(),
+        2,
+        "without a prior commit this session, completion should wait for the natural stop"
+    );
+}
+
+#[tokio::test]
+async fn chained_commit_command_does_not_trigger_the_detector() {
+    let dir = TempDir::new().unwrap();
+    run_git(dir.path(), &["init"]);
+    run_git(dir.path(), &["config", "user.email", "t@t.com"]);
+    run_git(dir.path(), &["config", "user.name", "t"]);
+    std::fs::write(dir.path().join("a.txt"), "1").unwrap();
+    run_git(dir.path(), &["add", "-A"]);
+    run_git(dir.path(), &["commit", "-m", "init"]);
+    std::fs::write(dir.path().join("b.txt"), "2").unwrap();
+
+    let scope = Scope::new(dir.path()).unwrap();
+    let mut registry = ToolRegistry::new();
+    registry.register(read_file(scope.clone()));
+    registry.register(write_file(scope.clone()));
+    registry.register(patch(scope.clone()));
+    registry.register(bash_with_filter(scope, 30, true));
+
+    // A chained `git add -A && git commit ...` should NOT be recognized as the
+    // commit signal (chaining makes the exit code ambiguous — see
+    // `is_git_commit_command`'s doc comment) — the clean status on the next turn
+    // must not force-complete either, so a 3rd scripted turn is required.
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "bash",
+            json!({ "command": "git add -A && git commit -m 'add b'" }),
+        )],
+        vec![native(
+            "bash",
+            json!({ "command": "git status --porcelain" }),
+        )],
+        vec![token("done")],
+    ]);
+    let budget = Budget::new(1_000_000);
+
+    let result = execute_phase(&input(), deps(&client, &registry, &budget, 8, dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    assert_eq!(
+        client.calls().len(),
+        3,
+        "chained commit should not be recognized, so completion waits for the natural stop"
+    );
+}
+
 // ── M10 phase-06: redundant-read dedupe ───────────────────────────────
 
 #[tokio::test]
