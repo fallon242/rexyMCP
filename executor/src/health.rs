@@ -157,6 +157,7 @@ mod tests {
             enable_thinking: false,
             task_tracking: true,
             tier: None,
+            thinking: None,
         };
         let health = check(&cfg).await;
         assert!(!health.reachable);

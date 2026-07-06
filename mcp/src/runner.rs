@@ -283,6 +283,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             seed: client_cfg.executor.seed,
             max_tokens: client_cfg.executor.max_tokens,
             enable_thinking: client_cfg.executor.enable_thinking,
+            thinking: client_cfg.executor.thinking.clone(),
         },
     );
 
@@ -604,6 +605,7 @@ mod tests {
                 runaway_output_bytes: None,
                 empty_completion_threshold: None,
                 gate_feedback_repeat_threshold: None,
+                thinking: None,
             },
         );
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
@@ -723,6 +725,7 @@ mod tests {
                 runaway_output_bytes: None,
                 empty_completion_threshold: None,
                 gate_feedback_repeat_threshold: None,
+                thinking: None,
             },
         );
 

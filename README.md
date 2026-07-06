@@ -622,6 +622,11 @@ stream_idle_timeout_secs = 240            # max gap between tokens once streamin
 # enable_thinking = false                 # opt-in reasoning toggle → chat_template_kwargs (default false)
 task_tracking = true                      # seed a per-session checklist from the phase Spec (default true)
 # tier = "MEDIUM"                         # "LARGE" | "MEDIUM" | "SMALL" — usually set via `rexymcp calibrate`
+# thinking = "disabled"                   # sent as "thinking": {"type": <value>} on every request; omitted →
+                                           # endpoint default. DeepSeek V4 defaults to thinking-mode "enabled",
+                                           # which requires reasoning_content to be echoed back on every request
+                                           # after a tool call — rexyMCP does not do this, so tool-calling turns
+                                           # 400 on the second request. Set "disabled" for DeepSeek-style models.
 
 # ── The final command gate — YOUR project's commands, any language ──
 #    (run in order: format → build → lint → test)
@@ -680,6 +685,7 @@ temperature                    = 0.2      # any of these override the global val
 # identical_call_threshold     = 8
 # verifier_persistence_threshold = 8
 # runaway_output_bytes         = 204800
+# thinking                     = "disabled" # per-model thinking-mode override
 ```
 
 **Section reference:**
@@ -687,7 +693,7 @@ temperature                    = 0.2      # any of these override the global val
 | Section | Purpose |
 |---|---|
 | `[project]` | `id` — per-project UUID (from `rexymcp init`) that scopes telemetry to this project regardless of path. |
-| `[executor]` | The local model + connection: `provider`, `model`, `base_url`, `api_key`, the two streaming timeouts, sampling (`temperature`, `seed`, `max_tokens`), `enable_thinking`, `task_tracking`, and `tier`. |
+| `[executor]` | The local model + connection: `provider`, `model`, `base_url`, `api_key`, the two streaming timeouts, sampling (`temperature`, `seed`, `max_tokens`), `enable_thinking`, `task_tracking`, `tier`, and `thinking` (reasoning-mode toggle for DeepSeek-style endpoints, e.g. `"disabled"`). |
 | `[commands]` | The `format` / `build` / `lint` / `test` (+ optional `lint_fix`) commands run as the final gate. |
 | `[budget]` | `context_length`, `max_context_pct`, `max_turns`, `escalation_slots`, `gate_retries`. |
 | `[telemetry]` | `dir` — the cross-project store. Omit to disable; `~` is expanded. |

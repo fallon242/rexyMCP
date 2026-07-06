@@ -150,6 +150,9 @@ pub fn build_chat_body(
     if !sampling.enable_thinking {
         body["chat_template_kwargs"] = json!({ "enable_thinking": false });
     }
+    if let Some(t) = &sampling.thinking {
+        body["thinking"] = json!({ "type": t });
+    }
     body
 }
 
@@ -197,7 +200,7 @@ impl AiClient for OpenAiClient {
         tools: Option<&[ToolSchema]>,
     ) -> Result<()> {
         let converted = convert_messages(messages);
-        let body = build_chat_body(&self.model, system, converted, tools, self.sampling);
+        let body = build_chat_body(&self.model, system, converted, tools, self.sampling.clone());
 
         let mut first_token_seen = false;
         let mut retries = 0;
@@ -677,6 +680,7 @@ mod tests {
                 seed: Some(42),
                 max_tokens: 8192,
                 enable_thinking: false,
+                thinking: None,
             },
         );
         assert_eq!(body["temperature"], 0.2);
@@ -688,6 +692,7 @@ mod tests {
         let body = build_chat_body("m", "sys", vec![], None, SamplingParams::default());
         assert!(body.get("temperature").is_none());
         assert!(body.get("seed").is_none());
+        assert!(body.get("thinking").is_none());
     }
 
     #[test]
@@ -702,10 +707,26 @@ mod tests {
                 seed: None,
                 max_tokens: 8192,
                 enable_thinking: false,
+                thinking: None,
             },
         );
         assert_eq!(body["temperature"], 0.7);
         assert!(body.get("seed").is_none());
+    }
+
+    #[test]
+    fn build_chat_body_includes_thinking_when_set() {
+        let body = build_chat_body(
+            "m",
+            "sys",
+            vec![],
+            None,
+            SamplingParams {
+                thinking: Some("disabled".into()),
+                ..SamplingParams::default()
+            },
+        );
+        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
     }
 
     #[test]
