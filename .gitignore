@@ -1,4 +1,5 @@
 /target
 /.rexymcp
 /.claude
+/telemetry
 rexymcp.toml
