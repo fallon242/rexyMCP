@@ -7,6 +7,25 @@ Single source of truth for which phase is active. The principal engineer
 **Active phase:** **none** — **M25 closed 2026-06-30** at a human-gated milestone
 boundary. Awaiting the user to kick off the next milestone via `/rexymcp:architect`.
 
+**Out-of-band fixes on `feat/executor-thinking-and-autocomplete` (2026-06-26 →
+2026-07-09).** Four ad-hoc commits landed between milestones — direct Claude Code
+work, no phase doc, no executor dispatch — to unblock real local-model runs. To be
+folded into the next milestone's history when it opens. All four gates green on the
+branch (891 pass / 2 ignored). Commits: (1) `f0b7b43` **fix** — inject a minimal
+`.` user placeholder when `messages` has no user role, so strict Jinja templates
+(Qwen3, gpt-oss) don't reject the system-only first turn with "No user query found."
+(2) `12e051f` **feat** — auto-complete on commit: after a successful *unchained*
+`git commit`, a later confirmed-clean `git status --porcelain`/`--short` runs the
+full gate/task-coverage/bookkeeping check and terminates as `complete` (weak local
+models kept tool-calling past a done phase until context-overflow); chained
+`&&`/`;`/`|` commits excluded, `.rexymcp/` lines discounted when judging "clean".
+(3) `f0634f2` **feat** — `[executor] thinking` config (global + per-model override)
+forwarded verbatim as `"thinking": {"type": <value>}`, so DeepSeek-style
+reasoning-mode endpoints (which 400 on the second tool-call turn because rexyMCP
+doesn't replay `reasoning_content`) can switch to the non-thinking path.
+(4) `14221aa` **chore** — gitignore `telemetry/` (generated `phase_runs.jsonl`, not
+source). Branch is local-only; not yet merged to `master`.
+
 **M25 — Polish & Config Pass — done** (9/9 phases, 2026-06-30; executor
 Qwen/Qwen3.6-27B-PrismaAURA). 8 approved_first_try, 1 approved_after_1 (phase-03
 `false_completion`, bug-03-1 — missing required negative pin). Two threads: a
