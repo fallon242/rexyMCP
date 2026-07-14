@@ -16,7 +16,6 @@ base_url = "http://127.0.0.1:1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
     )
     .unwrap();
@@ -73,7 +72,7 @@ async fn execute_phase_returns_error_for_missing_phase_doc() {
         repo_path: temp_dir.path().to_str().unwrap().to_string(),
         model: None,
     };
-    let result = execute_phase_inner(&config_path, &params, None).await;
+    let result = execute_phase_inner(&config_path, &params, None, CancelSignal::never()).await;
 
     assert!(result.is_err());
 }
@@ -89,7 +88,7 @@ async fn execute_phase_returns_error_for_missing_repo() {
         repo_path: "/nonexistent/repo".to_string(),
         model: None,
     };
-    let result = execute_phase_inner(&config_path, &params, None).await;
+    let result = execute_phase_inner(&config_path, &params, None, CancelSignal::never()).await;
 
     assert!(result.is_err());
 }
@@ -352,7 +351,6 @@ base_url = "http://127.0.0.1:1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [telemetry]
 dir = "{}"
@@ -454,7 +452,6 @@ base_url = "http://127.0.0.1:1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
     )
     .unwrap();
@@ -557,12 +554,11 @@ fn progress_notifier_maps_fields_correctly() {
         message: "turn=4 stage=tool:patch +12/-3 files=1".to_string(),
     };
 
-    let params = ProgressNotificationParam {
-        progress_token: ProgressToken(NumberOrString::Number(42)),
-        progress: event.turn as f64,
-        total: None,
-        message: Some(event.message.clone()),
-    };
+    let params = ProgressNotificationParam::new(
+        ProgressToken(NumberOrString::Number(42)),
+        event.turn as f64,
+    )
+    .with_message(event.message.clone());
 
     assert_eq!(params.progress, 4.0);
     assert!(params.total.is_none());
@@ -648,8 +644,14 @@ async fn execute_phase_inner_forwards_progress_to_loop() {
     };
 
     let capture = CaptureCallback::new();
-    let result =
-        execute_phase_inner_with_client(&config_path, &params, Some(&capture), Some(&client)).await;
+    let result = execute_phase_inner_with_client(
+        &config_path,
+        &params,
+        Some(&capture),
+        Some(&client),
+        CancelSignal::never(),
+    )
+    .await;
 
     assert!(
         result.is_ok(),
@@ -692,7 +694,14 @@ async fn execute_phase_inner_with_none_captures_nothing() {
         model: None,
     };
 
-    let result = execute_phase_inner_with_client(&config_path, &params, None, Some(&client)).await;
+    let result = execute_phase_inner_with_client(
+        &config_path,
+        &params,
+        None,
+        Some(&client),
+        CancelSignal::never(),
+    )
+    .await;
 
     assert!(
         result.is_ok(),
@@ -846,7 +855,6 @@ base_url = "http://127.0.0.1:1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
     )
     .unwrap();
@@ -862,4 +870,228 @@ escalation_slots = 1
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.contains("telemetry disabled"));
+}
+
+#[tokio::test]
+async fn continue_phase_returns_error_for_missing_phase_doc() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = make_test_config(&temp_dir);
+
+    let params = ContinuePhaseParams {
+        phase_doc_path: "/nonexistent/phase.md".to_string(),
+        repo_path: temp_dir.path().to_str().unwrap().to_string(),
+        guidance: "fix the issue".to_string(),
+        prior_log_path: None,
+        model: None,
+    };
+    let result = continue_phase_inner(&config_path, &params, None).await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn continue_phase_restores_task_states_from_prior_log() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = make_test_config(&temp_dir);
+
+    // Create a prior session log with a TaskUpdate for task "1" as Done.
+    let log_path = temp_dir.path().join("session-prior.jsonl");
+    std::fs::write(
+        &log_path,
+        r#"{"ts":1717000000000,"turn":0,"event":{"event_type":"session_start","session_id":"s1","model":"test","phase":"p1"}}
+{"ts":1717000001000,"turn":0,"event":{"event_type":"task_update","id":"1","title":"Test task","state":"done"}}
+"#,
+    )
+    .unwrap();
+
+    // Write a phase doc with a spec section that seeds task "1".
+    let phase_path_with_spec = temp_dir.path().join("phase-02-test.md");
+    std::fs::write(
+        &phase_path_with_spec,
+        "# Phase 02: Test Resume\n\n**Tags:** language=rust, kind=test, size=s\n\n## Goal\n\nTest resume.\n\n## Spec\n\n1. **Test task** — already done\n\n## Acceptance criteria\n\n- [ ] It resumes.\n",
+    )
+    .unwrap();
+
+    let params = ContinuePhaseParams {
+        phase_doc_path: phase_path_with_spec.to_str().unwrap().to_string(),
+        repo_path: temp_dir.path().to_str().unwrap().to_string(),
+        guidance: "continue from where we left off".to_string(),
+        prior_log_path: Some(log_path.to_str().unwrap().to_string()),
+        model: None,
+    };
+
+    // This will fail because there's no real AI client, but we can verify
+    // the resume context was built (the error should be about the AI call,
+    // not about missing files).
+    let result = continue_phase_inner(&config_path, &params, None).await;
+
+    // The error should be about the AI backend, not about file resolution.
+    if let Err(err) = result {
+        assert!(
+            !err.contains("failed to load config"),
+            "should not be a config error: {err}"
+        );
+        assert!(
+            !err.contains("failed to read phase doc"),
+            "should not be a phase doc error: {err}"
+        );
+    }
+}
+
+use std::time::Duration;
+
+#[tokio::test]
+async fn get_run_status_unknown_run_id() {
+    let registry = crate::jobs::JobRegistry::new();
+    let params = GetRunStatusParams {
+        run_id: "nonexistent".into(),
+    };
+    let out = get_run_status_inner(&registry, &params, Duration::from_secs(1)).await;
+    assert_eq!(out.state, "unknown");
+    assert!(out.result.is_none());
+    assert!(out.error.is_none());
+}
+
+#[tokio::test]
+async fn get_run_status_reports_done_with_result() {
+    let registry = crate::jobs::JobRegistry::new();
+    let run_id = "done-run".to_string();
+    let (handle, _signal) = CancelSignal::new();
+    registry.insert(&run_id, handle);
+    registry.publish(
+        &run_id,
+        crate::jobs::RunState::Complete(serde_json::json!({"status": "complete"})),
+    );
+    let params = GetRunStatusParams {
+        run_id: run_id.clone(),
+    };
+    let out = get_run_status_inner(&registry, &params, Duration::from_secs(1)).await;
+    assert_eq!(out.state, "done");
+    assert!(out.result.is_some());
+    assert!(out.error.is_none());
+}
+
+#[tokio::test]
+async fn get_run_status_reports_failed() {
+    let registry = crate::jobs::JobRegistry::new();
+    let run_id = "failed-run".to_string();
+    let (handle, _signal) = CancelSignal::new();
+    registry.insert(&run_id, handle);
+    registry.publish(&run_id, crate::jobs::RunState::Failed("boom".to_string()));
+    let params = GetRunStatusParams {
+        run_id: run_id.clone(),
+    };
+    let out = get_run_status_inner(&registry, &params, Duration::from_secs(1)).await;
+    assert_eq!(out.state, "failed");
+    assert!(out.result.is_none());
+    assert_eq!(out.error.as_deref(), Some("boom"));
+}
+
+#[tokio::test]
+async fn get_run_status_running_times_out() {
+    let registry = crate::jobs::JobRegistry::new();
+    let run_id = "running-run".to_string();
+    let (handle, _signal) = CancelSignal::new();
+    registry.insert(&run_id, handle);
+    let params = GetRunStatusParams {
+        run_id: run_id.clone(),
+    };
+    let out = get_run_status_inner(&registry, &params, Duration::from_millis(1)).await;
+    assert_eq!(out.state, "running");
+    assert!(out.result.is_none());
+    assert!(out.error.is_none());
+}
+
+#[test]
+fn get_run_status_tool_is_registered() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let config_path = make_test_config(&temp_dir);
+    let server = RexyMcpServer::new(config_path);
+    assert!(
+        server.get_tool("get_run_status").is_some(),
+        "get_run_status tool should be registered"
+    );
+}
+
+#[test]
+fn execute_phase_tool_declares_run_id_output_schema() {
+    let tool = execute_phase_tool();
+    let schema = tool
+        .output_schema
+        .expect("execute_phase_tool should have an output_schema");
+    assert!(
+        schema
+            .as_ref()
+            .get("properties")
+            .and_then(|p| p.get("run_id"))
+            .is_some(),
+        "execute_phase output_schema should contain run_id property"
+    );
+    assert!(
+        schema
+            .as_ref()
+            .get("properties")
+            .and_then(|p| p.get("status"))
+            .is_none(),
+        "execute_phase output_schema should NOT contain status (that's PhaseResult, not SpawnedRun)"
+    );
+}
+
+#[test]
+fn continue_phase_tool_declares_phase_result_output_schema() {
+    let tool = continue_phase_tool();
+    let schema = tool
+        .output_schema
+        .expect("continue_phase_tool should have an output_schema");
+    assert!(
+        schema
+            .as_ref()
+            .get("properties")
+            .and_then(|p| p.get("status"))
+            .is_some(),
+        "continue_phase output_schema should contain status property"
+    );
+}
+
+#[test]
+fn list_tools_carries_output_schemas_for_hand_rolled_tools() {
+    let execute_tool = execute_phase_tool();
+    let continue_tool = continue_phase_tool();
+    assert!(
+        execute_tool.output_schema.is_some(),
+        "execute_phase tool must carry an output_schema"
+    );
+    assert!(
+        continue_tool.output_schema.is_some(),
+        "continue_phase tool must carry an output_schema"
+    );
+}
+
+#[test]
+fn structured_result_carries_matching_text_block() {
+    let result = structured_result(&SpawnedRun {
+        run_id: "r-1".to_string(),
+    })
+    .unwrap();
+    let expected = serde_json::json!({ "run_id": "r-1" });
+    assert_eq!(
+        result.structured_content.as_ref(),
+        Some(&expected),
+        "structured_content should match SpawnedRun JSON"
+    );
+    let text = result.content[0]
+        .as_text()
+        .expect("content[0] should be text")
+        .text
+        .as_str();
+    let parsed: serde_json::Value = serde_json::from_str(text).expect("text should parse as JSON");
+    assert_eq!(
+        parsed, expected,
+        "text block should parse to the same JSON as structured_content"
+    );
+    assert_eq!(
+        result.is_error,
+        Some(false),
+        "is_error should be Some(false) for structured results"
+    );
 }

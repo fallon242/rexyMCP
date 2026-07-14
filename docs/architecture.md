@@ -1,13 +1,18 @@
 # rexyMCP — Architecture
 
-> **Status:** Living design doc. M1–M23 are fully implemented and closed (M18's
+> **Status:** Living design doc. M1–M31 are fully implemented and closed (M18's
 > thread 4 / cold-start calibration battery is shelved by design, outside its
-> committed scope); M24 (edit-loop recovery) is done (committed scope — single
-> phase). M25 (polish & config pass) is done (9/9 phases). This document is the source
-> of truth for the *intended* design; the
-> code under `executor/` and `mcp/` is the source of truth for what actually
-> runs. Milestones are listed in the **Status** section at the bottom — that list
-> is the project plan.
+> committed scope; M27's stretch phase-07 advisory routing was not taken).
+> **No milestone is currently active** (M32, the README row-flip fix, closed
+> 2026-07-10). The most recent arcs: **M28**
+> (edit-tool arg recovery), **M29** (cleanup), **M30** (executor
+> interruption — async `execute_phase` jobs, `stop_phase`, the `.rexymcp/stop`
+> sentinel, and the `cancelled` outcome), and **M31** (rmcp v2 upgrade —
+> `rmcp` 2.2.0 on the MCP 2025-11-25 spec line, plus structured tool output
+> for `execute_phase`/`continue_phase`). This document is the source
+> of truth for the *intended* design; the code under `executor/` and `mcp/` is
+> the source of truth for what actually runs. Milestones are listed in the
+> **Status** section at the bottom — that list is the project plan.
 
 ## What rexyMCP is
 
@@ -57,10 +62,10 @@ local planner, the cloud-escalation transport) are deliberately left behind.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Claude Code (harness)                                         │
-│   architect skill · review-phase skill · escalate skill       │
-│   /rexymcp:architect · /rexymcp:dispatch · /rexymcp:review commands                   │
+│   architect · dispatch · review · escalate · auto skills      │
+│   /rexymcp:architect · :dispatch · :review · :escalate · :auto │
 └───────────────┬───────────────────────────────────────────────┘
-                │ MCP (stdio): execute_phase, executor_health
+                │ MCP (stdio): execute_phase · continue_phase · executor_health · …
 ┌───────────────▼───────────────────────────────────────────────┐
 │ mcp crate (binary) — rmcp stdio server                         │
 │   tool schemas · progress notifications · output capping       │
@@ -165,16 +170,31 @@ Given the briefing, the architect picks one of three levers, situationally:
   (context rot), and a clean restart with a better spec discards the confusion.
 - **Session takeover** — Claude finishes the phase itself when it's beyond the
   local model's reach.
-- **Resume** *(candidate — not yet committed; decide later)* — a
-  `continue_phase(session_id, guidance)` tool would rehydrate the executor from
-  the session log and inject one targeted directive so the local model continues
-  from where it was, keeping the work it already did. The cheap middle lever for
-  "model was almost there, hit one specific wall." **Caveat:** resume preserves
-  the local model's accumulated context rot along with its progress, so it is a
-  situational lever, never the default. It carries a real cost — the M4 loop must
-  be able to serialize/rehydrate resumable state (message history, working set,
-  remaining turn budget) from the session log — so it is recorded here as a
-  design option, not a committed feature.
+- **Resume** *(committed at M27 kickoff, 2026-07-08)* — a
+  `continue_phase(phase, guidance)` tool that resumes a failed phase
+  **briefing-seeded**, not transcript-rehydrated: a *fresh* executor context
+  built from the phase doc + the returned briefing + one targeted architect
+  directive + the current working-tree diff, with `task_states` restored from
+  the session log. This keeps "don't redo the 90% that's done" while discarding
+  the accumulated context rot that full-transcript rehydration would preserve —
+  the rot is precisely what the re-dispatch lever exists to escape, so replaying
+  it would be self-defeating. The cheap middle lever for "model was almost
+  there, hit one specific wall"; situational, never the default.
+
+The three levers are exercised two ways. **Interactively**, the human invokes
+the escalate skill per failure (the mode described above). **Autonomously**
+(M27), an explicit opt-in `/rexymcp:auto` run drives the whole cycle — draft →
+dispatch → review → escalate → re-dispatch/resume — across a milestone with no
+per-phase human pause. The loop driver lives in the **plugin/skill layer**
+(agent-neutral, composing the existing skills), never in the executor or
+server: the executor stays a single-shot unit returning a structured briefing,
+and rexyMCP still never calls a cloud provider — Claude, already the architect,
+remains the escalation target. The loop is budgeted (`[escalation]
+max_assists` per phase), journaled (every architect activity is a telemetry
+record; token usage harvested from the client's own transcripts where
+available, absent — never estimated — elsewhere), and hard-gated: milestone
+boundaries, blockers, and budget exhaustion always stop for the human with a
+structured loop report.
 
 The briefing is a *fresh* brief, not a transcript replay — the shape Rexy already
 defines: **goal** (verbatim), **acceptance criteria**, **current code state**
@@ -187,12 +207,13 @@ each), **current blocker** (exact diagnostic), **budget remaining**.
 
 ```
 PhaseResult {
-  status:          "complete" | "hard_fail" | "budget_exceeded",
+  status:          "complete" | "hard_fail" | "budget_exceeded" | "cancelled",
   files_changed:   [ { path, change_summary } ],
   diff:            unified diff of the working tree (capped),
   command_outputs: { format, build, lint, test → tail of stdout/stderr },
   update_log:      the completion / blocker entry written into the phase doc,
-  briefing:        present only when status != "complete" — the escalation brief,
+  briefing:        present only when status is "hard_fail" / "budget_exceeded" — the escalation brief,
+  cancellation:    present only when status is "cancelled" (M30) — { reason?, stage, turns_done }; leaves the tree dirty,
 }
 ```
 
@@ -360,7 +381,32 @@ An MCP **stdio** server built on the `rmcp` crate. It exposes these tools:
 
 - **`execute_phase`** — args: `phase_doc_path` (string), `repo_path` (string,
   the target-repo root), optional `model` / `profile` override. Calls the
-  `executor` library in-process and returns `PhaseResult`.
+  `executor` library in-process. As of M30 it is an **async job**: it spawns the
+  run inside the serve process, registers it under a **`run_id`**, and returns
+  `{ run_id }` immediately; the terminal `PhaseResult` is reaped with
+  `get_run_status`. (The CLI `rexymcp run-phase` stays blocking and returns the
+  `PhaseResult` directly.)
+- **`get_run_status`** (M30) — args: `run_id` (string). Bounded long-poll (≈15s)
+  on a spawned `execute_phase` run: returns `{ state: "running" }` while the run
+  is in flight, the terminal `PhaseResult` once it completes / hard-fails / is
+  cancelled, an infra `{ state: "failed", error }` if the run errored, or
+  `{ state: "unknown" }` for an unrecognized `run_id`. This is how the architect
+  (or the async skill loop, phase-05) reaps a spawned run.
+- **`stop_phase`** (M30) — args: `run_id` (string). Fires the spawned run's
+  cooperative `CancelSignal` so it aborts at the next turn boundary (or mid
+  model-stream) and returns a `PhaseResult` with status `cancelled`,
+  `cancellation.reason` `claude_stop`, and the partial diff (working tree left
+  dirty). Returns `{ stopped: true }` if the `run_id` was known, `{ stopped:
+  false }` otherwise. The cancel is cooperative and asynchronous — the caller
+  polls `get_run_status` to observe the terminal `cancelled` result. This is the
+  architect's mid-flight abort, at poll granularity; the human's client-agnostic
+  path is the `.rexymcp/stop` sentinel (`rexymcp stop`, phase-04).
+- **`continue_phase`** (M27) — args: `phase_doc_path`, `repo_path`, `guidance`
+  (the architect's targeted directive), optional `model`. The **resume** lever:
+  re-enters a `hard_fail`/`budget_exceeded` phase **briefing-seeded** — a fresh
+  executor context from the phase doc + returned briefing + guidance + current
+  working-tree diff, with `task_states` restored from the session log. Returns a
+  `PhaseResult` like `execute_phase`.
 - **`executor_health`** — args: optional endpoint override. Pings the configured
   OpenAI-compatible endpoint and lists available models. Lets the architect
   confirm the executor is reachable before dispatching.
@@ -371,6 +417,11 @@ An MCP **stdio** server built on the `rmcp` crate. It exposes these tools:
   Aggregates the `PhaseRun` telemetry into the `model × tag` competency matrix
   with per-cell sample sizes. Lets the architect see which model + settings to
   dispatch a phase with. (MCP tool — Claude-facing.)
+- **`model_profile`** (M18) — same filters; aggregates telemetry into a
+  per-`(model, tag)` **capability profile**: strengths (gate-pass and
+  approved-first-try rates, reliability means) plus ranked failure classes, with
+  non-attributable classes (`spec_bug`, `infra_blip`) separated from the model's
+  real weaknesses.
 
 The `mcp` binary also exposes out-of-band **CLI commands** for human-facing use:
 
@@ -401,18 +452,29 @@ Practical concerns this layer owns:
   live watcher), and `rexymcp status` is what surfaces motion to the human; MCP
   progress fires only if a future client opts in with a token. A richer live view
   over this same JSONL — a full-screen, continuously refreshed dashboard —
-  shipped as **M8** (`rexymcp dashboard`): the opacity of a blocking
-  `execute_phase` call is exactly what leaves the user without insight mid-phase,
-  and a one-shot `status` only partly answers it.
+  shipped as **M8** (`rexymcp dashboard`): the opacity of a then-blocking
+  `execute_phase` call was exactly what left the user without insight mid-phase,
+  and a one-shot `status` only partly answers it. **As of M30, `execute_phase` is
+  an async job** — it returns a `run_id` and the architect reaps the result by
+  polling `get_run_status`, so the architect is no longer blocked inside one long
+  call, and a running phase is **interruptible** out-of-band: `rexymcp stop`
+  (human, second terminal, via the `.rexymcp/stop` sentinel) or `stop_phase`
+  (architect, between polls) cancels it, returning a `cancelled` `PhaseResult`
+  with the partial diff and a dirty working tree. `rexymcp status` / `dashboard`
+  remain the liveness surface either way.
 - **Context hygiene.** Returned output is capped (`MAX_MCP_OUTPUT_TOKENS`) so a
   phase's inner transcript can never flood Claude's context. Claude gets the
   `PhaseResult` summary + diff + (on failure) briefing — nothing more.
-- **Roots.** The server queries Claude Code's `roots/list` (and reads
-  `CLAUDE_PROJECT_DIR`) to **corroborate the target-repo root** — a second source
-  for the scope boundary alongside `execute_phase`'s `repo_path` argument, so a
-  mismatch can be caught rather than silently trusted. (Sampling and elicitation
-  are deliberately *not* used: Claude Code doesn't support server-initiated
-  sampling, and we don't pull the human into the loop mid-phase.)
+- **Roots.** The server **corroborates the target-repo root** — a second source
+  for the scope boundary alongside `execute_phase`/`continue_phase`'s `repo_path`
+  argument, so a mismatch is refused rather than silently trusted. The active
+  source is the project-dir env var (`CLAUDE_PROJECT_DIR` /
+  `ANTIGRAVITY_PROJECT_DIR`); the MCP `roots/list` half is **deferred** (M26,
+  2026-07-07): rmcp 1.8.0 deprecated `Peer::list_roots` per MCP SEP-2577, so the
+  server currently passes an empty roots list and the `roots.rs` corroboration
+  logic waits for a roots replacement. (Sampling and elicitation are deliberately
+  *not* used: Claude Code doesn't support server-initiated sampling, and we don't
+  pull the human into the loop mid-phase.)
 
 ### Layer 3 — Plugin package
 
@@ -431,12 +493,28 @@ A Claude Code **plugin** bundles the MCP server with the workflow that drives it
     (Claude has web fetch/search at the architect level; the executor does not).
     This is the primary, offline, per-phase-free way Claude's capability reaches
     the local model.
+  - `dispatch` — thin glue around `execute_phase`: pre-flight `executor_health`,
+    dispatch the phase, then **drive the async contract** (detect-and-adapt: poll
+    `get_run_status` on a returned `run_id`, or use a direct `PhaseResult` from an
+    old-serve / `run-phase` response), and surface the summary (→ review), the
+    briefing (→ escalate), or a **`cancelled`** result (partial diff — the phase
+    was stopped via `rexymcp stop` / `stop_phase`).
   - `review-phase` — check executor output against the Definition of Done in
     `STANDARDS.md`, rerun the project's commands, then approve or file a bug.
   - `escalate` — given a returned briefing, pick a lever: re-dispatch with a
     refined spec (default for weak models — see "Escalation"), session takeover,
-    or resume (candidate, if `continue_phase` is built).
-- **Commands:** `/rexymcp:architect`, `/rexymcp:dispatch <phase>`, `/rexymcp:review <phase>`.
+    or **resume** (briefing-seeded `continue_phase`, shipped M27).
+  - `auto` (M27) — the opt-in **autonomous milestone loop**. Composes the four
+    skills above — draft → dispatch → review → escalate/re-dispatch — hands-off
+    across a whole milestone with full review rigor and no per-phase pause,
+    delegating dispatch/review to subagents on the `[architect] dispatch_model`
+    / `review_model` role models, budgeted by `[escalation] max_assists`,
+    journaling every activity, and stopping at a milestone boundary / blocker /
+    budget exhaustion / runaway backstop with a structured loop report. It
+    *composes, never forks* the other skills — an autonomous run of a step is the
+    same procedure as an interactive one.
+- **Commands:** `/rexymcp:architect`, `/rexymcp:dispatch <phase>`,
+  `/rexymcp:review <phase>`, `/rexymcp:escalate <phase>`, `/rexymcp:auto [max-phases]`.
 - **Embedded templates:** generalized copies of `STANDARDS.md` / `WORKFLOW.md`
   **and the executor contract** (`executor_contract.md` — the portable subset of
   this repo's `AGENTS.md`: hard rules, phase lifecycle, blocker/completion
@@ -506,7 +584,7 @@ rexyMCP config (designed in M1) carries, per invocation or per target project:
   (`format`/`build`/`lint`/`test`), plus an optional `lint_fix` autofixing
   command run by the post-write hook (step 5a above) — not advertised to the
   executor model, not a gate command,
-- budget knobs (context %, max turns, escalation slots),
+- budget knobs (context %, max turns, gate retries, optional wall-clock ceiling),
 - **`[executor] max_tokens`** (M23) — per-response output-token ceiling sent on
   every chat request (default 8192; per-model overridable in `[models."<id>"]`).
   Carved out of the remaining context window; the prior hardcoded 4096 truncated
@@ -515,8 +593,15 @@ rexyMCP config (designed in M1) carries, per invocation or per target project:
   **false**; per-model overridable in `[models."<id>"]`). When false it is emitted
   on the wire as `chat_template_kwargs.enable_thinking = false`, so reasoning
   models default to thinking off unless a model's override turns it on,
-- **`[escalation]`** (M20) — tier (`LARGE`/`MEDIUM`/`SMALL`) and tier-derived
-  defaults for `max_turns`, `escalation_slots`, `doc_level`,
+- **`[executor] tier`** (M20) — executor capability tier
+  (`LARGE`/`MEDIUM`/`SMALL`), set by `rexymcp calibrate`; derives default
+  `max_turns` and `gate_retries` (wired M26),
+- **`[escalation] max_assists`** (M20, consolidated M27) — the per-phase
+  autonomous assist budget for the architect-side `/rexymcp:auto` loop:
+  autonomous escalation round-trips on one phase before the loop stops for the
+  human. Flat and tier-independent (default 3); consumed by the plugin skill
+  layer, never the executor loop. (The overlapping `[budget] escalation_slots`
+  was retired at M27; `calibrate` strips the stale key from old configs.)
 - **`[architect]`** (M20) — Claude model id and cost rates
   (`input_per_mtok`, `output_per_mtok`) for the dashboard Architect cost column;
   a `known_model_rates` registry auto-fills rates for recognized Claude model IDs.
@@ -1011,3 +1096,139 @@ The project plan. Each entry becomes a milestone with its own
     TLS backend from native-tls/openssl to rustls + aws-lc-rs (the rustls/aws-lc
     subtree appearing is an accepted automatic resolver consequence, decided with
     the user).
+26. **M26 — Polish & Hardening — done** (9/9 phases, 2026-07-08). A
+    consistency and hardening pass seeded by the post-M25 whole-codebase review
+    (`docs/dev/codebase-review-2026-07-07.md`) rather than a dogfooding failure —
+    the review surfaced seams that fail *silently*, so no e2e run trips them. Two
+    threads. **Housekeeping (01–04):** refresh the stale `REXYMCP.md` contract
+    lines (pre-M5 `mcp`-crate description; a hardcoded "M7 active" frontier —
+    replaced by a pointer to `NEXT.md`/this section so it cannot rot again) and
+    unify the divergent plugin manifests on one name (`rexymcp`); make
+    `rexymcp run-phase` telemeter by default (`--no-telemetry` opt-out) so CLI
+    runs stop vanishing from the scorecard; surface today-silent degradations
+    (empty-or-missing `STANDARDS.md`, phase-doc heading drift) as
+    architect-visible warnings via an additive `warnings` field on `PhaseResult`.
+    (A fourth housekeeping item — wiring the client's real `roots/list` into
+    `execute_phase` corroboration — was **deferred** 2026-07-07: rmcp 1.8.0
+    deprecated `list_roots` per MCP SEP-2577, so wiring it would need a
+    forbidden `#[allow(deprecated)]` and build on a protocol feature being
+    removed. See the M26 README § "Roots corroboration deferred".) **Loop
+    hardening:** extend the read-before-edit gate
+    to `write_file` (today only `patch` is gated); make the post-write format
+    hook actually rewrite touched files (today it runs the verify-only `--check`
+    form — a no-op); wire or retire the dead budget/tier knobs
+    (`gate_retries`, `escalation_slots`, `tier`, `max_assists` — defined,
+    tested, and written by `calibrate`, consumed nowhere); add governor
+    detectors for the blind spots adjacent to M22's (A,B,A,B oscillation,
+    windowed cumulative output, an optional wall-clock ceiling); resolve the TS
+    verifier's `tsc` via `node_modules/.bin` → `npx` → PATH so it stops
+    silently `Skipped`-ing in real Node repos. No new features, no new
+    dependencies; schema changes additive only.
+27. **M27 — Autonomous Escalation Loop** *(done, 2026-07-09; committed scope
+    01–06b, all approved; stretch phase-07 advisory routing not taken)*.
+    Makes the architect↔executor cycle run hands-off across a whole milestone
+    and closes the two design conversations queued since M22. Three threads.
+    **Budget & journal substrate:** consolidate the escalation budget on
+    `[escalation] max_assists` (the per-phase autonomous assist budget; retire
+    the never-distinct `[budget] escalation_slots`), and give the architect's
+    own activities (draft/dispatch/review/assist/takeover) a telemetry journal
+    so `PhaseRun.escalation_count` becomes real. **Executor/server autonomy:**
+    server-authored bookkeeping (D8/D9 — on a `complete` run the *server*
+    writes the Status flip and a baseline Update Log entry from data it already
+    holds, so correct code stops dying in the bookkeeping tail; amends the
+    executor contract) and `continue_phase` briefing-seeded resume (fresh
+    context from phase doc + briefing + guidance + diff, `task_states` restored
+    from the session log — the committed third escalate lever). **Architect
+    loop & accounting:** a `/rexymcp:auto` plugin skill composing the existing
+    four skills into a full-milestone loop with full review rigor and no
+    per-phase pause, budgeted by `max_assists`, stopping for the human at
+    milestone boundaries / blockers / budget exhaustion with a structured loop
+    report; architect token/cost harvested from Claude Code's local session
+    transcripts and joined onto journal activities (absent — never estimated —
+    on clients without transcripts). Design fixed at kickoff with the user; see
+    the M27 README § Design.
+28. **M28 — Edit-Tool Arg Recovery** *(done, 2026-07-09; single phase; phase-02 optional, not taken)*.
+    Close [issue #1](https://github.com/ryanczak/rexyMCP/issues/1), surfaced by
+    the M27 `/rexymcp:auto` live-validation run: near max context a small model
+    truncates edit-tool calls and drops the required `path` field, and
+    `write_file`/`patch` surface the **raw** `invalid arguments: missing field
+    \`path\`` serde error — a dead end the model can't recover from (the run's
+    log showed 8× before a stall fired). phase-01 replaces it with a
+    model-visible recovery hint (names the missing field, echoes what was
+    supplied, gives an example shape + next-step) via a shared
+    `missing_args_hint` helper — the same enrich-a-dead-end-tool-error pattern as
+    M24. Message-only and deterministic: it does **not** guess the `path` value
+    (issue solution 1) or add context-pressure guards (solution 3); both are
+    deferred. Extending the helper to the other 8 arg-parsing tools is a possible
+    phase-02.
+29. **M29 — Cleanup** *(done, 2026-07-09; single phase)*. Two unrelated
+    infra fixes found during the M28 dispatch/review: (a) `finalize_complete`
+    was guarded on `in-progress` and skipped a phase left at `todo` when the
+    executor missed the `todo→in-progress` start-flip (the M28 AEON run) — broaden
+    it to finalize a `todo` doc too, the same server-owns-bookkeeping robustness
+    as M27 04b; (b) the M26 phase-08 `verify_typescript_spawns_resolved_local_binary`
+    test writes-then-exec's a fake `tsc` and flakes on ETXTBSY under parallel
+    `cargo test` — replace it with a deterministic `resolve_tsc_command` resolver
+    test. One small cleanup phase.
+30. **M30 — Executor Interruption** *(done 2026-07-10; opened 2026-07-09)*. Give the
+    user **and** the architect a way to stop a running executor mid-phase — today
+    there is none. The MCP `execute_phase` becomes an **async job** instead of a
+    single blocking call: it spawns the run inside the serve process, registers it
+    under a `run_id`, and returns immediately; a new `get_run_status(run_id)` tool
+    bounded-long-polls the run and `stop_phase(run_id)` cancels it. Because Claude
+    Code sends no MCP `notifications/cancelled` and the architect is itself blocked
+    awaiting the call while a phase runs, the client-agnostic path is a filesystem
+    sentinel: `rexymcp stop [--run <id>]` writes `.rexymcp/stop`, which a serve-side
+    watcher (and the still-blocking CLI `run-phase`) honor — what a human uses from
+    a second terminal. The executor loop gains a cooperative cancel check (a
+    `tokio::sync::watch`-based `CancelSignal`, no new dependency) evaluated at the
+    top of the turn loop and as a third `tokio::select!` branch that aborts a stuck
+    in-flight model stream. Cancellation adds a fourth `PhaseResult` status,
+    **`cancelled`**, which **leaves the working tree dirty** and reports the partial
+    diff + stage + turns-done for the architect (or human) to triage — no
+    auto-commit, no auto-revert. This supersedes the "opaque *and blocking*"
+    characterization in § Layer 2 "Liveness". Phase-01 lands the executor-side
+    primitive (`CancelSignal` + the `cancelled` outcome); later phases add the MCP
+    job registry + tools, the CLI stop command + sentinel watcher, and the
+    async-polling skill-loop rewrite.
+31. **M31 — rmcp v2 Upgrade** *(done 2026-07-10; opened 2026-07-10; both
+    phases ran in a single `/rexymcp:auto` loop)*. Upgrade the `mcp` crate's
+    `rmcp` dependency from 1.8.0 to the 2.2 line. v2.0.0's headline breaking
+    change aligns the SDK's model types with the **MCP 2025-11-25 spec**, and
+    (per rust-sdk discussion #716 / PRs #715/#720/#739) most public model
+    structs became `#[non_exhaustive]` with builder-style constructors
+    (`Type::new(required).with_optional(val)`); 2.0–2.2 also carry security and
+    conformance fixes (OAuth spoofing/SSRF, streamable-HTTP session leak,
+    cancelled-request handling). The verified migration surface (docs.rs
+    2.2.0) is small: the feature set (`server`/`macros`/`transport-io`), the
+    `ServerHandler` method signatures, `Tool::new`, the `ListToolsResult`
+    literal, `ServerInfo::default()`, and `ProgressToken` construction all
+    survive; the one confirmed source break is the two
+    `ProgressNotificationParam` struct literals (now non-exhaustive →
+    `::new(token, progress).with_message(..)`). The M26 roots-corroboration
+    deferral stands — v2 follows the same spec line that deprecated
+    `roots/list` (SEP-2577). Two phases: 01 the compile-fix bump; 02 adopt
+    **structured tool output** for the two hand-rolled tools —
+    `execute_phase`/`continue_phase` return `structured_content` (2.2.0's
+    `CallToolResult::structured`) alongside the text block and declare
+    output schemas via `Tool::with_output_schema` (the 8 router tools already
+    get this from the `Json<T>` wrapper). The other headline v2 capability —
+    **MCP tasks (SEP-1686)**, a 1:1 spec match for M30's hand-rolled
+    `run_id`/`get_run_status`/`stop_phase` job model — is recorded as a
+    future milestone candidate, blocked on Claude Code client support
+    (claude-code#18617); elicitation and `notifications/cancelled` handling
+    stay non-goals (no live channel / client never sends it). The milestone
+    closes with a serve restart + live handshake/dispatch smoke test, which
+    doubles as the M30 live interrupt-path validation that closed unexercised.
+32. **M32 — README Row-Flip Fix** *(done 2026-07-10; opened the same day)*.
+    Single-phase cleanup
+    (the M29 shape): the server-authored finalize's `flip_readme_row`
+    (`mcp/src/finalize.rs`) has malformed the milestone README's phase-table
+    row in four production runs (M27 05a/06a as a duplicated status cell —
+    bug-03a-1; M31 01/02 as a doubled trailing pipe `| review ||` after the
+    partial fix in `2d535be` kept the final `|` inside the suffix slice).
+    The fix is the one-character slice correction (`&line[last_pipe + 1..]`);
+    the substance is hardening the tests from substring checks — which the
+    malformed shapes also satisfy — to exact-equality assertions with pinned
+    `!contains("||")` / stale-status negatives, so the class can't pass
+    silently again.

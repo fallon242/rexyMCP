@@ -29,12 +29,19 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768            # model context window in tokens
 max_context_pct = 70              # trigger compaction above this % (0–100)
 max_turns = 200                   # hard cap on executor turns per phase
-escalation_slots = 1              # turns reserved for the final command set retry
+wall_clock_secs = 0               # optional wall-clock ceiling in seconds (0 disables)
+
+# [escalation]
+# max_assists = 3                 # autonomous architect assists per phase (/rexymcp:auto loop)
 
 [governor]
 identical_call_threshold = 6      # consecutive identical tool calls → hard-fail
 verifier_persistence_threshold = 6 # consecutive turns with verifier errors → hard-fail
 runaway_output_bytes = 102400     # single tool output bytes → hard-fail (100 KB)
+oscillation_window = 8            # sliding window scanned for A,B,A,B oscillation (0 disables)
+oscillation_distinct_max = 2      # ≤ this many distinct calls in the window → hard-fail
+output_window = 6                 # sliding window of tool outputs summed for flood check (0 disables)
+output_window_bytes = 262144      # total bytes across the output window → hard-fail (256 KB)
 
 # [models."<model-id>"]              # per-model knob overrides; key is the exact
 #                                    # active model id (no prefix/substring match).
@@ -47,6 +54,10 @@ runaway_output_bytes = 102400     # single tool output bytes → hard-fail (100 
 # identical_call_threshold = 8       # override [governor] identical_call_threshold
 # verifier_persistence_threshold = 8 # override [governor] verifier_persistence_threshold
 # runaway_output_bytes = 204800      # override [governor] runaway_output_bytes
+# oscillation_window = 10            # override [governor] oscillation_window
+# oscillation_distinct_max = 2       # override [governor] oscillation_distinct_max
+# output_window = 8                  # override [governor] output_window
+# output_window_bytes = 524288       # override [governor] output_window_bytes
 
 [commands]
 # format = "cargo fmt --all"
@@ -54,6 +65,7 @@ runaway_output_bytes = 102400     # single tool output bytes → hard-fail (100 
 # lint = "cargo clippy --all-targets --all-features -- -D warnings"
 # test = "cargo test"
 # lint_fix = "cargo clippy --fix --allow-dirty"
+# format_fix = "cargo fmt --all"    # writing form; run by the post-write hook
 
 [context]
 output_filter = true              # filter/truncate bash output to conserve context
@@ -65,6 +77,17 @@ output_filter = true              # filter/truncate bash output to conserve cont
 # Or set rates directly (saved_model overrides these when both are set):
 # saved_input_per_mtok = 5.0        # $/MTok input tokens saved vs cloud baseline
 # saved_output_per_mtok = 25.0      # $/MTok output tokens saved vs cloud baseline
+
+[architect]
+# model = "claude-opus-4-8"        # auto-fill architect rates for a known Claude model
+#   (cache rates derive from input: read = 0.1×, creation = 1.25×)
+# Or set rates directly (model overrides these when set & recognised):
+# input_per_mtok = 5.0             # $/MTok uncached input tokens
+# output_per_mtok = 25.0           # $/MTok output tokens
+# cache_read_per_mtok = 0.5        # $/MTok cache-read input tokens
+# cache_creation_per_mtok = 6.25   # $/MTok cache-creation input tokens
+# dispatch_model = "claude-sonnet-5"   # /rexymcp:auto delegates dispatch to this model (default: inherit)
+# review_model = "claude-sonnet-5"     # /rexymcp:auto delegates review to this model (default: inherit)
 
 [telemetry]
 # dir = "/path/to/shared/telemetry"  # cross-project PhaseRun telemetry store
@@ -119,7 +142,7 @@ mod tests {
         assert_eq!(cfg.budget.context_length, 32768);
         assert_eq!(cfg.budget.max_context_pct, 70);
         assert_eq!(cfg.budget.max_turns, 200);
-        assert_eq!(cfg.budget.escalation_slots, 1);
+        assert_eq!(cfg.escalation.max_assists, 3);
         assert_eq!(cfg.governor.identical_call_threshold, 6);
         assert_eq!(cfg.governor.verifier_persistence_threshold, 6);
         assert_eq!(cfg.governor.runaway_output_bytes, 102400);

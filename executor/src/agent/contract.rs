@@ -49,6 +49,7 @@ mod tests {
             lint: Some("cargo clippy".to_string()),
             test: Some("cargo test".to_string()),
             lint_fix: None,
+            format_fix: None,
         };
         let output = assemble_executor_contract(&commands);
 
@@ -71,16 +72,18 @@ mod tests {
             lint: None,
             test: None,
             lint_fix: None,
+            format_fix: None,
         };
         let output = assemble_executor_contract(&commands);
 
         let unconfigured_count = output.matches(UNCONFIGURED).count();
-        // {FORMAT_COMMAND} appears 3× in the template (description, step 8 body,
-        // checklist item); {LINT_COMMAND} and {TEST_COMMAND} appear 1× each.
-        // 3 None fields (format + lint + test) → 3 + 1 + 1 = 5 sentinels.
+        // {FORMAT_COMMAND} appears 4× in the template (preamble, step 5 body,
+        // step 6 body, checklist item); {LINT_COMMAND} and {TEST_COMMAND} appear
+        // 2× each (preamble + step 5 body).
+        // 3 None fields (format + lint + test) → 4 + 2 + 2 = 8 sentinels.
         assert_eq!(
-            unconfigured_count, 5,
-            "expected 5 UNCONFIGURED sentinels for 3 None fields (format×3 + lint×1 + test×1), got {}",
+            unconfigured_count, 8,
+            "expected 8 UNCONFIGURED sentinels for 3 None fields (format×4 + lint×2 + test×2), got {}",
             unconfigured_count
         );
         assert!(output.contains("cargo build"));
@@ -147,11 +150,22 @@ mod tests {
             lint: Some("cargo clippy".to_string()),
             test: Some("cargo test".to_string()),
             lint_fix: Some("cargo clippy --fix".to_string()),
+            format_fix: None,
         };
         let output = assemble_executor_contract(&commands);
         assert!(
             !output.contains("cargo clippy --fix"),
             "lint_fix value must not appear in the assembled contract"
+        );
+    }
+
+    #[test]
+    fn contract_contains_resuming_a_phase() {
+        let commands = CommandConfig::default();
+        let output = assemble_executor_contract(&commands);
+        assert!(
+            output.contains("Resuming a phase"),
+            "contract must contain the 'Resuming a phase' section"
         );
     }
 }

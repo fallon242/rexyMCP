@@ -3,20 +3,22 @@ use std::path::{Path, PathBuf};
 use rmcp::handler::server::ServerHandler;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, ProgressNotificationParam, ProgressToken,
-    RawContent,
+    CallToolRequestParams, CallToolResult, ProgressNotificationParam, ProgressToken,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use rexymcp_executor::agent::CancelSignal;
 use rexymcp_executor::agent::progress::ProgressCallback;
 use rexymcp_executor::ai::AiClient;
 use rexymcp_executor::config::Config;
+use rexymcp_executor::phase::CancelReason;
 
 use crate::cap;
 use crate::log_query;
 use crate::profile;
+use crate::resume;
 use crate::roots;
 use crate::runner;
 use crate::scorecard;
@@ -32,6 +34,15 @@ pub struct ExecutePhaseParams {
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ContinuePhaseParams {
+    pub phase_doc_path: String,
+    pub repo_path: String,
+    pub guidance: String,
+    pub prior_log_path: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct ExecutorHealthParams {
     pub base_url: Option<String>,
 }
@@ -41,8 +52,92 @@ pub struct ExecutePhaseOutput {
     pub result: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct GetRunStatusParams {
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// The immediate `execute_phase` response — the spawned run's handle,
+/// polled to completion via `get_run_status`.
+pub(crate) struct SpawnedRun {
+    pub(crate) run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct GetRunStatusOutput {
+    pub run_id: String,
+    /// One of: "running", "done", "failed", "unknown".
+    pub state: String,
+    /// The terminal PhaseResult JSON when state == "done"; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    /// Infra error string when state == "failed"; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct StopPhaseParams {
+    /// The `run_id` returned by `execute_phase`.
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct StopPhaseOutput {
+    /// `true` if a run with that id existed and its cancel was fired; `false`
+    /// for an unknown `run_id`.
+    pub stopped: bool,
+}
+
+/// Inner logic for `get_run_status` — takes the registry + a timeout so it is
+/// hermetically testable without the rmcp wrapper.
+pub(crate) async fn get_run_status_inner(
+    registry: &crate::jobs::JobRegistry,
+    params: &GetRunStatusParams,
+    timeout: std::time::Duration,
+) -> GetRunStatusOutput {
+    let run_id = params.run_id.clone();
+    match registry.await_terminal(&run_id, timeout).await {
+        None => GetRunStatusOutput {
+            run_id,
+            state: "unknown".into(),
+            result: None,
+            error: None,
+        },
+        Some(crate::jobs::RunState::Running) => GetRunStatusOutput {
+            run_id,
+            state: "running".into(),
+            result: None,
+            error: None,
+        },
+        Some(crate::jobs::RunState::Complete(json)) => GetRunStatusOutput {
+            run_id,
+            state: "done".into(),
+            result: Some(json),
+            error: None,
+        },
+        Some(crate::jobs::RunState::Failed(e)) => GetRunStatusOutput {
+            run_id,
+            state: "failed".into(),
+            result: None,
+            error: Some(e),
+        },
+    }
+}
+
 pub struct RexyMcpServer {
     pub config_path: PathBuf,
+    pub runs: std::sync::Arc<crate::jobs::JobRegistry>,
+}
+
+impl RexyMcpServer {
+    pub fn new(config_path: PathBuf) -> Self {
+        Self {
+            config_path,
+            runs: std::sync::Arc::new(crate::jobs::JobRegistry::new()),
+        }
+    }
 }
 
 /// A `ProgressCallback` that fires MCP `notifications/progress` via the
@@ -60,15 +155,22 @@ impl ProgressCallback for McpProgressNotifier {
         let message = event.message.clone();
         tokio::spawn(async move {
             let _ = peer
-                .notify_progress(ProgressNotificationParam {
-                    progress_token: token,
-                    progress,
-                    total: None,
-                    message: Some(message),
-                })
+                .notify_progress(
+                    ProgressNotificationParam::new(token, progress).with_message(message),
+                )
                 .await;
         });
     }
+}
+
+/// Build a hand-rolled tool's success result: `structured_content` plus the
+/// spec-recommended back-compat text block (`CallToolResult::structured`
+/// emits both from one `Value`).
+fn structured_result<T: serde::Serialize>(value: &T) -> Result<CallToolResult, rmcp::ErrorData> {
+    let json = serde_json::to_value(value).map_err(|e| {
+        rmcp::ErrorData::internal_error(format!("serialization failed: {}", e), None)
+    })?;
+    Ok(CallToolResult::structured(json))
 }
 
 /// Inner logic for `execute_phase` — extracted so it can be tested without
@@ -77,8 +179,9 @@ pub(crate) async fn execute_phase_inner(
     config_path: &Path,
     params: &ExecutePhaseParams,
     progress: Option<&dyn ProgressCallback>,
+    cancel: CancelSignal,
 ) -> Result<ExecutePhaseOutput, String> {
-    execute_phase_inner_with_client(config_path, params, progress, None).await
+    execute_phase_inner_with_client(config_path, params, progress, None, cancel).await
 }
 
 /// Testable variant that accepts an optional mock client.
@@ -87,6 +190,7 @@ pub(crate) async fn execute_phase_inner_with_client(
     params: &ExecutePhaseParams,
     progress: Option<&dyn ProgressCallback>,
     test_client: Option<&dyn AiClient>,
+    cancel: CancelSignal,
 ) -> Result<ExecutePhaseOutput, String> {
     let cfg = rexymcp_executor::config::Config::load_with_env(config_path)
         .map_err(|e| format!("failed to load config: {}", e))?;
@@ -113,6 +217,62 @@ pub(crate) async fn execute_phase_inner_with_client(
         progress,
         project_id,
         test_client,
+        resume: None,
+        cancel,
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let capped = cap::cap_phase_result(result);
+
+    let json = serde_json::to_value(&capped)
+        .map_err(|e| format!("failed to serialize PhaseResult: {}", e))?;
+
+    Ok(ExecutePhaseOutput { result: json })
+}
+
+/// Inner logic for `continue_phase` — resumes a failed phase from a fresh
+/// briefing-seeded context.
+pub(crate) async fn continue_phase_inner(
+    config_path: &Path,
+    params: &ContinuePhaseParams,
+    progress: Option<&dyn ProgressCallback>,
+) -> Result<ExecutePhaseOutput, String> {
+    let cfg = rexymcp_executor::config::Config::load_with_env(config_path)
+        .map_err(|e| format!("failed to load config: {}", e))?;
+
+    let phase_doc_path = PathBuf::from(&params.phase_doc_path);
+    let repo_path = PathBuf::from(&params.repo_path);
+
+    let standards_path = repo_path.join("docs/dev/STANDARDS.md");
+    let standards = std::fs::read_to_string(&standards_path).unwrap_or_default();
+
+    let telemetry_dir = cfg.telemetry.dir.as_deref();
+
+    let project_id = rexymcp_executor::config::Config::load(&repo_path.join("rexymcp.toml"))
+        .ok()
+        .and_then(|c| c.project.id);
+
+    let ctx = resume::build_resume_context(
+        &params.guidance,
+        params.prior_log_path.as_deref().map(Path::new),
+        &repo_path,
+        &rexymcp_executor::agent::command::RealCommandRunner,
+    )
+    .await;
+
+    let result = runner::run_phase(&runner::RunPhaseConfig {
+        cfg: &cfg,
+        phase_doc_path: &phase_doc_path,
+        repo_path: &repo_path,
+        standards: &standards,
+        model_override: params.model.as_deref(),
+        telemetry_dir,
+        progress,
+        project_id,
+        test_client: None,
+        resume: Some(ctx),
+        cancel: CancelSignal::never(),
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -448,6 +608,31 @@ impl RexyMcpServer {
     ) -> Result<Json<ModelProfileOutput>, String> {
         model_profile_inner(&self.config_path, &params).map(Json)
     }
+
+    #[rmcp::tool(
+        description = "Poll a spawned execute_phase run by run_id. Bounded long-poll (~15s): returns {state:\"running\"} while the run is in flight, {state:\"done\", result: PhaseResult} once it completes / hard-fails / is cancelled, {state:\"failed\", error} on an infrastructure error, or {state:\"unknown\"} for an unrecognized run_id. Re-poll while running."
+    )]
+    async fn get_run_status(
+        &self,
+        Parameters(params): Parameters<GetRunStatusParams>,
+    ) -> Result<Json<GetRunStatusOutput>, String> {
+        let out =
+            get_run_status_inner(&self.runs, &params, crate::jobs::RUN_STATUS_POLL_TIMEOUT).await;
+        Ok(Json(out))
+    }
+
+    #[rmcp::tool(
+        description = "Stop a spawned execute_phase run by run_id: fires the run's cooperative cancel signal so it aborts at the next turn boundary (or mid model-stream) and returns a PhaseResult with status \"cancelled\", cancellation.reason \"claude_stop\", and the partial diff (working tree left dirty). Returns {stopped:true} if the run_id was known, {stopped:false} if not. The cancel is cooperative and asynchronous — poll get_run_status to observe the terminal cancelled result."
+    )]
+    async fn stop_phase(
+        &self,
+        Parameters(params): Parameters<StopPhaseParams>,
+    ) -> Result<Json<StopPhaseOutput>, String> {
+        let stopped = self
+            .runs
+            .request_stop(&params.run_id, CancelReason::ClaudeStop);
+        Ok(Json(StopPhaseOutput { stopped }))
+    }
 }
 
 impl ServerHandler for RexyMcpServer {
@@ -472,6 +657,7 @@ impl ServerHandler for RexyMcpServer {
     + '_ {
         let router = Self::tool_router();
         let config_path = self.config_path.clone();
+        let runs = self.runs.clone();
 
         async move {
             if request.name == "execute_phase" {
@@ -520,19 +706,78 @@ impl ServerHandler for RexyMcpServer {
                         }) as Box<dyn ProgressCallback>
                     });
 
+                let run_id = crate::jobs::new_run_id();
+                let (cancel_handle, cancel_signal) = CancelSignal::new();
+                let config_path_owned = config_path.clone();
+                let params_owned = params.clone();
+                let work = async move {
+                    execute_phase_inner(
+                        &config_path_owned,
+                        &params_owned,
+                        progress_callback.as_deref(),
+                        cancel_signal,
+                    )
+                    .await
+                    .map(|o| o.result)
+                };
+                crate::jobs::spawn_run(runs.clone(), run_id.clone(), cancel_handle, work);
+                tokio::spawn(crate::stop_watcher::watch_stop_sentinel(
+                    repo_path.clone(),
+                    runs.clone(),
+                    run_id.clone(),
+                    crate::stop_watcher::STOP_POLL_INTERVAL,
+                ));
+
+                structured_result(&SpawnedRun { run_id })
+            } else if request.name == "continue_phase" {
+                let params: ContinuePhaseParams = serde_json::from_value(
+                    serde_json::Value::Object(request.arguments.unwrap_or_default()),
+                )
+                .map_err(|e| {
+                    rmcp::ErrorData::invalid_params(
+                        format!("invalid continue_phase parameters: {}", e),
+                        None,
+                    )
+                })?;
+
+                let repo_path = PathBuf::from(&params.repo_path);
+
+                let roots_list: Vec<String> = Vec::new();
+
+                let project_dir = std::env::var_os("CLAUDE_PROJECT_DIR")
+                    .or_else(|| std::env::var_os("ANTIGRAVITY_PROJECT_DIR"))
+                    .map(PathBuf::from)
+                    .filter(|p| !p.as_os_str().is_empty());
+
+                match roots::corroborate(&repo_path, &roots_list, project_dir.as_deref()) {
+                    roots::Corroboration::Matched(_) | roots::Corroboration::NoSources => {}
+                    roots::Corroboration::Mismatch { .. } => {
+                        return Err(rmcp::ErrorData::invalid_params(
+                            roots::format_mismatch_error(
+                                &repo_path,
+                                &roots_list,
+                                project_dir.as_deref(),
+                            ),
+                            None,
+                        ));
+                    }
+                }
+
+                let progress_token = request.meta.as_ref().and_then(|m| m.get_progress_token());
+                let progress_callback: Option<Box<dyn ProgressCallback>> =
+                    progress_token.map(|token| {
+                        Box::new(McpProgressNotifier {
+                            peer: context.peer.clone(),
+                            progress_token: token,
+                        }) as Box<dyn ProgressCallback>
+                    });
+
                 let output =
-                    execute_phase_inner(&config_path, &params, progress_callback.as_deref())
+                    continue_phase_inner(&config_path, &params, progress_callback.as_deref())
                         .await
                         .map_err(|e| rmcp::ErrorData::internal_error(e, None))?;
 
-                let json_str = serde_json::to_string(&output.result).map_err(|e| {
-                    rmcp::ErrorData::internal_error(format!("serialization failed: {}", e), None)
-                })?;
-
-                Ok(CallToolResult::success(vec![Content::new(
-                    RawContent::text(json_str),
-                    None,
-                )]))
+                structured_result(&output.result)
             } else {
                 let ctx = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
                 router.call(ctx).await
@@ -546,11 +791,8 @@ impl ServerHandler for RexyMcpServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
         let mut tools = Self::tool_router().list_all();
-        tools.insert(0, rmcp::model::Tool::new(
-            "execute_phase",
-            "Execute a phase against a target repository. Runs the local LLM through a tool-using loop, verifies edits, runs build/lint/test commands, and returns a structured PhaseResult. The repo_path is corroborated against the MCP client's roots/list and CLAUDE_PROJECT_DIR; a mismatch refuses the call.",
-            rmcp::handler::server::tool::schema_for_type::<Parameters<ExecutePhaseParams>>(),
-        ));
+        tools.insert(0, execute_phase_tool());
+        tools.insert(1, continue_phase_tool());
         tools.sort_by(|a, b| a.name.cmp(&b.name));
         let next_cursor = request.and_then(|r| r.cursor);
         Ok(rmcp::model::ListToolsResult {
@@ -562,14 +804,36 @@ impl ServerHandler for RexyMcpServer {
 
     fn get_tool(&self, name: &str) -> Option<rmcp::model::Tool> {
         if name == "execute_phase" {
-            Some(rmcp::model::Tool::new(
-                "execute_phase",
-                "Execute a phase against a target repository. Runs the local LLM through a tool-using loop, verifies edits, runs build/lint/test commands, and returns a structured PhaseResult. The repo_path is corroborated against the MCP client's roots/list and CLAUDE_PROJECT_DIR; a mismatch refuses the call.",
-                rmcp::handler::server::tool::schema_for_type::<Parameters<ExecutePhaseParams>>(),
-            ))
+            Some(execute_phase_tool())
+        } else if name == "continue_phase" {
+            Some(continue_phase_tool())
         } else {
             Self::tool_router().get(name).cloned()
         }
+    }
+}
+
+fn execute_phase_tool() -> rmcp::model::Tool {
+    let tool = rmcp::model::Tool::new(
+        "execute_phase",
+        "Execute a phase against a target repository. Spawns the run inside the serve process and returns { run_id } immediately; poll it to completion with get_run_status. The repo_path is corroborated against the MCP client's roots/list and CLAUDE_PROJECT_DIR; a mismatch refuses the call.",
+        rmcp::handler::server::tool::schema_for_type::<Parameters<ExecutePhaseParams>>(),
+    );
+    match rmcp::handler::server::tool::schema_for_output::<SpawnedRun>() {
+        Ok(schema) => tool.with_raw_output_schema(schema),
+        Err(_) => tool,
+    }
+}
+
+fn continue_phase_tool() -> rmcp::model::Tool {
+    let tool = rmcp::model::Tool::new(
+        "continue_phase",
+        "Resume a non-complete phase from a fresh briefing-seeded context. The architect provides distilled guidance and optionally the prior run's session log path; the tool restores task states and appends a resume preamble to the phase doc. The repo_path is corroborated against the MCP client's roots/list and CLAUDE_PROJECT_DIR; a mismatch refuses the call.",
+        rmcp::handler::server::tool::schema_for_type::<Parameters<ContinuePhaseParams>>(),
+    );
+    match rmcp::handler::server::tool::schema_for_output::<rexymcp_executor::phase::PhaseResult>() {
+        Ok(schema) => tool.with_raw_output_schema(schema),
+        Err(_) => tool,
     }
 }
 

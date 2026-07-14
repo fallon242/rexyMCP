@@ -7,10 +7,15 @@ mod calibrate;
 mod cap;
 mod dashboard;
 mod doctor;
+mod finalize;
+mod harvest;
 mod init;
+mod jobs;
+mod journal;
 mod log_query;
 mod profile;
 mod profile_cli;
+mod resume;
 mod review;
 mod roots;
 mod runner;
@@ -19,6 +24,8 @@ mod scorecard;
 mod scorecard_cli;
 mod server;
 mod status;
+mod stop;
+mod stop_watcher;
 
 #[derive(Parser)]
 #[command(name = env!("CARGO_PKG_NAME"), version = env!("CARGO_PKG_VERSION"))]
@@ -88,6 +95,11 @@ enum Commands {
         /// Override the model ID from config
         #[arg(long)]
         model: Option<String>,
+
+        /// Skip writing a PhaseRun telemetry record for this run, even if
+        /// [telemetry] dir is configured
+        #[arg(long)]
+        no_telemetry: bool,
     },
     /// Run the MCP stdio server
     Serve {
@@ -221,6 +233,13 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Signal a running executor to stop — writes `.rexymcp/stop` in the target repo,
+    /// which the serve-side watcher (or a blocking `run-phase`) sees and cancels.
+    Stop {
+        /// Target repo root (where `.rexymcp/` lives). Defaults to the current dir.
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
     /// Record an architect review verdict as a PhaseReview annotation
     Review {
         /// Path to the config file
@@ -258,6 +277,64 @@ enum Commands {
         /// Warnings noted during review
         #[arg(long)]
         warnings: Option<u32>,
+
+        /// Override the telemetry phase_runs.jsonl path
+        #[arg(long)]
+        telemetry_path: Option<PathBuf>,
+    },
+
+    /// Record an architect loop activity as an ArchitectActivity journal record
+    Journal {
+        /// Path to the rexymcp config file
+        #[arg(long)]
+        config: PathBuf,
+
+        /// Path to the phase doc (for phase_doc_path in the record)
+        #[arg(long)]
+        phase_doc: Option<PathBuf>,
+
+        /// Phase identifier (e.g. "phase-02")
+        #[arg(long)]
+        phase_id: String,
+
+        /// Project ID override (defaults to [project].id from config)
+        #[arg(long)]
+        project_id: Option<String>,
+
+        /// Milestone directory slug (e.g. "M27-autonomous-escalation-loop")
+        #[arg(long)]
+        milestone_id: Option<String>,
+
+        /// The activity kind (e.g. "draft", "dispatch", "review", "assist", "takeover", "boundary")
+        #[arg(long)]
+        activity: String,
+
+        /// Free-text outcome (e.g. "complete", "hard_fail", "bounced")
+        #[arg(long)]
+        outcome: Option<String>,
+
+        /// Architect model that performed the activity
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Override the telemetry phase_runs.jsonl path
+        #[arg(long)]
+        telemetry_path: Option<PathBuf>,
+    },
+
+    /// Harvest Claude Code transcript token usage onto journal activities
+    Harvest {
+        /// Path to the rexymcp config file
+        #[arg(long)]
+        config: PathBuf,
+
+        /// Directory of Claude Code *.jsonl session transcripts
+        #[arg(long)]
+        transcript_dir: PathBuf,
+
+        /// Project ID override (defaults to [project].id from config)
+        #[arg(long)]
+        project_id: Option<String>,
 
         /// Override the telemetry phase_runs.jsonl path
         #[arg(long)]
@@ -312,6 +389,7 @@ async fn main() -> anyhow::Result<()> {
             phase_doc,
             repo,
             model,
+            no_telemetry,
         } => {
             let cfg = Config::load_with_env(&config)?;
 
@@ -322,18 +400,30 @@ async fn main() -> anyhow::Result<()> {
                 .ok()
                 .and_then(|c| c.project.id);
 
+            let (cancel_handle, cancel_signal) = rexymcp_executor::agent::CancelSignal::new();
+            let stop_watcher = tokio::spawn(stop_watcher::watch_stop_sentinel_single(
+                repo.clone(),
+                cancel_handle,
+                stop_watcher::STOP_POLL_INTERVAL,
+            ));
+
             let result = runner::run_phase(&runner::RunPhaseConfig {
                 cfg: &cfg,
                 phase_doc_path: &phase_doc,
                 repo_path: &repo,
                 standards: &standards,
                 model_override: model.as_deref(),
-                telemetry_dir: None,
+                telemetry_dir: runner::resolve_telemetry_dir(&cfg, no_telemetry),
                 progress: None,
                 project_id,
+                resume: None,
                 test_client: None,
+                cancel: cancel_signal,
             })
-            .await?;
+            .await;
+
+            stop_watcher.abort();
+            let result = result?;
 
             println!(
                 "{}",
@@ -358,9 +448,7 @@ async fn main() -> anyhow::Result<()> {
                 config.display(),
                 config.exists()
             );
-            let server = server::RexyMcpServer {
-                config_path: config,
-            };
+            let server = server::RexyMcpServer::new(config);
             let transport = rmcp::transport::stdio();
             let _running = rmcp::serve_server(server, transport)
                 .await
@@ -566,12 +654,10 @@ async fn main() -> anyhow::Result<()> {
             let config_path = config.unwrap_or_else(|| PathBuf::from("rexymcp.toml"));
             let cfg = Config::load_with_env(&config_path)?;
             let (i, o) = cfg.dashboard.effective_rates();
-            let (arch_in, arch_out) = cfg.architect.effective_rates();
             let rates = dashboard::BudgetRates {
                 input_per_mtok: i,
                 output_per_mtok: o,
-                architect_input_per_mtok: arch_in,
-                architect_output_per_mtok: arch_out,
+                architect: cfg.architect.effective_architect_rates(),
             };
             let telemetry_dir = cfg.telemetry.dir.as_deref();
             let project_id = rexymcp_executor::config::Config::load(&repo.join("rexymcp.toml"))
@@ -592,6 +678,86 @@ async fn main() -> anyhow::Result<()> {
                 Ok(())
             } else {
                 std::process::exit(1);
+            }
+        }
+        Commands::Stop { repo } => {
+            let path = stop::write_sentinel(&repo)?;
+            println!("wrote stop sentinel: {}", path.display());
+            println!("running executors in this repo will cancel within ~1s.");
+            Ok(())
+        }
+        Commands::Journal {
+            config,
+            phase_doc,
+            phase_id,
+            project_id,
+            milestone_id,
+            activity,
+            outcome,
+            model,
+            telemetry_path,
+        } => {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let args = journal::JournalArgs {
+                phase_doc: phase_doc.as_deref(),
+                phase_id: &phase_id,
+                project_id: project_id.as_deref(),
+                milestone_id: milestone_id.as_deref(),
+                activity: &activity,
+                outcome: outcome.as_deref(),
+                model: model.as_deref(),
+            };
+            match journal::record_activity(&config, telemetry_path.as_deref(), now_ms, &args) {
+                Ok(outcome) => {
+                    if let Some(ref unknown) = outcome.unknown_activity {
+                        eprintln!(
+                            "warning: unknown activity kind {:?} (recorded anyway); known activities: {:?}",
+                            unknown,
+                            rexymcp_executor::store::telemetry::ARCHITECT_ACTIVITIES
+                        );
+                    }
+                    println!(
+                        "recorded {} activity for {} -> {}",
+                        activity,
+                        phase_id,
+                        outcome.path.display()
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Harvest {
+            config,
+            transcript_dir,
+            project_id,
+            telemetry_path,
+        } => {
+            let args = harvest::HarvestArgs {
+                transcript_dir: &transcript_dir,
+                project_id: project_id.as_deref(),
+            };
+            match harvest::harvest(&config, telemetry_path.as_deref(), &args) {
+                Ok(o) => {
+                    println!(
+                        "harvested {} messages, enriched {} activities ({} unattributed) -> {}",
+                        o.messages,
+                        o.enriched,
+                        o.unattributed,
+                        o.path.display()
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
             }
         }
     }
@@ -625,6 +791,7 @@ mod tests {
                 phase_doc,
                 repo,
                 model,
+                no_telemetry,
             }) => {
                 assert_eq!(config, PathBuf::from("rexymcp.toml"));
                 assert_eq!(
@@ -633,6 +800,7 @@ mod tests {
                 );
                 assert_eq!(repo, PathBuf::from("/tmp/repo"));
                 assert_eq!(model.as_deref(), Some("qwen2.5-coder"));
+                assert!(!no_telemetry);
             }
             _ => panic!("expected RunPhase"),
         }
@@ -664,6 +832,29 @@ mod tests {
     fn cli_parse_run_phase_missing_required_arg_fails() {
         let result = Cli::try_parse_from(["rexymcp", "run-phase", "--config", "rexymcp.toml"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_parse_run_phase_no_telemetry_flag_sets_true() {
+        let cli = Cli::try_parse_from([
+            "rexymcp",
+            "run-phase",
+            "--config",
+            "rexymcp.toml",
+            "--phase-doc",
+            "phase-doc.md",
+            "--repo",
+            "/tmp/repo",
+            "--no-telemetry",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Commands::RunPhase { no_telemetry, .. }) => {
+                assert!(no_telemetry);
+            }
+            _ => panic!("expected RunPhase"),
+        }
     }
 
     #[test]

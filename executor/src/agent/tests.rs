@@ -1,7 +1,9 @@
 use super::*;
-use crate::agent::command::{CommandResult, MAX_COMMAND_TAIL_CHARS};
+use crate::agent::cancel::{CancelHandle, CancelSignal};
+use crate::agent::command::{CommandResult, MAX_COMMAND_TAIL_CHARS, RealCommandRunner};
+use crate::ai::AiClient;
 use crate::ai::testing::{MockAiClientScript, MockCall};
-use crate::ai::types::TokenBreakdown;
+use crate::ai::types::{AiEvent, Message, TokenBreakdown, ToolSchema};
 use crate::phase::{Blocker, PhaseStatus};
 use crate::security::scope::Scope;
 use crate::store::telemetry::PhaseRun;
@@ -9,6 +11,7 @@ use crate::tools::{bash_with_filter, patch, read_file, write_file};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
+use tokio::sync::mpsc::UnboundedSender;
 
 fn registry_over(scope: Scope) -> ToolRegistry {
     let mut r = ToolRegistry::new();
@@ -37,6 +40,7 @@ fn input() -> PhaseInput {
         project_id: None,
         milestone_id: None,
         tier: None,
+        resumed_task_states: None,
     }
 }
 
@@ -75,6 +79,7 @@ const EMPTY_COMMANDS: CommandConfig = CommandConfig {
     lint: None,
     test: None,
     lint_fix: None,
+    format_fix: None,
 };
 
 /// A command runner with a scripted sequence of outcomes. Each `run` call pops
@@ -119,6 +124,7 @@ fn all_commands_configured() -> CommandConfig {
         lint: Some("true".to_string()),
         test: Some("true".to_string()),
         lint_fix: None,
+        format_fix: None,
     }
 }
 
@@ -151,6 +157,9 @@ fn deps<'a>(
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     }
 }
 
@@ -262,6 +271,36 @@ async fn tool_call_then_no_tool_call_completes() {
 
     assert_eq!(result.status, PhaseStatus::Complete);
     assert_eq!(client.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn completes_without_flipping_status_now_that_gate_is_gone() {
+    let dir = TempDir::new().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+    let registry = registry_over(scope);
+    let phase_doc = dir.path().join("phase-01-test.md");
+    std::fs::write(
+        &phase_doc,
+        "# Phase 01: Test\n\n**Status:** in-progress\n\n## Update Log\n\n### Update — 2026-01-01 (started)\n",
+    )
+    .unwrap();
+    let inp = PhaseInput {
+        phase_doc_path: phase_doc.to_string_lossy().into_owned(),
+        ..input()
+    };
+    let client = MockAiClientScript::new(vec![vec![token("all done")]]);
+    let budget = Budget::new(1_000_000);
+
+    let result = execute_phase(&inp, deps(&client, &registry, &budget, 8, dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    assert_eq!(
+        client.calls().len(),
+        1,
+        "an in-progress doc must not trigger a bookkeeping re-loop"
+    );
 }
 
 #[tokio::test]
@@ -899,6 +938,9 @@ async fn injected_clock_sets_record_ts() {
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
 
     execute_phase(&input(), d).await.unwrap();
@@ -1020,6 +1062,9 @@ async fn run_with_verifier(
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
     execute_phase(&input(), d).await.unwrap()
 }
@@ -1280,6 +1325,119 @@ async fn runaway_output_trips_hard_fail() {
     ));
 }
 
+// ── M26 phase-07a: oscillation integration test ─────────────────────────
+
+#[tokio::test]
+async fn oscillation_across_alternating_reads_trips_hard_fail() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "aaa").unwrap();
+    std::fs::write(dir.path().join("b.txt"), "bbb").unwrap();
+    let path_a = dir.path().join("a.txt").to_string_lossy().to_string();
+    let path_b = dir.path().join("b.txt").to_string_lossy().to_string();
+    let read_a = || native("read_file", json!({ "path": path_a.clone() }));
+    let read_b = || native("read_file", json!({ "path": path_b.clone() }));
+    // Alternate A,B,A,B — 4 distinct-turn tool calls, then one trailing read as slack
+    let client = MockAiClientScript::new(vec![
+        vec![read_a()],
+        vec![read_b()],
+        vec![read_a()],
+        vec![read_b()],
+        vec![read_a()], // slack
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+
+    let d = LoopDeps {
+        client: &client,
+        registry: &registry_over(Scope::new(dir.path()).unwrap()),
+        tools: &[],
+        budget: &Budget::new(1_000_000),
+        max_turns: 10,
+        project_root: dir.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock_zero,
+        verifier: &verifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams::default(),
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig {
+            oscillation_window: 4,
+            oscillation_distinct_max: 2,
+            ..GovernorConfig::default()
+        },
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
+    };
+    let result = execute_phase(&input(), d).await.unwrap();
+
+    assert_eq!(result.status, PhaseStatus::HardFail);
+    assert!(matches!(
+        result.briefing.unwrap().current_blocker,
+        Blocker::HardFail(HardFailSignal::Oscillation { .. })
+    ));
+}
+
+// ── M26 phase-07a: cumulative-output-flood integration test ─────────────
+
+#[tokio::test]
+async fn cumulative_output_flood_trips_hard_fail() {
+    let dir = TempDir::new().unwrap();
+    // Three distinct files, each ~400 bytes (distinct args avoid oscillation)
+    let content = "x".repeat(400);
+    std::fs::write(dir.path().join("f1.txt"), &content).unwrap();
+    std::fs::write(dir.path().join("f2.txt"), &content).unwrap();
+    std::fs::write(dir.path().join("f3.txt"), &content).unwrap();
+    let p1 = dir.path().join("f1.txt").to_string_lossy().to_string();
+    let p2 = dir.path().join("f2.txt").to_string_lossy().to_string();
+    let p3 = dir.path().join("f3.txt").to_string_lossy().to_string();
+    let client = MockAiClientScript::new(vec![
+        vec![native("read_file", json!({ "path": p1 }))],
+        vec![native("read_file", json!({ "path": p2 }))],
+        vec![native("read_file", json!({ "path": p3 }))],
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+
+    let d = LoopDeps {
+        client: &client,
+        registry: &registry_over(Scope::new(dir.path()).unwrap()),
+        tools: &[],
+        budget: &Budget::new(1_000_000),
+        max_turns: 10,
+        project_root: dir.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock_zero,
+        verifier: &verifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams::default(),
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig {
+            output_window: 3,
+            output_window_bytes: 1000,
+            ..GovernorConfig::default()
+        },
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
+    };
+    let result = execute_phase(&input(), d).await.unwrap();
+
+    assert_eq!(result.status, PhaseStatus::HardFail);
+    assert!(matches!(
+        result.briefing.unwrap().current_blocker,
+        Blocker::HardFail(HardFailSignal::CumulativeOutputFlood { .. })
+    ));
+}
+
 #[tokio::test]
 async fn hard_fail_logs_hardfail_then_session_end() {
     let dir = TempDir::new().unwrap();
@@ -1514,9 +1672,10 @@ async fn loop_logs_read_evicted_event_after_patch() {
 async fn loop_does_not_log_read_evicted_without_prior_read() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("foo.txt");
-    std::fs::write(&file, "original content").unwrap();
+    // No std::fs::write — the file does NOT pre-exist, so write_file is a
+    // create (allowed without read). The intent is "a successful write with no
+    // prior read evicts nothing."
     let path = file.to_string_lossy().to_string();
-    // No read_file — just a write_file (not gated, but no prior read to evict)
     let client = MockAiClientScript::new(vec![
         vec![native(
             "write_file",
@@ -1558,6 +1717,103 @@ async fn write_file_without_read_is_allowed() {
         std::fs::read_to_string(&file).unwrap(),
         "fresh",
         "write_file is not gated by read-before-edit"
+    );
+}
+
+// ── M26 phase-04: write_file read-before-edit integration tests ────────
+
+#[tokio::test]
+async fn write_file_overwrite_of_unread_file_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    let original = "original content";
+    std::fs::write(&file, original).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "write_file",
+            json!({ "path": path, "content": "new content" }),
+        )],
+        vec![token("done")],
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+
+    let result = run_with_verifier(&dir, &client, &verifier, 8).await;
+
+    // The run reaches Complete (refusal is model-visible, not a hard_fail)
+    assert_eq!(result.status, PhaseStatus::Complete);
+
+    // The file on disk is unchanged (the overwrite was refused)
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        original,
+        "the file should not have been overwritten"
+    );
+
+    // The refused tool result fed back contains "refusing to overwrite"
+    let second_call_messages = &client.calls()[1].messages;
+    let has_refusal = second_call_messages.iter().any(|m| {
+        m.tool_results.as_ref().is_some_and(|trs| {
+            trs.iter()
+                .any(|t| t.tool_name == "write_file" && t.content.contains("refusing to overwrite"))
+        })
+    });
+    assert!(
+        has_refusal,
+        "the refused write_file should contain 'refusing to overwrite'"
+    );
+}
+
+#[tokio::test]
+async fn write_file_after_read_overwrites() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    let original = "original content";
+    std::fs::write(&file, original).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let client = MockAiClientScript::new(vec![
+        vec![native("read_file", json!({ "path": path }))],
+        vec![native(
+            "write_file",
+            json!({ "path": path, "content": "new content" }),
+        )],
+        vec![token("done")],
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+
+    run_with_verifier(&dir, &client, &verifier, 8).await;
+
+    // The file on disk is the new content (the read unlocked the overwrite)
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "new content",
+        "the file should have been overwritten after read"
+    );
+}
+
+#[tokio::test]
+async fn write_file_append_to_unread_file_is_allowed() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    let original = "original content";
+    std::fs::write(&file, original).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "write_file",
+            json!({ "path": path, "content": " appended", "append": true }),
+        )],
+        vec![token("done")],
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+
+    run_with_verifier(&dir, &client, &verifier, 8).await;
+
+    // The file on disk is original + appended
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "original content appended",
+        "append should have been allowed without read"
     );
 }
 
@@ -1687,6 +1943,9 @@ async fn run_full_with_context_window(
         context_window,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
     execute_phase(&input(), d).await.unwrap()
 }
@@ -1762,8 +2021,10 @@ async fn unchanged_file_is_absent_from_files_changed() {
     let file = dir.path().join("t.txt");
     std::fs::write(&file, "same\n").unwrap();
     let path = file.to_string_lossy().to_string();
-    // write_file with identical content → no net change.
+    // Prepended read_file so the identical-content overwrite actually executes
+    // (the gate would refuse without the read).
     let client = MockAiClientScript::new(vec![
+        vec![native("read_file", json!({ "path": path }))],
         vec![native(
             "write_file",
             json!({ "path": path, "content": "same\n" }),
@@ -1802,6 +2063,7 @@ async fn clean_completion_runs_configured_commands() {
         lint: None,
         test: Some("cargo test".to_string()),
         lint_fix: None,
+        format_fix: None,
     };
 
     let result = run_full(&dir, &client, &verifier, &runner, &commands, None, 8).await;
@@ -1831,6 +2093,7 @@ async fn command_output_is_tail_capped() {
         lint: None,
         test: None,
         lint_fix: None,
+        format_fix: None,
     };
 
     let result = run_full(&dir, &client, &verifier, &runner, &commands, None, 8).await;
@@ -1867,6 +2130,7 @@ async fn hard_fail_does_not_run_command_set() {
         lint: None,
         test: None,
         lint_fix: None,
+        format_fix: None,
     };
 
     let result = run_full(&dir, &client, &verifier, &runner, &commands, None, 10).await;
@@ -2041,6 +2305,7 @@ async fn gates_populated_on_complete_from_exit_status() {
         lint: None,
         test: Some("cargo test".to_string()),
         lint_fix: None,
+        format_fix: None,
     };
 
     run_full(
@@ -2084,6 +2349,7 @@ async fn gates_none_on_hard_fail() {
         lint: None,
         test: None,
         lint_fix: None,
+        format_fix: None,
     };
 
     run_full(
@@ -2442,6 +2708,9 @@ fn deps_with_progress_simple<'a>(
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     }
 }
 
@@ -2516,6 +2785,9 @@ impl<'a> DepsBuilder<'a> {
             context_window: None,
             governor: GovernorConfig::default(),
             task_tracking: true,
+            gate_retries: u32::MAX,
+            wall_clock_secs: 0,
+            cancel: CancelSignal::never(),
         }
     }
 }
@@ -2636,6 +2908,7 @@ async fn progress_emits_commands_on_clean_completion() {
         lint: None,
         test: Some("cargo test".to_string()),
         lint_fix: None,
+        format_fix: None,
     };
     let budget = Budget::new(1_000_000);
 
@@ -2702,6 +2975,9 @@ async fn callback_panic_is_not_caught() {
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
     execute_phase(&input(), d).await.unwrap();
 }
@@ -3087,7 +3363,7 @@ async fn format_hook_runs_after_successful_edit() {
     let verifier = MockFileVerifier::new(vec![]);
     let runner = MockCommandRunner::new("ok");
     let commands = CommandConfig {
-        format: Some("echo fmt".into()),
+        format_fix: Some("echo fmt".into()),
         ..EMPTY_COMMANDS
     };
 
@@ -3119,7 +3395,7 @@ async fn format_hook_runs_before_verify() {
     }]);
     let runner = MockCommandRunner::new("ok");
     let commands = CommandConfig {
-        format: Some("echo fmt".into()),
+        format_fix: Some("echo fmt".into()),
         ..EMPTY_COMMANDS
     };
     let capture = CaptureCallback::new();
@@ -3264,7 +3540,7 @@ async fn format_hook_failure_does_not_halt_turn() {
     // Second call (completion gate) passes — allows completion.
     let runner = ScriptedCommandRunner::new(vec![false, true]);
     let commands = CommandConfig {
-        format: Some("fmt".into()),
+        format_fix: Some("fmt".into()),
         ..EMPTY_COMMANDS
     };
 
@@ -3298,7 +3574,7 @@ async fn format_hook_runs_on_every_edit_turn() {
     let verifier = MockFileVerifier::new(vec![]);
     let runner = MockCommandRunner::new("ok");
     let commands = CommandConfig {
-        format: Some("echo fmt".into()),
+        format_fix: Some("echo fmt".into()),
         ..EMPTY_COMMANDS
     };
 
@@ -3308,15 +3584,15 @@ async fn format_hook_runs_on_every_edit_turn() {
     let count = runner.ran().iter().filter(|c| *c == "echo fmt").count();
     assert_eq!(
         count,
-        3,
-        "expected 3 format runs (2 hooks + 1 final command set), got {}: {:?}",
+        2,
+        "expected 2 format_fix hook runs (the completion command set runs format, which is unset), got {}: {:?}",
         count,
         runner.ran()
     );
 }
 
 #[tokio::test]
-async fn hook_runs_lint_fix_before_format() {
+async fn hook_runs_lint_fix_before_format_fix() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("t.txt");
     let path = file.to_string_lossy().to_string();
@@ -3331,7 +3607,7 @@ async fn hook_runs_lint_fix_before_format() {
     let runner = MockCommandRunner::new("ok");
     let commands = CommandConfig {
         lint_fix: Some("echo fix".into()),
-        format: Some("echo fmt".into()),
+        format_fix: Some("echo fmt".into()),
         ..EMPTY_COMMANDS
     };
 
@@ -3339,7 +3615,7 @@ async fn hook_runs_lint_fix_before_format() {
 
     assert_eq!(result.status, PhaseStatus::Complete);
     let ran = runner.ran();
-    // Hook fires lint_fix then format; final command set fires format again.
+    // Hook fires lint_fix then format_fix.
     // Assert the first two invocations are in order: fix before fmt.
     assert!(
         ran.len() >= 2,
@@ -3348,7 +3624,7 @@ async fn hook_runs_lint_fix_before_format() {
     );
     assert_eq!(
         ran[0], "echo fix",
-        "lint_fix must run before format, got: {:?}",
+        "lint_fix must run before format_fix, got: {:?}",
         ran
     );
     assert_eq!(
@@ -3374,7 +3650,7 @@ async fn hook_skips_lint_fix_when_unconfigured() {
     let runner = MockCommandRunner::new("ok");
     let commands = CommandConfig {
         lint_fix: None,
-        format: Some("echo fmt".into()),
+        format_fix: Some("echo fmt".into()),
         ..EMPTY_COMMANDS
     };
 
@@ -3389,8 +3665,51 @@ async fn hook_skips_lint_fix_when_unconfigured() {
     );
     assert!(
         ran.iter().any(|c| c == "echo fmt"),
-        "format must still run when lint_fix is None, got: {:?}",
+        "format_fix must still run when lint_fix is None, got: {:?}",
         ran
+    );
+}
+
+/// Crux test: the hook runs `format_fix` (writing form), not `format` (check form).
+#[tokio::test]
+async fn hook_runs_format_fix_not_the_check_form() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    let path = file.to_string_lossy().to_string();
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "write_file",
+            json!({ "path": path, "content": "hello\n" }),
+        )],
+        vec![token("done")],
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+    let runner = MockCommandRunner::new("ok");
+    let commands = CommandConfig {
+        format: Some("echo CHECK".into()),
+        format_fix: Some("echo FIX".into()),
+        ..EMPTY_COMMANDS
+    };
+
+    let result = run_full(&dir, &client, &verifier, &runner, &commands, None, 8).await;
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    let ran = runner.ran();
+
+    // The hook must run format_fix ("echo FIX"), not the check form ("echo CHECK").
+    let fix_pos = ran
+        .iter()
+        .position(|c| c == "echo FIX")
+        .expect("hook should have run format_fix (echo FIX)");
+    let check_pos = ran
+        .iter()
+        .position(|c| c == "echo CHECK")
+        .expect("completion gate should have run format (echo CHECK)");
+    assert!(
+        fix_pos < check_pos,
+        "format_fix (hook, pos {}) must run before format (gate, pos {})",
+        fix_pos,
+        check_pos
     );
 }
 
@@ -3464,6 +3783,9 @@ async fn loop_emits_output_filtered_event_for_filtered_bash() {
             context_window: None,
             governor: GovernorConfig::default(),
             task_tracking: true,
+            gate_retries: u32::MAX,
+            wall_clock_secs: 0,
+            cancel: CancelSignal::never(),
         },
     )
     .await
@@ -3812,6 +4134,9 @@ async fn loop_seeds_task_updates_from_spec() {
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
     let input = PhaseInput {
         phase_doc: phase_doc.to_string(),
@@ -3876,6 +4201,9 @@ async fn loop_emits_no_task_updates_when_spec_absent() {
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
     let input = PhaseInput {
         phase_doc: phase_doc.to_string(),
@@ -4020,6 +4348,9 @@ async fn loop_emits_task_update_when_model_flips_task() {
         context_window: None,
         governor: GovernorConfig::default(),
         task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
     };
     let input = PhaseInput {
         phase_doc: phase_doc.to_string(),
@@ -4216,6 +4547,87 @@ async fn gate_failure_at_turn_cap_is_budget_exceeded() {
 }
 
 #[tokio::test]
+async fn gate_retry_budget_exhaustion_returns_budget_exceeded_before_turn_cap() {
+    let dir = TempDir::new().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+    let registry = registry_over(scope);
+    // Model always returns a completion (no tool calls), triggering gate check each turn.
+    // Scripted for 4 productive turns — enough to cover initial + 2 retries; an
+    // exhausted script would fall through to the (unrelated) empty-completion
+    // recovery path instead of re-running the gate check.
+    let client = MockAiClientScript::new(vec![
+        vec![token("All done.")],
+        vec![token("All done.")],
+        vec![token("All done.")],
+        vec![token("All done.")],
+    ]);
+    let budget = Budget::new(1_000_000);
+    let commands = all_commands_configured();
+    // All gates always fail: 4 commands × enough turns for initial + 2 retries.
+    let runner = ScriptedCommandRunner::new(vec![
+        false, false, false, false, // turn 1
+        false, false, false, false, // retry 1
+        false, false, false, false, // retry 2 (budget exhausted)
+    ]);
+    let mut d = deps(&client, &registry, &budget, 50, dir.path()); // max_turns = 50
+    d.commands = &commands;
+    d.runner = &runner;
+    d.gate_retries = 2;
+    d.governor.gate_feedback_repeat_threshold = usize::MAX; // disable A3 hard-fail
+    d.governor.empty_completion_threshold = usize::MAX; // disable empty-completion hard-fail
+
+    let result = execute_phase(&input(), d).await.unwrap();
+
+    assert_eq!(result.status, PhaseStatus::BudgetExceeded);
+    // With gate_retries=2 and max_turns=50, termination should happen at the
+    // retry budget (3 model calls: initial completion + 2 retries), not at the
+    // turn cap (50 calls).
+    assert!(
+        client.calls().len() <= 5,
+        "expected ~3 calls but got {}",
+        client.calls().len()
+    );
+}
+
+#[tokio::test]
+async fn unlimited_gate_retries_retries_to_turn_cap() {
+    let dir = TempDir::new().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+    let registry = registry_over(scope);
+    // Model always returns a completion (no tool calls), triggering gate check each turn.
+    // Scripted for 3 productive turns to match max_turns — an exhausted script
+    // would fall through to the empty-completion recovery path instead.
+    let client = MockAiClientScript::new(vec![
+        vec![token("All done.")],
+        vec![token("All done.")],
+        vec![token("All done.")],
+    ]);
+    let budget = Budget::new(1_000_000);
+    let commands = all_commands_configured();
+    // All gates always fail: 4 commands × enough turns.
+    let runner = ScriptedCommandRunner::new(vec![
+        false, false, false, false, // turn 1
+        false, false, false, false, // turn 2
+        false, false, false, false, // turn 3
+    ]);
+    let mut d = deps(&client, &registry, &budget, 3, dir.path()); // max_turns = 3
+    d.commands = &commands;
+    d.runner = &runner;
+    d.gate_retries = u32::MAX; // unlimited
+
+    let result = execute_phase(&input(), d).await.unwrap();
+
+    assert_eq!(result.status, PhaseStatus::BudgetExceeded);
+    // With unlimited gate_retries and max_turns=3, the loop should reach the
+    // turn cap (3 model calls), not short-circuit on the retry budget.
+    assert!(
+        client.calls().len() >= 3,
+        "expected >=3 calls but got {}",
+        client.calls().len()
+    );
+}
+
+#[tokio::test]
 async fn task_coverage_check_loops_until_all_tasks_done() {
     use crate::tools::update_task as make_update_task;
 
@@ -4402,10 +4814,12 @@ async fn self_revert_of_edited_file_is_refused() {
     registry.register(patch(scope.clone()));
     registry.register(bash_with_filter(scope, 30, true));
 
-    // Turn 1: write_file edits the file (puts it in pre_edit_content)
-    // Turn 2: bash git checkout of that file → should be refused
-    // Turn 3: done
+    // Turn 1: read_file to unlock the file for write
+    // Turn 2: write_file edits the file (puts it in pre_edit_content)
+    // Turn 3: bash git checkout of that file → should be refused
+    // Turn 4: done
     let client = MockAiClientScript::new(vec![
+        vec![native("read_file", json!({ "path": path }))],
         vec![native(
             "write_file",
             json!({ "path": path, "content": "edited content" }),
@@ -4439,6 +4853,9 @@ async fn self_revert_of_edited_file_is_refused() {
             context_window: None,
             governor: GovernorConfig::default(),
             task_tracking: true,
+            gate_retries: u32::MAX,
+            wall_clock_secs: 0,
+            cancel: CancelSignal::never(),
         },
     )
     .await
@@ -4446,10 +4863,10 @@ async fn self_revert_of_edited_file_is_refused() {
 
     assert_eq!(result.status, PhaseStatus::Complete);
 
-    // The third model call (index 2) should contain the refusal in the bash
+    // The fourth model call (index 3) should contain the refusal in the bash
     // tool result — the run continues, it's not a hard_fail.
-    let third_call_messages = &client.calls()[2].messages;
-    let has_refusal = third_call_messages.iter().any(|m| {
+    let fourth_call_messages = &client.calls()[3].messages;
+    let has_refusal = fourth_call_messages.iter().any(|m| {
         m.tool_results.as_ref().is_some_and(|trs| {
             trs.iter().any(|t| {
                 t.tool_name == "bash"
@@ -4534,4 +4951,346 @@ async fn repeated_truncation_reaches_turn_cap_not_completion() {
 
     // Bounded by the turn cap, not a completion.
     assert_eq!(result.status, PhaseStatus::BudgetExceeded);
+}
+
+/// End-to-end: the post-write hook's `format_fix` actually rewrites the file on disk
+/// via a real subprocess (not a mock).
+#[tokio::test]
+async fn format_fix_hook_rewrites_file_on_disk() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    let path = file.to_string_lossy().to_string();
+    let client = MockAiClientScript::new(vec![
+        vec![native(
+            "write_file",
+            json!({ "path": path, "content": "unformatted\n" }),
+        )],
+        vec![token("done")],
+    ]);
+    let verifier = MockFileVerifier::new(vec![]);
+    let runner = RealCommandRunner;
+    let commands = CommandConfig {
+        format_fix: Some("printf 'formatted\\n' > f.txt".into()),
+        ..EMPTY_COMMANDS
+    };
+
+    let result = run_full(&dir, &client, &verifier, &runner, &commands, None, 8).await;
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    let on_disk = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        on_disk, "formatted\n",
+        "post-write hook's format_fix must rewrite the file on disk, got: {on_disk:?}"
+    );
+}
+
+/// A deterministic clock that advances 10 seconds per call, so any nonzero
+/// `wall_clock_secs` ceiling is crossed after the first loop iteration.
+fn advancing_clock() -> impl Fn() -> u64 + Send + Sync {
+    let calls = std::sync::atomic::AtomicU64::new(0);
+    move || calls.fetch_add(10_000, std::sync::atomic::Ordering::Relaxed)
+}
+
+#[tokio::test]
+async fn wall_clock_ceiling_trips_budget_exceeded() {
+    let dir = tempfile::tempdir().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+    let client = MockAiClientScript::new(vec![vec![token("done")]]);
+    let registry = registry_over(scope);
+    let budget = Budget::new(1_000_000);
+    let verifier = MockFileVerifier::new(vec![]);
+    let clock = advancing_clock();
+    let d = LoopDeps {
+        client: &client,
+        registry: &registry,
+        tools: &[],
+        budget: &budget,
+        max_turns: 200,
+        project_root: dir.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock,
+        verifier: &verifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams::default(),
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig::default(),
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 1,
+        cancel: CancelSignal::never(),
+    };
+    let result = execute_phase(&input(), d).await.unwrap();
+
+    assert_eq!(result.status, PhaseStatus::BudgetExceeded);
+    let briefing = result.briefing.unwrap();
+    assert!(matches!(briefing.current_blocker, Blocker::BudgetExceeded));
+    assert!(
+        briefing.budget_remaining.contains("wall-clock"),
+        "budget_remaining should mention wall-clock, got: {}",
+        briefing.budget_remaining
+    );
+}
+
+#[tokio::test]
+async fn wall_clock_disabled_when_zero_completes() {
+    let dir = tempfile::tempdir().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+    let client = MockAiClientScript::new(vec![vec![token("done")]]);
+    let registry = registry_over(scope);
+    let budget = Budget::new(1_000_000);
+    let verifier = MockFileVerifier::new(vec![]);
+    let clock = advancing_clock();
+    let d = LoopDeps {
+        client: &client,
+        registry: &registry,
+        tools: &[],
+        budget: &budget,
+        max_turns: 200,
+        project_root: dir.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock,
+        verifier: &verifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams::default(),
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig::default(),
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
+    };
+    let result = execute_phase(&input(), d).await.unwrap();
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+    assert!(result.briefing.is_none());
+}
+
+#[tokio::test]
+async fn restored_states_override_seeded_pending() {
+    use crate::tools::update_task as make_update_task;
+
+    let dir = TempDir::new().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+
+    let phase_doc = "\
+## Spec
+
+1. **First task** — do this first
+2. **Second task** — do this second
+";
+    let seeded_tasks = tasks::seed_from_spec(phase_doc);
+
+    // Registry with update_task so the tool call actually resolves.
+    let mut registry = registry_over(scope);
+    registry.register(make_update_task(seeded_tasks.clone()));
+
+    let input = PhaseInput {
+        phase_doc: phase_doc.to_string(),
+        resumed_task_states: Some(
+            [(
+                "1".to_string(),
+                crate::store::sessions::event::TaskState::Done,
+            )]
+            .into_iter()
+            .collect(),
+        ),
+        ..input()
+    };
+    // Turn 1: mark task 2 as done (task 1 is already done from restore)
+    // Turn 2: complete
+    let client = MockAiClientScript::new(vec![
+        vec![native("update_task", json!({"id": "2", "state": "done"}))],
+        vec![token("all done")],
+    ]);
+    let budget = Budget::new(1_000_000);
+
+    let result = execute_phase(&input, deps(&client, &registry, &budget, 8, dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, PhaseStatus::Complete);
+
+    let recs = records(dir.path());
+    let task_updates: Vec<_> = recs
+        .iter()
+        .filter(|r| matches!(&r.event, SessionEvent::TaskUpdate { .. }))
+        .collect();
+
+    assert_eq!(
+        task_updates.len(),
+        3,
+        "expected 2 seed + 1 tool-call task_update records"
+    );
+
+    // Build last-write-wins map from all task updates.
+    let mut states: HashMap<String, crate::store::sessions::event::TaskState> = HashMap::new();
+    for rec in &task_updates {
+        if let SessionEvent::TaskUpdate { id, state, .. } = &rec.event {
+            states.insert(id.clone(), *state);
+        }
+    }
+    // Both tasks should be Done at the end.
+    assert_eq!(
+        *states.get("1").unwrap(),
+        crate::store::sessions::event::TaskState::Done,
+        "task 1 should be restored as Done"
+    );
+    assert_eq!(
+        *states.get("2").unwrap(),
+        crate::store::sessions::event::TaskState::Done,
+        "task 2 should be marked Done by update_task tool call"
+    );
+
+    // Verify the seed events (first two) reflect the restored state:
+    // task 1 seeded as Done, task 2 seeded as Pending.
+    let seed_updates: Vec<_> = task_updates.iter().take(2).collect();
+    for rec in &seed_updates {
+        if let SessionEvent::TaskUpdate { id, state, .. } = &rec.event {
+            if id == "1" {
+                assert_eq!(
+                    *state,
+                    crate::store::sessions::event::TaskState::Done,
+                    "seed: task 1 should be restored as Done"
+                );
+            } else if id == "2" {
+                assert_eq!(
+                    *state,
+                    crate::store::sessions::event::TaskState::Pending,
+                    "seed: task 2 should remain Pending"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn loop_returns_cancelled_when_signal_flipped_between_turns() {
+    let root = TempDir::new().unwrap();
+    let (handle, signal) = CancelSignal::new();
+    // Script: turn 1 writes a file, turn 2 sends nothing (done).
+    let script = MockAiClientScript::new(vec![
+        vec![
+            AiEvent::ToolCallGeneric {
+                id: "tc1".to_string(),
+                name: "write_file".to_string(),
+                args: json!({"path": "foo.txt", "content": "hello\n"}),
+                thought_signature: None,
+            },
+            AiEvent::Done(TokenBreakdown {
+                input_tokens: 10,
+                output_tokens: 20,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+            }),
+        ],
+        vec![AiEvent::Done(TokenBreakdown {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+        })],
+    ]);
+    let client = Arc::new(script);
+    let scope = Scope::new(root.path()).unwrap();
+    let budget = Budget::default();
+    let deps = LoopDeps {
+        client: &*client,
+        registry: &registry_over(scope.clone()),
+        tools: &[],
+        budget: &budget,
+        max_turns: 10,
+        project_root: root.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock_zero,
+        verifier: &NoopVerifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams {
+            temperature: None,
+            seed: None,
+        },
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig::default(),
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: signal,
+    };
+    let input = input();
+    // Signal is already flipped — the first top-of-loop check fires immediately.
+    handle.cancel();
+    let result = execute_phase(&input, deps).await.unwrap();
+    assert_eq!(result.status, PhaseStatus::Cancelled);
+    assert!(result.cancellation.is_some());
+    let c = result.cancellation.as_ref().unwrap();
+    assert_eq!(c.stage, "between_turns");
+}
+
+struct CancelThenPark {
+    handle: CancelHandle,
+}
+
+#[async_trait::async_trait]
+impl AiClient for CancelThenPark {
+    async fn chat(
+        &self,
+        _system_prompt: &str,
+        _messages: Vec<Message>,
+        _tx: UnboundedSender<AiEvent>,
+        _tools: Option<&[ToolSchema]>,
+    ) -> anyhow::Result<()> {
+        self.handle.cancel();
+        std::future::pending::<()>().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn loop_returns_cancelled_when_signal_flipped_mid_stream() {
+    let root = TempDir::new().unwrap();
+    let (handle, signal) = CancelSignal::new();
+    let client = CancelThenPark { handle };
+    let scope = Scope::new(root.path()).unwrap();
+    let budget = Budget::default();
+    let deps = LoopDeps {
+        client: &client,
+        registry: &registry_over(scope),
+        tools: &[],
+        budget: &budget,
+        max_turns: 10,
+        project_root: root.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock_zero,
+        verifier: &NoopVerifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams {
+            temperature: None,
+            seed: None,
+        },
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig::default(),
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: signal,
+    };
+    let result = execute_phase(&input(), deps).await.unwrap();
+    assert_eq!(result.status, PhaseStatus::Cancelled);
+    let c = result.cancellation.as_ref().unwrap();
+    assert_eq!(c.stage, "awaiting_model");
 }

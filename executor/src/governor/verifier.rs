@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
@@ -13,7 +14,7 @@ use tokio::process::Command;
 /// "error" → Error, "warning" → Warning, "note" → Note, "help" → Help.
 /// Only errors are fed back to the model (warnings would be noise); the type
 /// carries all four for future flexibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum Severity {
     Error,
     Warning,
@@ -24,7 +25,7 @@ pub enum Severity {
 /// One compile/lint message. Populated from the compiler's structured output.
 /// The shape is stable across languages — all supported compilers map into
 /// this record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Diagnostic {
     pub path: PathBuf,
     /// 1-indexed line number.
@@ -417,6 +418,70 @@ fn parse_cargo_line(line: &str, crate_root: &Path) -> Option<Diagnostic> {
     })
 }
 
+/// A resolved `tsc` invocation: the program to spawn plus any
+/// prefix args that must precede tsc's own flags. `prefix_args`
+/// is non-empty only for the `npx` form (`npx --no-install tsc`).
+struct TscCommand {
+    program: PathBuf,
+    prefix_args: &'static [&'static str],
+}
+
+/// The PATH search directories, or empty if PATH is unset.
+fn path_dirs() -> Vec<PathBuf> {
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default()
+}
+
+/// Walk from `project_root` up to the filesystem root looking for
+/// `node_modules/.bin/tsc`. Returns the first existing *file*
+/// (a directory of that name is not a match). Walking up catches
+/// monorepo dependency hoisting, where `node_modules` sits at the
+/// workspace root above the package's `tsconfig.json`.
+fn find_local_tsc(project_root: &Path) -> Option<PathBuf> {
+    let mut current = Some(project_root);
+    while let Some(dir) = current {
+        let candidate = dir.join("node_modules").join(".bin").join("tsc");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+/// True if `name` resolves to an existing file in any of the
+/// given search directories. Mirrors `doctor::resolve_binary`'s
+/// bare-name branch; kept local because the `mcp` crate (where
+/// that lives) depends on this one, not the reverse.
+fn binary_in_dirs(name: &str, search_paths: &[PathBuf]) -> bool {
+    search_paths.iter().any(|dir| dir.join(name).is_file())
+}
+
+/// Resolve which `tsc` invocation to spawn, in priority order:
+/// local `node_modules/.bin/tsc` → `npx --no-install tsc` → bare
+/// `tsc` on PATH. `npx_on_path` is threaded in (not read from the
+/// environment here) so the resolution stays a pure, hermetically
+/// testable function.
+fn resolve_tsc_command(project_root: &Path, npx_on_path: bool) -> TscCommand {
+    if let Some(local) = find_local_tsc(project_root) {
+        return TscCommand {
+            program: local,
+            prefix_args: &[],
+        };
+    }
+    if npx_on_path {
+        return TscCommand {
+            program: PathBuf::from("npx"),
+            prefix_args: &["--no-install", "tsc"],
+        };
+    }
+    TscCommand {
+        program: PathBuf::from("tsc"),
+        prefix_args: &[],
+    }
+}
+
 async fn verify_typescript(path: &Path) -> VerifierResult {
     let project_root = match find_typescript_project_root(path) {
         Some(root) => root,
@@ -428,7 +493,9 @@ async fn verify_typescript(path: &Path) -> VerifierResult {
         }
     };
 
-    let output = match Command::new("tsc")
+    let cmd = resolve_tsc_command(&project_root, binary_in_dirs("npx", &path_dirs()));
+    let output = match Command::new(&cmd.program)
+        .args(cmd.prefix_args)
         .arg("--noEmit")
         .arg("--pretty=false")
         .current_dir(&project_root)
@@ -439,7 +506,12 @@ async fn verify_typescript(path: &Path) -> VerifierResult {
     {
         Ok(o) => o,
         Err(e) => {
-            return spawn_failure("tsc", "install TypeScript (npm install -g typescript)", &e);
+            return spawn_failure(
+                "tsc",
+                "install TypeScript locally (npm install -D typescript) or globally \
+                 (npm install -g typescript)",
+                &e,
+            );
         }
     };
 

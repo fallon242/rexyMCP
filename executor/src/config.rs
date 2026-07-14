@@ -18,8 +18,8 @@ pub fn known_model_rates(model: &str) -> Option<(f64, f64)> {
 }
 
 /// Executor capability tier. Set via `rexymcp calibrate` and recorded in
-/// `[executor].tier`. Controls default `max_turns`, `gate_retries`, and
-/// whether mid-phase Architect escalation is enabled (SMALL only, wired in M21).
+/// `[executor].tier`. Controls default `max_turns` and `gate_retries`
+/// (wired M26).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Tier {
@@ -49,9 +49,11 @@ impl Tier {
     }
 }
 
-/// SMALL-tier escalation settings. When `tier = "SMALL"`, the executor fires
-/// up to `max_assists` autonomous Architect assists before hard-failing. Absent
-/// or ignored for MEDIUM and LARGE tiers (wired in M21).
+/// Escalation budget for the architect-side autonomous loop
+/// (`/rexymcp:auto`, M27). `max_assists` is the number of autonomous
+/// assist round-trips (refine + re-dispatch, or resume) the loop may
+/// spend on one phase before stopping for the human. Tier-independent;
+/// consumed by the plugin skill layer, never by the executor loop.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EscalationConfig {
@@ -78,6 +80,18 @@ pub struct ArchitectConfig {
     pub input_per_mtok: f64,
     /// USD per million output tokens (overridden by `model` when recognised).
     pub output_per_mtok: f64,
+    /// USD per million cache-**read** input tokens (overridden by `model` when
+    /// recognised: 0.1× the input rate).
+    pub cache_read_per_mtok: f64,
+    /// USD per million cache-**creation** input tokens (overridden by `model`
+    /// when recognised: 1.25× the input rate).
+    pub cache_creation_per_mtok: f64,
+    /// Model ID for dispatch subagent delegation. `None` means inherit the
+    /// session/architect model (not `[architect] model`).
+    pub dispatch_model: Option<String>,
+    /// Model ID for review subagent delegation. `None` means inherit the
+    /// session/architect model (not `[architect] model`).
+    pub review_model: Option<String>,
 }
 
 impl Default for ArchitectConfig {
@@ -86,6 +100,10 @@ impl Default for ArchitectConfig {
             model: None,
             input_per_mtok: 0.0,
             output_per_mtok: 0.0,
+            cache_read_per_mtok: 0.0,
+            cache_creation_per_mtok: 0.0,
+            dispatch_model: None,
+            review_model: None,
         }
     }
 }
@@ -98,6 +116,32 @@ impl ArchitectConfig {
             .as_deref()
             .and_then(known_model_rates)
             .unwrap_or((self.input_per_mtok, self.output_per_mtok))
+    }
+
+    /// Resolved per-class architect rates. When `model` is recognised, cache
+    /// rates derive from its input rate (0.1× read, 1.25× creation); otherwise the
+    /// explicit `cache_*_per_mtok` fields apply. Reuses `effective_rates` for the
+    /// input/output pair.
+    pub fn effective_architect_rates(&self) -> crate::store::telemetry::ArchitectRates {
+        use crate::store::telemetry::{
+            ArchitectRates, CACHE_CREATION_RATE_MULTIPLIER, CACHE_READ_RATE_MULTIPLIER,
+        };
+        let (input, output) = self.effective_rates();
+        let model_known = self.model.as_deref().and_then(known_model_rates).is_some();
+        let (cache_read, cache_creation) = if model_known {
+            (
+                input * CACHE_READ_RATE_MULTIPLIER,
+                input * CACHE_CREATION_RATE_MULTIPLIER,
+            )
+        } else {
+            (self.cache_read_per_mtok, self.cache_creation_per_mtok)
+        };
+        ArchitectRates {
+            input_per_mtok: input,
+            cache_creation_per_mtok: cache_creation,
+            cache_read_per_mtok: cache_read,
+            output_per_mtok: output,
+        }
     }
 }
 
@@ -176,6 +220,21 @@ pub struct GovernorConfig {
     /// Consecutive byte-identical gate-feedback re-injections before
     /// `StuckGateFeedback` hard-fail. Default 5.
     pub gate_feedback_repeat_threshold: usize,
+    /// Sliding window of recent tool calls examined for oscillation. When the
+    /// distinct `(tool, arguments)` count in the last `oscillation_window` calls
+    /// is in `2..=oscillation_distinct_max`, the loop hard-fails with
+    /// `Oscillation`. `0` disables the detector. Default 8.
+    pub oscillation_window: usize,
+    /// Max distinct calls in the oscillation window still treated as a stuck
+    /// cycle. Default 2 (an A,B,A,B alternation).
+    pub oscillation_distinct_max: usize,
+    /// Sliding window of recent tool outputs summed for the cumulative-output
+    /// flood check. `0` disables the detector. Default 6.
+    pub output_window: usize,
+    /// Total bytes across the last `output_window` tool outputs before
+    /// `CumulativeOutputFlood`. Catches multi-call floods each below
+    /// `runaway_output_bytes`. Default 262144 (256 KB).
+    pub output_window_bytes: usize,
 }
 
 impl Default for GovernorConfig {
@@ -186,6 +245,10 @@ impl Default for GovernorConfig {
             runaway_output_bytes: 100 * 1024,
             empty_completion_threshold: 3,
             gate_feedback_repeat_threshold: 5,
+            oscillation_window: 8,
+            oscillation_distinct_max: 2,
+            output_window: 6,
+            output_window_bytes: 256 * 1024,
         }
     }
 }
@@ -208,6 +271,10 @@ pub struct ModelOverride {
     pub empty_completion_threshold: Option<usize>,
     pub gate_feedback_repeat_threshold: Option<usize>,
     pub thinking: Option<String>,
+    pub oscillation_window: Option<usize>,
+    pub oscillation_distinct_max: Option<usize>,
+    pub output_window: Option<usize>,
+    pub output_window_bytes: Option<usize>,
 }
 
 /// Per-project identity. The `id` UUID is generated by `rexymcp init` and
@@ -353,6 +420,7 @@ pub struct CommandConfig {
     pub lint: Option<String>,
     pub test: Option<String>,
     pub lint_fix: Option<String>,
+    pub format_fix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -363,13 +431,16 @@ pub struct BudgetConfig {
     pub max_context_pct: u8,
     /// Hard cap on executor turns in one phase before budget_exceeded.
     pub max_turns: u32,
-    /// Escalation slots (briefings returned to the architect) per phase.
-    pub escalation_slots: u32,
     /// Max gate-retry loops at completion time before escalation. `None` = derive
     /// from `executor.tier`; if tier is also `None`, unlimited (bounded by
     /// `max_turns`). Set explicitly to override tier default.
     #[serde(default)]
     pub gate_retries: Option<u32>,
+    /// Optional wall-clock ceiling in seconds. When > 0, a run whose elapsed
+    /// wall-clock time reaches this value terminates as `budget_exceeded` at
+    /// the next turn boundary. `0` (the default) disables the ceiling.
+    #[serde(default)]
+    pub wall_clock_secs: u64,
 }
 
 impl Default for BudgetConfig {
@@ -378,8 +449,8 @@ impl Default for BudgetConfig {
             context_length: 32768,
             max_context_pct: 70,
             max_turns: 200,
-            escalation_slots: 1,
             gate_retries: None,
+            wall_clock_secs: 0,
         }
     }
 }
@@ -504,6 +575,18 @@ impl Config {
         if let Some(v) = over.thinking {
             self.executor.thinking = Some(v);
         }
+        if let Some(v) = over.oscillation_window {
+            self.governor.oscillation_window = v;
+        }
+        if let Some(v) = over.oscillation_distinct_max {
+            self.governor.oscillation_distinct_max = v;
+        }
+        if let Some(v) = over.output_window {
+            self.governor.output_window = v;
+        }
+        if let Some(v) = over.output_window_bytes {
+            self.governor.output_window_bytes = v;
+        }
     }
 }
 
@@ -548,7 +631,6 @@ base_url = "http://localhost:11434/v1"
 context_length = 128000
 max_context_pct = 80
 max_turns = 50
-escalation_slots = 2
 "#
         )
         .unwrap();
@@ -561,7 +643,6 @@ escalation_slots = 2
         assert_eq!(cfg.budget.context_length, 128000);
         assert_eq!(cfg.budget.max_context_pct, 80);
         assert_eq!(cfg.budget.max_turns, 50);
-        assert_eq!(cfg.budget.escalation_slots, 2);
     }
 
     #[test]
@@ -598,7 +679,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#
         )
         .unwrap();
@@ -639,7 +719,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -665,7 +744,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [telemetry]
 dir = "/var/lib/rexymcp"
@@ -693,7 +771,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [telemetry]
 dir = "~/.rexymcp/telemetry"
@@ -732,7 +809,6 @@ stream_idle_timeout_secs = 45
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -759,7 +835,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -795,7 +870,6 @@ seed = 42
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -822,7 +896,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -856,7 +929,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [dashboard]
 saved_input_per_mtok = 3.0
@@ -897,6 +969,32 @@ format = "cargo fmt"
     }
 
     #[test]
+    fn format_fix_field_defaults_to_none_when_absent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("rexymcp.toml");
+        std::fs::write(
+            &path,
+            r#"
+[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[commands]
+format = "cargo fmt"
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(
+            cfg.commands.format_fix, None,
+            "format_fix must default to None when absent from [commands]"
+        );
+        assert_eq!(cfg.commands.format.as_deref(), Some("cargo fmt"));
+    }
+
+    #[test]
     fn context_config_defaults_output_filter_on() {
         let cfg = ContextConfig::default();
         assert!(cfg.output_filter, "output_filter should default to true");
@@ -917,7 +1015,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -945,7 +1042,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [context]
 output_filter = false
@@ -976,7 +1072,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 10
@@ -1008,7 +1103,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -1037,7 +1131,6 @@ task_tracking = false
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -1065,7 +1158,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [models."Qwen/Qwen3.6-27B-FP8"]
 temperature = 0.2
@@ -1101,7 +1193,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -1133,7 +1224,6 @@ seed = 1
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1177,7 +1267,6 @@ seed = 99
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1222,7 +1311,6 @@ temperature = 0.5
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1264,7 +1352,6 @@ task_tracking = true
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [models."qwen"]
 task_tracking = false
@@ -1335,11 +1422,63 @@ task_tracking = false
     }
 
     #[test]
+    fn budget_default_wall_clock_secs_is_zero() {
+        assert_eq!(BudgetConfig::default().wall_clock_secs, 0);
+    }
+
+    #[test]
+    fn budget_parses_wall_clock_secs_from_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.toml");
+        std::fs::write(
+            &path,
+            r#"
+[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 200
+wall_clock_secs = 30
+"#,
+        )
+        .unwrap();
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.budget.wall_clock_secs, 30);
+
+        let path2 = dir.path().join("c2.toml");
+        std::fs::write(
+            &path2,
+            r#"
+[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 200
+"#,
+        )
+        .unwrap();
+        let cfg2 = Config::load(&path2).unwrap();
+        assert_eq!(cfg2.budget.wall_clock_secs, 0);
+    }
+
+    #[test]
     fn architect_effective_rates_uses_known_model() {
         let a = ArchitectConfig {
             model: Some("claude-opus-4-8".into()),
             input_per_mtok: 0.0,
             output_per_mtok: 0.0,
+            cache_read_per_mtok: 0.0,
+            cache_creation_per_mtok: 0.0,
+            dispatch_model: None,
+            review_model: None,
         };
         assert_eq!(a.effective_rates(), (5.0, 25.0));
     }
@@ -1350,6 +1489,10 @@ task_tracking = false
             model: Some("unknown-model".into()),
             input_per_mtok: 2.5,
             output_per_mtok: 12.5,
+            cache_read_per_mtok: 0.0,
+            cache_creation_per_mtok: 0.0,
+            dispatch_model: None,
+            review_model: None,
         };
         assert_eq!(a.effective_rates(), (2.5, 12.5));
     }
@@ -1371,7 +1514,6 @@ tier = "MEDIUM"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 "#,
         )
         .unwrap();
@@ -1401,7 +1543,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [escalation]
 max_assists = 5
@@ -1449,7 +1590,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1481,7 +1621,6 @@ max_tokens = 2048
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1513,7 +1652,6 @@ max_tokens = 8192
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1643,7 +1781,6 @@ max_tokens = 8192
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1684,7 +1821,6 @@ enable_thinking = true
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1715,7 +1851,6 @@ base_url = "http://localhost:1234/v1"
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1747,7 +1882,6 @@ enable_thinking = false
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1783,7 +1917,6 @@ enable_thinking = true
 context_length = 32768
 max_context_pct = 70
 max_turns = 40
-escalation_slots = 1
 
 [governor]
 identical_call_threshold = 6
@@ -1799,5 +1932,137 @@ temperature = 0.1
         let mut cfg = Config::load(&path).unwrap();
         cfg.resolve_for_model("m");
         assert!(cfg.executor.enable_thinking);
+    }
+
+    #[test]
+    fn load_ignores_retired_escalation_slots_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rexymcp.toml");
+        std::fs::write(
+            &path,
+            r#"
+[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 100
+escalation_slots = 1
+
+[governor]
+identical_call_threshold = 6
+verifier_persistence_threshold = 6
+runaway_output_bytes = 102400
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.budget.max_turns, 100);
+    }
+
+    #[test]
+    fn effective_architect_rates_derives_cache_from_known_model() {
+        let cfg = ArchitectConfig {
+            model: Some("claude-opus-4-8".to_string()),
+            input_per_mtok: 0.0,
+            output_per_mtok: 0.0,
+            cache_read_per_mtok: 0.0,
+            cache_creation_per_mtok: 0.0,
+            dispatch_model: None,
+            review_model: None,
+        };
+        let rates = cfg.effective_architect_rates();
+        assert_eq!(rates.input_per_mtok, 5.0);
+        assert_eq!(rates.output_per_mtok, 25.0);
+        assert_eq!(rates.cache_read_per_mtok, 0.5);
+        assert_eq!(rates.cache_creation_per_mtok, 6.25);
+    }
+
+    #[test]
+    fn effective_architect_rates_uses_explicit_when_model_unknown() {
+        let cfg = ArchitectConfig {
+            model: Some("unknown-model".to_string()),
+            input_per_mtok: 8.0,
+            output_per_mtok: 40.0,
+            cache_read_per_mtok: 2.0,
+            cache_creation_per_mtok: 9.0,
+            dispatch_model: None,
+            review_model: None,
+        };
+        let rates = cfg.effective_architect_rates();
+        assert_eq!(rates.input_per_mtok, 8.0);
+        assert_eq!(rates.output_per_mtok, 40.0);
+        assert_eq!(rates.cache_read_per_mtok, 2.0);
+        assert_eq!(rates.cache_creation_per_mtok, 9.0);
+    }
+
+    #[test]
+    fn load_parses_architect_role_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[commands]
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 40
+
+[architect]
+model = "claude-opus-4-8"
+dispatch_model = "claude-sonnet-5"
+review_model = "claude-haiku-4-5-20251001"
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.architect.model, Some("claude-opus-4-8".into()));
+        assert_eq!(cfg.architect.dispatch_model, Some("claude-sonnet-5".into()));
+        assert_eq!(
+            cfg.architect.review_model,
+            Some("claude-haiku-4-5-20251001".into())
+        );
+    }
+
+    #[test]
+    fn architect_role_models_default_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[commands]
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 40
+
+[architect]
+model = "claude-opus-4-8"
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.architect.model, Some("claude-opus-4-8".into()));
+        // Unset role models are None — they do NOT fall back to [architect] model
+        assert!(cfg.architect.dispatch_model.is_none());
+        assert!(cfg.architect.review_model.is_none());
     }
 }

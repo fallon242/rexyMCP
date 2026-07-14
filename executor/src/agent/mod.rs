@@ -12,11 +12,14 @@ pub mod progress;
 pub mod prompt;
 pub mod verify;
 
+mod cancel;
 mod log;
 mod metrics;
 mod outcome;
 pub mod tasks;
 mod tools;
+
+pub use cancel::{CancelHandle, CancelSignal};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -44,7 +47,9 @@ use crate::tools::ToolRegistry;
 use command::{CommandRunner, run_command_set, run_post_write_hooks};
 use log::{log_event, log_session_end};
 use metrics::{RunMetrics, emit_phase_run};
-use outcome::{budget_exceeded_result, build_artifacts, hard_fail_result, turns_line};
+use outcome::{
+    budget_exceeded_result, build_artifacts, cancelled_result, hard_fail_result, turns_line,
+};
 use progress::{EmitCtx, ProgressCallback, emit_progress};
 use tools::{
     append_tool_exchange, assistant_text, bash_exit_code, bash_status_output_is_clean,
@@ -82,6 +87,12 @@ pub struct PhaseInput {
     /// Configured executor capability tier (`[executor] tier`), recorded in the
     /// `PhaseRun`'s `tier_telemetry`. `None` when no tier is configured.
     pub tier: Option<crate::config::Tier>,
+    /// Task states restored from a prior run's session log, for a resumed phase
+    /// (`continue_phase`). `None` on a normal run → seed all `Pending`. When
+    /// `Some`, each seeded task whose id is present takes the restored state, so
+    /// the task-coverage gate does not re-demand work already done.
+    pub resumed_task_states:
+        Option<std::collections::HashMap<String, crate::store::sessions::event::TaskState>>,
 }
 
 /// The injected dependencies the loop drives — explicit, no globals. The `clock`
@@ -92,6 +103,15 @@ pub struct LoopDeps<'a> {
     pub tools: &'a [ToolSchema],
     pub budget: &'a Budget,
     pub max_turns: usize,
+    /// Resolved gate-retry budget: max gate-retry rounds at completion time
+    /// before `budget_exceeded`. `u32::MAX` = unlimited (bounded by `max_turns`).
+    /// Resolved from `[budget] gate_retries` / `[executor] tier` at the call site.
+    pub gate_retries: u32,
+    /// Wall-clock ceiling in seconds. `0` disables it; when > 0 a run whose
+    /// elapsed time (measured off `clock`) reaches the ceiling terminates as
+    /// `budget_exceeded`. Resolved from `[budget] wall_clock_secs` at the call
+    /// site.
+    pub wall_clock_secs: u64,
     pub project_root: &'a Path,
     /// Model identifier, for the `SessionStart` record.
     pub model: &'a str,
@@ -123,6 +143,8 @@ pub struct LoopDeps<'a> {
     /// `[executor] task_tracking` (default true). Off → zero `TaskUpdate`
     /// events, byte-identical to pre-06a behavior.
     pub task_tracking: bool,
+    /// Cooperative cancellation signal; `CancelSignal::never()` disables it.
+    pub cancel: CancelSignal,
 }
 
 /// Run the turn cycle until the model stops calling tools (`complete`) or the
@@ -130,11 +152,20 @@ pub struct LoopDeps<'a> {
 /// surface as `Err`; model-visible outcomes (parse failures, unknown/failed
 /// tools) are fed back into the conversation and never error.
 pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<PhaseResult> {
-    let seeded: Vec<crate::agent::tasks::Task> = if deps.task_tracking {
+    let mut seeded: Vec<crate::agent::tasks::Task> = if deps.task_tracking {
         tasks::seed_from_spec(&input.phase_doc)
     } else {
         Vec::new()
     };
+
+    // Apply restored task states from a prior run (resume path).
+    if let Some(restored) = &input.resumed_task_states {
+        for task in &mut seeded {
+            if let Some(state) = restored.get(&task.id) {
+                task.state = *state;
+            }
+        }
+    }
 
     // Task-coverage shadow: tracks live state as update_task calls land.
     // All Pending at start; updated in the tool-result block below.
@@ -156,6 +187,7 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
     let mut messages: Vec<Message> = Vec::new();
     let mut scorer = Scorer::new();
     let mut recent_tool_calls: VecDeque<ToolCallSnapshot> = VecDeque::new();
+    let mut recent_output_bytes: VecDeque<usize> = VecDeque::new();
     let mut turns: usize = 0;
 
     // Governor feedback state (07c).
@@ -177,6 +209,9 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
     // this point instead of naturally stopping, so this does not wait for that.
     let mut committed_this_session = false;
 
+    // M19 gate-retry rounds consumed (M26 phase-06: bounded by deps.gate_retries).
+    let mut gate_retry_count: u32 = 0;
+
     // Read-before-edit working set (07d): resolved path → mtime at last read/edit.
     let mut working_set: HashMap<PathBuf, SystemTime> = HashMap::new();
 
@@ -186,6 +221,7 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
 
     // Telemetry accumulation (08): metrics folded into the PhaseRun at terminal.
     let mut metrics = RunMetrics::started_at((deps.clock)());
+    let loop_started_ms = (deps.clock)();
 
     // Step 1 (observability) — open the session log. Best-effort: `.ok()` drops a
     // setup failure on purpose (a non-writable repo must not fail the phase —
@@ -256,6 +292,61 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
     }
 
     loop {
+        // Cancellation check — cooperative signal from the caller.
+        if deps.cancel.is_cancelled() {
+            log_session_end(&log_handle, &redactor, deps.clock, "cancelled", turns);
+            emit_phase_run(
+                &deps,
+                input,
+                "cancelled",
+                Gates::default(),
+                &metrics,
+                &scorer,
+                turns,
+            );
+            let artifacts = build_artifacts(
+                &pre_edit_content,
+                deps.project_root,
+                log_path.clone(),
+                "cancelled",
+                turns,
+                CommandOutputs::default(),
+            );
+            return Ok(cancelled_result("between_turns", turns, artifacts));
+        }
+        // Step 2a — wall-clock ceiling. A [budget] wall_clock_secs of 0 disables
+        // it; otherwise a run past the ceiling terminates as budget_exceeded — a
+        // clock-based budget terminal, distinct from the turn/context caps.
+        if deps.wall_clock_secs > 0 {
+            let elapsed_ms = (deps.clock)().saturating_sub(loop_started_ms);
+            if elapsed_ms >= deps.wall_clock_secs.saturating_mul(1000) {
+                log_session_end(&log_handle, &redactor, deps.clock, "budget_exceeded", turns);
+                emit_phase_run(
+                    &deps,
+                    input,
+                    "budget_exceeded",
+                    Gates::default(),
+                    &metrics,
+                    &scorer,
+                    turns,
+                );
+                let artifacts = build_artifacts(
+                    &pre_edit_content,
+                    deps.project_root,
+                    log_path.clone(),
+                    "budget_exceeded",
+                    turns,
+                    CommandOutputs::default(),
+                );
+                return Ok(budget_exceeded_result(
+                    input,
+                    &recent_tool_calls,
+                    deps.project_root,
+                    format!("wall-clock ceiling of {}s exceeded", deps.wall_clock_secs),
+                    artifacts,
+                ));
+            }
+        }
         // Step 2 — budget: compact on overflow, give up if still over.
         if deps.budget.would_overflow(&system, &messages) {
             let report = compact(&mut messages, deps.budget, &system);
@@ -325,8 +416,30 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
         tokio::pin!(chat_fut);
         let mut heartbeat = interval(HEARTBEAT_PERIOD);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut cancel = deps.cancel.clone();
         loop {
             tokio::select! {
+                _ = cancel.cancelled() => {
+                    log_session_end(&log_handle, &redactor, deps.clock, "cancelled", turns);
+                    emit_phase_run(
+                        &deps,
+                        input,
+                        "cancelled",
+                        Gates::default(),
+                        &metrics,
+                        &scorer,
+                        turns,
+                    );
+                    let artifacts = build_artifacts(
+                        &pre_edit_content,
+                        deps.project_root,
+                        log_path.clone(),
+                        "cancelled",
+                        turns,
+                        CommandOutputs::default(),
+                    );
+                    return Ok(cancelled_result("awaiting_model", turns, artifacts));
+                }
                 result = &mut chat_fut => {
                     match result {
                         Ok(()) => {}
@@ -663,16 +776,11 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
                     // A3 (M22): stuck-gate-feedback stall. Peek at the gate feedback that will fire
                     // this turn (same precedence as the blocks below); if it is byte-identical to the
                     // last one and has repeated past the threshold, the loop is stuck — hard_fail
-                    // instead of re-injecting forever. The three blocks below re-evaluate these pure
+                    // instead of re-injecting forever. The two blocks below re-evaluate these pure
                     // fns and inject as before.
                     let pending_gate_feedback =
                         command::gate_failure_feedback(&gates, &command_outputs)
-                            .or_else(|| command::task_coverage_feedback(&seeded, &task_states))
-                            .or_else(|| {
-                                command::bookkeeping_feedback(std::path::Path::new(
-                                    &input.phase_doc_path,
-                                ))
-                            });
+                            .or_else(|| command::task_coverage_feedback(&seeded, &task_states));
                     match &pending_gate_feedback {
                         Some(fb) => {
                             if last_gate_feedback.as_deref() == Some(fb.as_str()) {
@@ -751,7 +859,9 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
                             },
                         );
                         messages.push(user_text(&feedback, turns));
-                        if turns >= deps.max_turns {
+                        gate_retry_count += 1;
+                        let gate_budget_exhausted = gate_retry_count >= deps.gate_retries;
+                        if gate_budget_exhausted || turns >= deps.max_turns {
                             log_session_end(
                                 &log_handle,
                                 &redactor,
@@ -776,11 +886,18 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
                                 turns,
                                 CommandOutputs::default(),
                             );
+                            let reason = if gate_budget_exhausted {
+                                format!(
+                                    "gate-retry budget exhausted after {gate_retry_count} retries"
+                                )
+                            } else {
+                                turns_line(deps.max_turns)
+                            };
                             return Ok(budget_exceeded_result(
                                 input,
                                 &recent_tool_calls,
                                 deps.project_root,
-                                turns_line(deps.max_turns),
+                                reason,
                                 artifacts,
                             ));
                         }
@@ -837,63 +954,10 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
                         }
                         continue;
                     }
-                    // Bookkeeping gate: phase doc status must be updated and
-                    // Update Log must have at least one entry.
-                    if let Some(feedback) =
-                        command::bookkeeping_feedback(std::path::Path::new(&input.phase_doc_path))
-                    {
-                        log_event(
-                            &log_handle,
-                            &redactor,
-                            deps.clock,
-                            turns,
-                            SessionEvent::Progress {
-                                turn: turns,
-                                stage: "bookkeeping_retry".to_string(),
-                                files_changed: vec![],
-                                message: feedback.clone(),
-                            },
-                        );
-                        messages.push(user_text(&feedback, turns));
-                        if turns >= deps.max_turns {
-                            log_session_end(
-                                &log_handle,
-                                &redactor,
-                                deps.clock,
-                                "budget_exceeded",
-                                turns,
-                            );
-                            emit_phase_run(
-                                &deps,
-                                input,
-                                "budget_exceeded",
-                                Gates::default(),
-                                &metrics,
-                                &scorer,
-                                turns,
-                            );
-                            let artifacts = build_artifacts(
-                                &pre_edit_content,
-                                deps.project_root,
-                                log_path.clone(),
-                                "budget_exceeded",
-                                turns,
-                                CommandOutputs::default(),
-                            );
-                            return Ok(budget_exceeded_result(
-                                input,
-                                &recent_tool_calls,
-                                deps.project_root,
-                                turns_line(deps.max_turns),
-                                artifacts,
-                            ));
-                        }
-                        continue;
-                    }
                     // All configured gates passed — this is a true completion.
                     log_session_end(&log_handle, &redactor, deps.clock, "complete", turns);
                     emit_phase_run(&deps, input, "complete", gates, &metrics, &scorer, turns);
-                    let artifacts = build_artifacts(
+                    let mut artifacts = build_artifacts(
                         &pre_edit_content,
                         deps.project_root,
                         log_path.clone(),
@@ -901,6 +965,7 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
                         turns,
                         command_outputs,
                     );
+                    artifacts.completion_summary = crate::parser::strip_think_blocks(&completion);
                     return Ok(PhaseResult::complete(artifacts));
                 }
                 ParseResult::Found(tc) => tc,
@@ -1048,6 +1113,7 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
             arguments: tool_call.arguments.clone(),
             succeeded,
         });
+        recent_output_bytes.push_back(content.len());
         append_tool_exchange(&mut messages, &tool_call, &content, turns);
 
         // Structural completion detector (M23 phase-01): a successful `git commit`
@@ -1155,10 +1221,15 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
             task_states.insert(id.to_string(), state);
         }
 
-        // Record the working set: a read makes a file patch-eligible; a successful
-        // patch refreshes its mtime so a follow-up patch needs no re-read.
+        // Record the working set: a read makes a file edit-eligible; a successful
+        // patch or whole-file write_file (not an append) refreshes its mtime so a
+        // follow-up edit needs no re-read. An append does NOT — the model has still
+        // not seen the file's full content, so a later overwrite must re-read.
+        let refreshes_working_set = matches!(tool_call.name.as_str(), "read_file" | "patch")
+            || (tool_call.name == "write_file"
+                && tool_call.arguments.get("append").and_then(|v| v.as_bool()) != Some(true));
         if succeeded
-            && (tool_call.name == "read_file" || tool_call.name == "patch")
+            && refreshes_working_set
             && let Some(path) = resolve_path(&tool_call, deps.project_root)
         {
             record_mtime(&mut working_set, &path);
@@ -1208,7 +1279,7 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
         // so the on-disk file is always formatted when verify reads it.
         if succeeded
             && edit_path.is_some()
-            && (deps.commands.format.is_some() || deps.commands.lint_fix.is_some())
+            && (deps.commands.format_fix.is_some() || deps.commands.lint_fix.is_some())
         {
             {
                 let emit = EmitCtx {
@@ -1273,13 +1344,29 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
         }
 
         // Step 7 — hard-fail detection (repetition / persistent verifier failure /
-        // runaway output). Checked before the turn cap so the specific cause wins.
-        if let Some(signal) = evaluate(
+        // runaway output / oscillation / cumulative-output flood). Checked before the
+        // turn cap so the specific cause wins.
+        let hard_fail_signal = evaluate(
             &recent_tool_calls,
             &recent_verifier_error_counts,
             Some((&tool_call.name, content.len())),
             &deps.governor,
-        ) {
+        )
+        .or_else(|| {
+            crate::governor::hard_fail::check_oscillation(
+                &recent_tool_calls,
+                deps.governor.oscillation_window,
+                deps.governor.oscillation_distinct_max,
+            )
+        })
+        .or_else(|| {
+            crate::governor::hard_fail::check_windowed_output(
+                &recent_output_bytes,
+                deps.governor.output_window,
+                deps.governor.output_window_bytes,
+            )
+        });
+        if let Some(signal) = hard_fail_signal {
             log_event(
                 &log_handle,
                 &redactor,

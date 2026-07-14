@@ -443,10 +443,28 @@ This is where the retrospective and doc-folding happen (see "Calibration"), whic
 is human judgment — never automated.
 
 **Opt-in autonomous loop (off by default).** For hands-off runs, the user may
-turn on an autonomous mode that chains draft → dispatch → review across phases,
-stopping only on a blocker or a milestone boundary. It is explicitly enabled per
-run, never the default. When on, the architect still files blockers rather than
-improvising, and still halts at milestone boundaries.
+start an explicit `/rexymcp:auto` run (M27) that chains draft → dispatch →
+review → escalate/re-dispatch across phases with **full review rigor and no
+per-phase pause** — the review procedure runs verbatim (independent gate
+re-runs, DoD walk, telemetry verdict, commit); only the human pause between
+steps is removed. It is explicitly enabled per run, never the default, and it
+**composes** the interactive skills rather than forking them — a behavior
+difference between an interactive and an autonomous run of the same step is a
+bug. Dispatch drives `execute_phase`'s **async contract** — it polls
+`get_run_status` to reap each spawned run — and a running phase is
+**interruptible** out-of-band (`rexymcp stop` for the human, `stop_phase` for the
+architect between polls), which the loop treats as a deliberate human signal. The
+loop stops for the human on: a milestone boundary (always), any blocker or "What
+Executors Never Decide" item, exhaustion of the per-phase assist budget
+(`[escalation] max_assists` autonomous escalation round-trips on one phase), the
+loop-level runaway backstop, or a phase returning **`cancelled`** (a deliberate
+`rexymcp stop` / `stop_phase` interrupt — the loop surfaces the partial work and
+hands back, never silently re-dispatching a stopped phase). Every stop produces a
+**loop report** — phases run, verdicts, assists spent, token/cost totals where
+harvested, and why it stopped — so the human resumes from a briefing, not a
+scrollback dig. Every architect activity in the loop is journaled to the
+telemetry store; token usage is harvested from the client's own transcripts
+where available and recorded as absent elsewhere, never estimated.
 
 **Route opencode-hostile content to direct execution.** Some content classes
 reliably corrupt the opencode executor's tool-call serializer — notably

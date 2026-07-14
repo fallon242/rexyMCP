@@ -4,8 +4,717 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase:** **none** — **M25 closed 2026-06-30** at a human-gated milestone
-boundary. Awaiting the user to kick off the next milestone via `/rexymcp:architect`.
+**M27 phase-06a — done** (2026-07-09, **approved_first_try**, executor
+Qwen/Qwen3.6-27B-FP8; commit `e805862` feat). Per-role model delegation config
+substrate: two `[architect]` keys on `ArchitectConfig` (`executor/src/config.rs`),
+`dispatch_model` / `review_model`, both `Option<String>` defaulting to `None`
+(inherit the session model; does **not** fall back to `[architect] model`), plus
+their commented lines in the `rexymcp init` `[architect]` template. Additive and
+inert — nothing consumes them until 06b's `/rexymcp:auto` skill. Clean first-try;
+all four gates green on independent re-run (483 mcp + 928 executor, 2 ignored).
+**Two calibration notes (no fold):** (1) the server-authored `completion_summary`
+paraphrased E2E outcomes instead of quoting raw command output (STANDARDS §1);
+architect re-ran both `doctor` invocations during review to confirm the real
+artifact — 2nd occurrence, not yet a pattern. (2) Filed
+[bug-03a-1](milestones/M27-autonomous-escalation-loop/bugs/bug-03a-1.md) (minor):
+`flip_readme_row` duplicates the status cell instead of replacing it — now seen
+twice in production (05a, 06a); manually corrected the malformed row here per the
+05a precedent. See the
+[phase doc](milestones/M27-autonomous-escalation-loop/phase-06a-delegation-config-substrate.md)
+for the full review verdict.
+
+**Active phase: none.** **M32 — README Row-Flip Fix is closed** (2026-07-10;
+single phase done, opened and closed the same day). **phase-01 —
+approved_first_try** (executor AEON-7/Qwen3.6-27B-AEON, 46 turns; commits
+`c930d02` fix / `dcaa4e6` bookkeeping / approve+close below). The
+one-character suffix-slice fix (`&line[last_pipe + 1..]`) + exact-equality
+test hardening; **mutation-verified** — reverting the fix fails 4 of 6 flip
+tests where the old substring assertions passed all. bug-03a-1 (M27) flipped
+to resolved. Retrospective in the
+[M32 README](milestones/M32-readme-row-flip/README.md#retrospective--2026-07-10).
+**Two standing fold candidates for the next fold window** (user sign-off
+pending): (1) cascade-vs-6-strikes → pre-inject leaf-first edit order (M30/M31,
+2 occurrences, countermeasure 2-for-2); (2) weak-substring-assertions on
+exact-format output → pin exact equality + negatives (M30 phases 01/02/04 +
+this bug's 5-occurrence history). **Live observation pending:** the running
+serve binary predates M31+M32 — restart it (`/mcp` reconnect), then the next
+real phase completion should produce a well-formed `| review |` row flip,
+closing the loop on this fix. **Next-milestone go/no-go is a human decision.**
+
+**M31 — rmcp v2 Upgrade is closed** (2026-07-10; both
+phases done, opened and closed the same day inside a single `/rexymcp:auto`
+loop — 1 assist spent of 3). Retrospective in the
+[M31 README](milestones/M31-rmcp-v2-upgrade/README.md#retrospective--2026-07-10);
+`architecture.md` § Status #31 flipped to done. Exit criteria all met,
+including the live checks: the async `execute_phase`→`get_run_status`
+round-trip ran live through Claude Code during the loop (retiring M30's
+unexercised interrupt-path validation), and the rebuilt 2.2 binary was driven
+over stdio JSON-RPC — handshake OK, 10 tools, output schemas on both
+hand-rolled tools, `structuredContent` on a live call. **The connected serve
+still runs the pre-M31 binary until the next `/mcp` reconnect**
+([[stale-rexymcp-serve-after-rebuild]]). **Calibration flags for the next
+fold window:** (1) cascade-vs-6-strikes now 2 distinct occurrences (M30
+phase-03 field, M31 phase-02 derive) with the leaf-first-edit-order
+countermeasure proven 2-for-2 — WORKFLOW fold candidate awaiting user
+sign-off; (2) `flip_readme_row` malformed cell (bug-03a-1) now at 4
+occurrences — past threshold, fix-phase candidate for a cleanup milestone;
+(3) rendered-doc API verification missed a removed type (`Content`) that the
+compiler caught — grep vendored crate source for future major bumps.
+**Next-milestone go/no-go is a human decision.**
+
+**M31 phase-02 — done** (2026-07-10, **approved_after_1**, executor
+AEON-7/Qwen3.6-27B-AEON; commits `8d05005` draft / `d63f839` refine /
+`a7b2eb8` approve). Structured tool output: 13 `JsonSchema` derives across 4
+executor files, `SpawnedRun` + `structured_result` on
+`CallToolResult::structured` (emits both `structured_content` and the
+back-compat text block), output schemas on both hand-rolled `Tool` entries via
+the fallible `schema_for_output` + `with_raw_output_schema` (degradation pin
+mutation-verified in review). **Bounced once at dispatch** (hard_fail
+`VerifierFailurePersistent` at 24 turns — the derive cascade was applied
+top-down, the known cascade-vs-strikes wall); the refined re-dispatch
+pre-injected a bottom-up compiles-at-every-step edit order and landed clean
+in 155 turns. 950 tests green.
+
+**M31 phase-01 — done** (2026-07-10, **approved_first_try**, executor
+AEON-7/Qwen3.6-27B-AEON; commits `7c26d53` feat / `9ff15c7` bookkeeping /
+`be68796` approve; dispatched + reviewed inside the `/rexymcp:auto` run via
+sonnet-5 subagents). `rmcp` 1.8.0 → **2.2.0**: the one `mcp/Cargo.toml`
+constraint, `cargo update -p rmcp`, the two pre-injected
+`ProgressNotificationParam` literal→builder fixes, **plus one compiler-flagged
+extra the doc's Gotchas anticipated** — `Content`/`RawContent` are gone in 2.x;
+both `call_tool` result sites now use `ContentBlock::text(..)`. All four gates
+green on independent re-run (949 executor + 512 mcp, 2 ignored);
+`cargo tree -i rmcp` → v2.2.0; zero `ProgressNotificationParam {` literals
+remain. **Calibration note (data, not a fold):** the kickoff migration table
+had listed `Content::new(RawContent::text(..), None)` as expected-unchanged —
+docs.rs-level verification missed a removal the compiler caught; the
+react-to-compiler-flags + Gotchas-pattern spec shape absorbed it first-try.
+Review repaired the recurring malformed README-row flip (`| review ||`,
+bug-03a-1 pattern).
+
+**📌 M31 — rmcp v2 Upgrade kicked off (2026-07-10, with the user).** Upgrade the
+`mcp` crate's `rmcp` from 1.8.0 (`Cargo.toml` pins `"1.7"`) to the 2.2 line —
+v2.0.0 aligns model types with the MCP 2025-11-25 spec; most public model
+structs are now `#[non_exhaustive]` with builder constructors (rust-sdk
+[discussion #716](https://github.com/modelcontextprotocol/rust-sdk/discussions/716),
+PRs #715/#720/#739). The full migration surface was **verified against docs.rs
+2.2.0 at kickoff** and recorded in the
+[M31 README](milestones/M31-rmcp-v2-upgrade/README.md): only three files touch
+`rmcp`, and the one confirmed source break is the two
+`ProgressNotificationParam` struct literals (`server.rs:152`,
+`server_tests.rs:557`) → `::new(token, progress).with_message(..)`; everything
+else we use (features, `ServerHandler` signatures, `Tool::new`,
+`ListToolsResult` literal, `ServerInfo::default()`, `ProgressToken`) survives
+per the published docs, compiler as final word. Roots corroboration stays
+deferred (SEP-2577). **Two phases planned** (decided with the user,
+2026-07-10): 01 the compile-fix bump; 02 structured tool output for the two
+hand-rolled tools (`execute_phase`/`continue_phase` return
+`structured_content` + declare output schemas — the 8 router tools already
+get this via `Json<T>`). **SEP-1686 tasks** (v2's spec-native async job
+model, a 1:1 match for M30's `run_id`/`get_run_status`/`stop_phase`) surveyed
+and recorded as a future milestone candidate — blocked on Claude Code client
+support (claude-code#18617). Exit criteria include a **serve restart + live
+handshake/dispatch smoke** that doubles as M30's unexercised live
+interrupt-path validation. Roadmap entry: `docs/architecture.md` § Status
+#31. Draft phase-01 via `/rexymcp:architect next`.
+
+**M30 — Executor Interruption is closed** (2026-07-10; all
+7 in-scope phases `01`/`02`/`03`/`04`/`04b`/`05a`/`05b` done). Retrospective in the
+[M30 README](milestones/M30-executor-interruption/README.md#retrospective--2026-07-10);
+`architecture.md` § Status #30 flipped to done. **No new calibration folds** (both
+observed patterns — the required-field-cascade-vs-verifier-strike wall and the
+green-bounce refined re-dispatch — are recurrences of already-folded lessons).
+**Next-milestone go/no-go is a human decision** (no milestone kicked off). **First
+recommended action next session:** restart `rexymcp serve` on the new M30 binary
+and live smoke-test the async `execute_phase` / `stop_phase` / `rexymcp stop` path
+— it ran on hermetic tests only this milestone (the stale-serve binary returned
+synchronous `PhaseResult`s throughout; see
+[[stale-rexymcp-serve-after-rebuild]]).
+
+**M30 phase-05b — done** (2026-07-10, **approved_first_try**, **Executor: Claude
+(direct)**; commit `589a653`). Contract-doc fold: `architecture.md` § Liveness
+retired the present-tense "blocking `execute_phase`" for the async poll + interrupt
+model, the `dispatch` skill bullet gained the async/`cancelled` note, and
+`WORKFLOW.md` + its `plugin/templates/` mirror got the **fifth autonomous-loop stop
+condition (`cancelled`)** + the async/interrupt mention.
+
+**M30 phase-05a — done** (2026-07-10, **approved_first_try**, **Executor: Claude
+(direct)** — architect-authored skill prose, self-reviewed; commit `92524b8`).
+Async-polling skill rewrite + `cancelled` handling. Async-polling skill rewrite + `cancelled` handling. Rewrites the
+`dispatch` skill to drive M30's async `execute_phase` contract
+(**detect-and-adapt**: `run_id` → poll `get_run_status`; a direct `status` field →
+use it, for the stale-serve/`run-phase` fallback), adds the `cancelled` outcome
+branch (partial diff + reason + dirty-tree note → decide resume/re-dispatch/
+abandon), gives `auto` a **5th stop condition `STOP(cancelled)`** (a deliberate
+interrupt is human territory — never silently re-dispatch a stopped phase), and
+adds coherence one-liners to `review` (refuse `cancelled`) + `escalate` (accept
+`cancelled` as a resume candidate). **Design decided with the user (2026-07-10):**
+`cancelled`→STOP-for-human; human-only stop agency (loop stays passive, run
+budgets bound it); detect-and-adapt back-compat; poll-until-terminal no skill cap;
+split from contract docs (05b). See
+[phase-05a](milestones/M30-executor-interruption/phase-05a-async-polling-skill-rewrite.md).
+**phase-05b** (architecture.md + WORKFLOW.md async/interrupt fold + plugin-template
+mirror) follows; M30 then closes at the milestone boundary (human gate:
+retrospective + the required-field-cascade calibration fold).
+
+**M30 phase-04b — done** (2026-07-10, **approved_first_try**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `72b0918`).
+Blocking CLI `run-phase` honors the `.rexymcp/stop` sentinel: a new
+`watch_stop_sentinel_single(repo, CancelHandle, poll)` in `mcp/src/stop_watcher.rs`
+(fires one handle — `run-phase` has no `JobRegistry`), and the `RunPhase` match arm
+builds a real `CancelSignal::new()` + spawns that watcher + passes the signal into
+`RunPhaseConfig` (was `never()`) + aborts the watcher after the run. Additive,
+size=s, no architecture.md edit (§ Status #30 already says run-phase honors the
+sentinel), no new dep. Reason-stamping the CLI `cancelled` result is out of scope
+(async path owns that). See
+[phase-04b](milestones/M30-executor-interruption/phase-04b-run-phase-sentinel-honoring.md);
+phase-05 (async-polling skill-loop rewrite + contract-doc updates) is the
+milestone's final phase and the `/rexymcp:auto` pause point.
+
+**M30 phase-04 — done** (2026-07-10, **approved_after_1**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `141f666` approve, prior `2496d10` feat).
+`rexymcp stop` CLI + `.rexymcp/stop` global-stop-all sentinel watcher: new
+`mcp/src/stop.rs` (sentinel helpers), `mcp/src/stop_watcher.rs`
+(`watch_stop_sentinel` fires `request_stop_all(UserStop)` + clears the sentinel,
+exits when its run is terminal), additive `JobRegistry::request_stop_all`/
+`is_running`, a localized watcher spawn in the `execute_phase` branch, and the
+`Stop` CLI subcommand. **Fully additive** (applied the phase-03 cascade lesson) —
+executor completed it **first-try**. **Bounced once** (bug-04-1, major, test
+quality): `watcher_exits_without_firing_when_run_terminal` discarded the watcher
+`JoinHandle` outcome, so it didn't actually verify the exit (review mutation-proved
+it). Green-bounce ([[plain-redispatch-noops-on-green-bounce]]); refined re-dispatch
+with the exact one-line fix (assert the `JoinHandle` returns) landed clean,
+mutation-verified on re-review. Global stop-all; `--run` scoping + reason-stamping
+the CLI path deferred.
+`rexymcp stop` CLI + `.rexymcp/stop` sentinel watcher, **global stop-all** (decided
+with the user: `.rexymcp/stop` is a presence flag, no run-id payload; `--run <id>`
+deferred). Fully **additive** (applies the phase-03 cascade lesson — no
+required-field cascade): new `mcp/src/stop.rs` (sentinel path/write/present/clear
+helpers under `<repo>/.rexymcp/stop`), new `mcp/src/stop_watcher.rs`
+(`watch_stop_sentinel` polls at `STOP_POLL_INTERVAL` 500ms, fires
+`request_stop_all(UserStop)` + clears the sentinel; exits when its run goes
+terminal), two additive `JobRegistry` methods (`request_stop_all(reason) -> usize`,
+`is_running(run_id) -> bool`), a localized watcher spawn in the `execute_phase`
+branch, and a new `rexymcp stop --repo` CLI subcommand. Wires `CancelReason::UserStop`
+(its first producer). **No architecture.md edit** (§ Status #30 already describes
+the sentinel; global-stop is a subset). **No new dependency.** Blocking `run-phase`
+sentinel honoring is a flagged **optional Task 6** (recommend split to phase-04b).
+See [phase-04](milestones/M30-executor-interruption/phase-04-stop-cli-and-sentinel-watcher.md);
+phase-05 (async-polling skill-loop rewrite + contract-doc updates) is the
+milestone's final phase and a flagged `/rexymcp:auto` pause point.
+
+**M30 phase-03 — done** (2026-07-10, **escalated / session takeover** after 2
+executor hard_fails; executor AEON-7/Qwen3.6-27B-AEON LARGE authored the correct
+core, Claude finished the cascade; commit `18d36a9`). `stop_phase` MCP tool + real
+`CancelSignal` threading + `ClaudeStop` stamping. `stop_phase` `#[rmcp::tool]`
+(auto-listed) fires a run's `CancelHandle` (`ClaudeStop`) via
+`JobRegistry::request_stop`; `spawn_run` stamps `cancellation.reason` on a
+`cancelled` result; a live `CancelSignal` now threads to `LoopDeps.cancel` (a
+`cancel: CancelSignal` field on `RunPhaseConfig`/`AssemblyInput`). **Two hard_fails:**
+(1) patch-tangling corrupted `jobs.rs`'s brace structure → refined re-dispatch with
+a "use `write_file`, not many patches" directive (worked — jobs.rs came back
+verbatim-correct); (2) the **verifier's 6-strike limit fired mid-cascade** — the
+required-field `cancel` addition across ~14 sites can't compile until *every* site
+is fixed, so the executor struck out before finishing server.rs/main.rs/test
+literals. Session takeover finished the mechanical remainder on top of the correct
+jobs.rs + runner.rs work, incl. a **latent-bug fix** (executor had left
+`run_phase_with`'s `LoopDeps.cancel` as `never()` — would have made `stop_phase` a
+silent no-op). **Calibration (1st occurrence, flag):** a wide-blast-radius
+required-field cascade vs the governor's 6-verifier-strike limit — the executor
+cannot keep the crate compiling long enough to finish (WORKFLOW § "Prefer additive
+change shapes"). Fold candidate for the M30 retrospective; already shaped phase-04
+to be fully additive. architecture.md § Layer-2 tools list gained the `stop_phase`
+bullet architect-side (user-authorized).
+
+**M30 phase-02 — done** (2026-07-10, **approved_after_1**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `ca25425` approve, prior `e7b5ced` feat).
+MCP job registry + async `execute_phase` + `get_run_status`: `mcp/src/jobs.rs`
+`JobRegistry` (`tokio::sync::watch`-per-run map, `run_id` = v4 UUID, `spawn_run`
++ bounded-long-poll `await_terminal`), `RexyMcpServer` gains an
+`Arc<JobRegistry>`, the `execute_phase` branch **spawns** and returns
+`{ run_id }` immediately, and `get_run_status` `#[rmcp::tool]` long-polls (~15s)
+→ `running`/`done`(+PhaseResult)/`failed`/`unknown`. **Bounced once** (one review
+round, two bugs): bug-02-1 (major) — `get_run_status_running_times_out` drove the
+long-poll with the production 15 s window, a real 15-second test `sleep`
+(STANDARDS §3.3); bug-02-2 (minor) — an unauthorized `#[allow(dead_code)]`
+masking the speculative `JobRegistry::snapshot` (no consumer until phase-03+).
+Both left all four gates **green** — the green-bounce trap
+([[plain-redispatch-noops-on-green-bounce]]); fixed via a refined re-dispatch with
+a loud inline bounce-fix block (timeout → `1ms`; deleted `snapshot` + its 3 tests,
+no coverage lost). Clean on re-dispatch; 949 tests, ~6s. **Design fork resolved
+with the user (2026-07-10):** flipped `execute_phase` itself to async rather than
+a parallel `execute_phase_async` tool — skills temporarily out of step until
+phase-05, `rexymcp run-phase` (blocking) the interim fallback. **Live-serve note:**
+the connected `rexymcp serve` still runs the pre-M30 blocking binary
+([[stale-rexymcp-serve-after-rebuild]]) — `execute_phase` returned a synchronous
+`PhaseResult`, harmless for a phase that *builds* the async path; restart serve to
+exercise the async contract live.
+
+**M30 phase-01 — done** (2026-07-10, **approved_after_2**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `f7bfc7a` test + prior `f1bc146`/`6008579`).
+Executor-crate cancellation primitive: a `tokio::sync::watch`-based `CancelSignal`
+threaded into `LoopDeps` (all ~17 sites, `never()`) and checked at the top of the
+turn loop (`"between_turns"`) + a third inner `select!` branch (`"awaiting_model"`),
+plus a fourth `PhaseStatus::Cancelled` + `Cancellation`/`CancelReason` that leaves
+the working tree dirty and reports partial diff + stage + turns-done. No new
+dependency. **Bounced twice:** bug-01-1 (major, the mid-stream test was defective
+— `sleep` + a loose `Cancelled || HardFail` disjunction + `tokio::spawn` scheduling
+dependency); then a **plain re-dispatch no-op'd** (clean tree + green gates →
+executor self-reported "complete" without engaging the bug), fixed by a refined
+re-dispatch with a loud bounce-fix header + the exact deterministic `CancelThenPark`
+parking-client test inline. Rewritten test **mutation-verified** (breaking the
+production stage string fails it). **Calibration flag (1st occurrence):** a plain
+re-dispatch of a bounced-but-green phase is ineffective — see
+[[plain-redispatch-noops-on-green-bounce]]. `mcp/src/cap.rs` (+2) accepted as a
+compile-forced touch (`cap_phase_result` reconstructs `PhaseResult` field-by-field).
+
+**M30 — Executor Interruption — opened** (2026-07-09). New milestone: give the
+user and the architect a way to interrupt and stop a running executor mid-phase
+(there is none today — the loop is uninterruptible, bounded only by budgets).
+Design decided with the user: async job model on MCP `execute_phase` (returns a
+`run_id`; `get_run_status` long-poll; `stop_phase` cancels) + a `.rexymcp/stop`
+filesystem sentinel for the client-agnostic human path — necessary because Claude
+Code sends no MCP `notifications/cancelled` and the architect is itself blocked
+awaiting the call mid-phase. Roadmap entry: `docs/architecture.md` § Status #30.
+
+**M27, M28, and M29 are all closed** (2026-07-09).
+
+**M29 phase-01 — done** (2026-07-09, **approved_first_try**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `71cb145` feat). Two cleanup fixes:
+(1) `finalize_complete` now finalizes a `**Status:** todo` doc (not just
+`in-progress`) — `is_pre_review_status`/`status_is_pre_review` + the README-row
+flip broadened, negatives (`review`/`done`/`todoish`/`in-progressish`) preserved —
+so the server bookkeeping completes even when the executor skips the start-flip
+(the real root cause of M28's "left at todo"; finalize *was* wired into the CLI
+path, just dormant on `todo`). **Binary rebuilt — fix live for future
+dispatches.** (2) The ETXTBSY-flaky write-then-exec
+`verify_typescript_spawns_resolved_local_binary` test replaced with pure
+`resolve_tsc_command` tests; verified by 4× back-to-back green `cargo test`. One
+nit (redundant resolver tests vs a pre-existing set), not bounced.
+
+**M28 phase-01 — done** (2026-07-09, **approved_first_try**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `0320019` fix). Actionable missing-field
+recovery hint for `write_file` + `patch` — closes
+[issue #1](https://github.com/ryanczak/rexyMCP/issues/1). M28 phase-02 (extend the
+helper to the other 8 arg-parsing tools) remains an **optional** follow-on.
+
+**M28 phase-01 — done** (2026-07-09, **approved_first_try**, executor
+AEON-7/Qwen3.6-27B-AEON LARGE; commit `0320019` fix). Actionable missing-field
+recovery hint for `write_file` + `patch` — closes
+[issue #1](https://github.com/ryanczak/rexyMCP/issues/1) (raw `missing field
+\`path\`` serde error near max context, surfaced by the M27 `/rexymcp:auto` live
+run). Shared `missing_args_hint(tool, required, present)` + `example_shape` in
+`registry.rs`; both edit tools compute `present` from `&args` before the
+`from_value` move (no `content` clone) and return the helper's message
+(missing-field branch + type-mismatch branch, no raw serde text). 7 new
+mutation-resistant tests; production `invalid arguments` arms gone (grep confirms
+only test assertions). Clean 49-turn first-try; all four gates green on
+independent re-run (935 executor + 483 mcp, 2 ignored). Dispatched via
+`rexymcp run-phase` (MCP server was disconnected); bookkeeping architect-authored
+since the CLI path skips the server finalize.
+
+**M27 — Autonomous Escalation Loop — done** (closed 2026-07-09; committed scope
+01–06b all approved, stretch phase-07 advisory routing not taken). The
+`/rexymcp:auto` loop was **live-validated** end-to-end against brainyscript
+(dispatch → `RunawayOutput` hard_fail → escalate refined re-dispatch → code
+written → second failure correctly judged unfixable-by-spec → `STOP(blocker)`
+without over-spending assists), with journaling and the 05a/05b token harvester
+both working on a real run (44.6M cache_read on the dispatch window — live proof
+of the cache-dominates rationale). The run surfaced issue #1 → **M28** (now
+active). Two test-driven `auto`-skill refinements folded post-approval
+(DRAFT-or-adopt; root-corroboration Pre-flight). Retrospective + two flagged
+fold-candidates (stale-NEXT-pointer-at-approve; completion_summary paraphrasing
+E2E) in the
+[M27 README](milestones/M27-autonomous-escalation-loop/README.md#retrospective--2026-07-09).
+
+**M27 phase-06b — done** (2026-07-09, **approved_first_try**, executor **Claude
+Code (direct)**; commits `eae27ed` draft + the 06b implementation commit). The
+`/rexymcp:auto` loop skill (`plugin/skills/auto/SKILL.md`) + WORKFLOW
+plugin-template mirror. Direct-execution (a prose skill orchestrating Claude Code
+subagents, not Rust for the local-LLM executor), so authored + reviewed by the
+architect. Composes the four existing skills unchanged; delegation role map
+(draft/escalate/takeover in the main loop; dispatch/review/refined-re-dispatch in
+`Agent` subagents on 06a's `dispatch_model`/`review_model`, inherit-by-default);
+loop algorithm + four stop conditions (boundary/budget/blocker/runaway); exact
+`rexymcp journal`/`harvest` command forms + the six canonical activity kinds; loop
+report = printed session output + a `boundary` journal record (no committed report
+file). **One external-API adaptation (data, not a fold):** Pre-flight step 5
+corrected the draft's `Task` subagent-tool assumption to **`Agent`** with a
+verified per-call `model` override, resolved cleanly from the live Claude Code
+subagent docs — the verify-external-APIs discipline working as intended. E2E:
+the six-kind `rexymcp journal` round-trip appends 6 `architect_activity` records
+with no `unknown activity` warning; frontmatter valid + shape-matches the other
+four skills; the template mirror carries all four stop conditions in ASCII-arrow
+house style. All four gates green on independent re-run (483 mcp + 928 executor,
+2 ignored); no Rust changed.
+
+**M27 phase-05b — done** (2026-07-09, **approved_first_try**; commits `8ff703a`
+draft / `eb0ccd7` feat / `b20dc1d` bookkeeping / `ac04678` approve). Architect usage
+harvester — the `rexymcp harvest` CLI (`mcp/src/harvest.rs` + `main.rs` clap variant/
+dispatch arm mirroring `journal`) reads Claude Code session transcripts (located via
+an explicit `--transcript-dir` arg), sums per-message `usage` by class into 05a's
+`ArchitectTokens`, dedups streaming lines by `message.id` (first wins), attributes
+each message to the `ArchitectActivity` whose journal time-window contains it
+(next-boundary: smallest activity `ts ≥ message ts`), and appends enriched activity
+copies that 05a's `fold_activities` overlays at read (the fold *is* the idempotency).
+Hand-rolled `parse_iso_to_epoch_ms` + `days_from_civil` (no date crate). Filled 05a's
+dormant architect token/cost path end-to-end. (The approve commit `ac04678` left
+NEXT.md's pointer stale — the recurring approve-time pattern — re-advanced to 06a here
+at the next `/rexymcp:architect next`.)
+
+**M27 phase-05a — done** (2026-07-09, **approved_first_try**, executor
+Qwen/Qwen3.6-27B-FP8; commits `be8ad9b` draft / `2334084` refactor / `11fca95`
+bookkeeping / `553c107` approve). Architect token substrate: one coherent
+`ArchitectTokens { input, cache_creation, cache_read, output }` (+ `ArchitectRates`
++ `cost(&rates)`) in `telemetry.rs`, migrated `ArchitectActivity` to a nested
+`tokens` field, retired the dead `TierTelemetry.architect_*_tokens`, added cache
+rates + `effective_architect_rates()` to `[architect]` config (cache-read 0.1× /
+cache-creation 1.25× the input rate when the model is known), a `fold_activities`
+last-write-wins overlay (by `(phase_id, activity, ts)`), and the cache-aware
+dashboard cost path (`ScopeCosts.architect: ArchitectTokens`, `load_data` sums from
+**folded activities**). Additive + dormant — every architect token count stays 0
+until this phase-05b harvester runs. Diff landed verbatim across all 9 tasks; 926
+executor + 472 mcp tests pass. No scope deviation, no fold. (The approve commit
+left NEXT.md's pointer stale and the README 05a row malformed `| done | review |`
+— both the recurring approve-time pattern, fixed here at the next
+`/rexymcp:architect next`.)
+
+**Three design forks resolved with the user at draft time (2026-07-09):**
+(1) **per-phase attribution via journal time-windows** (roll up phase → milestone
+→ project); (2) **no date crate** — the fixed-format ISO-Zulu → epoch-ms
+conversion is an exact hand-rolled `days_from_civil` (bit-identical to a crate for
+this UTC format; a crate buys a dependency, not accuracy — the real accuracy risks
+are `message.id` dedup and the cache-token policy, both non-time); (3) **separate
+cache rates** (bill uncached-input / cache-creation / cache-read / output at real
+per-class rates, since cache tokens dominate real usage). Consequent to (3), a
+**targeted architect-token-model rewrite** (05a scope above) over the
+scattered-additive-fields or full-telemetry-rewrite alternatives. Write path =
+**append + fold at read** (last-write-wins). Two transcript gotchas found while
+sampling a real `~/.claude` session and pre-injected into 05b's plan: streaming
+emits multiple assistant JSONL lines per response sharing one `message.id` with
+**identical repeated `usage`** (dedup by `message.id` or 3–4×-overcount), and
+cache tokens dominate (sampled turn: input=131, cache_read=89819,
+cache_creation=10869 — the cache policy *is* the cost figure).
+
+**M27 phase-04b — done** (2026-07-09, **approved_first_try**; commits `65387a4`
+draft / `2d535be` fix / `a12119e` start / `aefb9cb` bookkeeping / `624a396`
+approve). Finalize tolerates a bounced status line: extracted a prefix-tolerant
+`is_in_progress_status()` shared predicate (matches `**Status:** in-progress`
+exactly or with a trailing space-delimited note; the load-bearing space keeps
+`in-progressish` out), and `flip_status_to_review` now emits a clean
+`**Status:** review` (dropping the stale `(bounced — …)` note via a whitespace-
+preserving rebuild, not `str::replace`). 917 tests pass (21 finalize-specific);
+the `finalize_flips_bounced_status_and_appends_entry` integration test proves the
+`TempDir` end-to-end path. Fixes the 03a no-op surfaced in phase-04 review;
+unblocks phase-06's bounce-then-re-dispatch loop. See
+[[finalize-noops-on-bounced-phase]]. (NEXT.md pointer was left stale by the
+approve commit — the recurring pattern — and re-advanced to 05a here at the next
+`/rexymcp:architect next`.)
+
+**M27 phase-04 — done** (2026-07-08, **approved_after_1**, executor
+Qwen/Qwen3.6-27B-FP8; commits `3deb187` feat / `3e075ea` test / `76b38bd`
+approve). `continue_phase` briefing-seeded resume: the MCP tool + `mcp/src/resume.rs`
+(last-write-wins task-state restore + `git diff HEAD` + seed-safe `# Resume
+context` preamble) + additive `PhaseInput.resumed_task_states` + `resume` threaded
+through `RunPhaseConfig`/`AssemblyInput` + the "Resuming a phase" contract block +
+the un-stubbed escalate resume lever. **Bounced once** (bug-04-1, major,
+false_completion): the first dispatch shipped the feature's core behavior
+**untested** — nothing set `resumed_task_states: Some(...)`, so the seed-override
+path had zero integration coverage, and three test-plan tests were skipped.
+Re-dispatch (test-only) added `restored_states_override_seeded_pending`
+(architect **mutation-verified** — neutralizing the override loop fails it), the
+`continue_phase` server tests, the contract assertion, and a strengthened
+seed-safety test. All four gates green on independent re-run (917 executor + 467
+mcp). **Two review findings:** (1) the first dispatch hit a **pre-03b stale
+`rexymcp serve`** binary (old contract → executor authored its own completion tail
++ review flip); resolved by a mid-review server restart. (2) **Server-authored
+finalize no-ops on a bounced phase** — the defect phase-04b (above) fixes; the
+phase-04 status flip + completion entry were architect-recorded as a result.
+
+**Design forks resolved with the user at draft time (2026-07-08):** (1) **single
+phase** (not split 04a/04b); (2) **programmatic task-state restore** from the
+session log (additive `PhaseInput` field), not textual-only — else the M21/M22
+task-coverage gate would re-demand done tasks; (3) **amend the executor contract**
+with a resume paragraph. Locator decided architect-side: `prior_log_path` is an
+explicit `continue_phase` param (no `.rexymcp/sessions/` auto-scan), matching the
+no-silent-fallback ethos.
+
+**M27 phase-03b — done** (2026-07-08, **approved_first_try**; commits `5d35df2`
+refactor / `f6a3d35` review-flip / `5ea4abd` approve). Retired the executor's
+pre-completion bookkeeping gate and amended the executor contract so the executor
+keeps the start flip (`todo → in-progress`) but stops authoring the completion
+tail — its final message now carries the Summary/Notes the server splices in.
+With the gate gone a completed run reaches finalize at `in-progress`, activating
+03a's dormant server-authored finalize. (NEXT.md pointer was left stale by the
+approve commit — the recurring pattern — and re-advanced to 04 here at the next
+`/rexymcp:architect next`.)
+
+**M27 phase-03a — done** (2026-07-08, **approved_first_try**, executor Claude
+(Anthropic); commits `9fbc33d` feat / `34f8f93` approve). Added the
+`completion_summary` channel to `PhaseResult`/`Artifacts` (populated post-think
+on the complete path only), the new `mcp/src/finalize.rs` (`finalize_complete`:
+Status flip + baseline Update Log entry + README-row flip + separate `docs:`
+commit, staging only doc paths via `git add -- <paths>`, git failures swallowed),
+and wired it into `run_phase_with` (finalize error → `warnings`, never `Err`).
+Dormant-safe: no-ops on an already-`review` doc, so nothing observable changes
+until phase-03b (below) retires the executor gate. Clean first-try; 920 passed /
+2 ignored. (NEXT.md pointer was left stale by the approve commit — the recurring
+pattern — and re-advanced to 03b here at the next `/rexymcp:architect next`.)
+
+**M27 phase-03a — drafted** (2026-07-08). Design forks resolved with the user:
+commit ownership = executor commits code / server commits bookkeeping
+separately; qualitative parts = server writes the mechanical entry and splices
+an executor Summary+Notes carried through the `completion_summary` field.
+Pre-injected verbatim: the `PhaseResult`/`Artifacts` field additions + the
+complete-path capture site (`strip_think_blocks(&completion)`), the full
+`finalize_complete` skeleton + helper contracts (with pinned negatives for the
+status-line match, README-row flip, and `git add -- <paths>` never `-A`), the
+baseline-entry format (raw epoch-ms — no date crate, no new dep), and the
+`run_phase_with` wiring (finalize error → `warnings`, never `Err`). Split from
+the original single phase-03; 03b (gate retirement + contract amendment) stays
+planned.
+
+**M27 phase-02b — done** (2026-07-08, **approved_after_1**, executor
+Qwen/Qwen3.6-27B-FP8 on the completing run; Qwen/Qwen3.6-27B-PrismaAURA landed
+the diff on the prior hard_fail runs; commits `5209738` approve). One bounce: a
+governor `IdenticalToolCallRepetition` hard_fail during exploratory
+verification, not an implementation defect — all 6 spec tasks and four gates
+were clean once a diff was produced. Refined re-dispatch (spec note confirming
+the pre-verified `rexymcp journal` CLI syntax) then completed. Independent gate
+re-run (918 passed / 2 ignored) + end-to-end `rexymcp journal` round-trip
+reproduced. Retired the orphaned `tier_telemetry.escalation_count`; rewired the
+dashboard Assists counter to count `assist` `ArchitectActivity` records.
+
+**M27 phase-02b — drafted** (2026-07-08). Two files
+(`executor/src/store/telemetry.rs` field retirement + doc-comment/test fix +
+back-compat test; `mcp/src/dashboard/mod.rs` `load_data` rewire + test rewrite +
+fixture cleanup). Pre-injected verbatim: the `TierTelemetry` before/after, the
+full `load_data` tuple-fold→split replacement (costs fold + separate
+`read_architect_activities` assist count), the rewritten count test with two
+pinned negatives (non-assist kind, other project), and the back-compat fixture.
+Completes the "escalation_count wiring" half of the phase-02 split.
+
+**M27 phase-02 — done** (2026-07-08, **approved_first_try**, executor
+Qwen/Qwen3.6-27B-PrismaAURA; commits `d47947e` feat / `c77f5dd` approve).
+Loop-journal substrate: added the `ArchitectActivity` append-only record (six
+kinds) + store API (`append_architect_activity`/`read_architect_activities`) +
+`ARCHITECT_ACTIVITIES` advisory vocabulary + the `rexymcp journal` CLI producer
+(mirrors `rexymcp review`); retired the dead M20 `EscalationEvent` (generalize,
+not sibling — zero producers/readers). Clean first-try; all four gates green on
+independent re-run (917 passed / 2 ignored). End-to-end verified via the real
+`rexymcp journal` CLI. No scope deviation, no calibration fold. One cosmetic nit
+(doc comments written as single long lines vs multi-`///`-line — no fmt-gate
+effect).
+
+**M27 phase-02 — drafted** (2026-07-08). ~430 lines, size=l, three files
+(`executor/src/store/telemetry.rs`, new `mcp/src/journal.rs`, `mcp/src/main.rs`).
+Pre-injected verbatim: the `EscalationEvent`/`append_escalation`/`read_escalations`
+shape to mirror for the new store API, the `FAILURE_CLASSES`/`is_known_failure_class`
+advisory-vocabulary pattern, the full `ArchitectActivity` struct + `journal.rs`
+`record_activity` body + `main.rs` clap-variant/dispatch-arm (each a 1:1 copy of
+the `review.rs`/`Review` analogue). Two cross-discriminator exclusion tests
+**converted** (not deleted) from escalation → architect_activity so the
+load-bearing `record`-filter pin (M18 bug-01-1) carries forward. Write-side only;
+no dashboard/`TierTelemetry` touch, `architect_*_tokens` stay 0 (phase-05
+harvester fills them). **Two draft-time forks resolved with the user:** generalize
+`EscalationEvent`→`ArchitectActivity`; rewire the Assists counter in phase-02(b).
+Also recorded the M27 **per-role model delegation** decision in the README (commit
+`a56cf4d`): `/model` picks the architect model, `/rexymcp:auto` delegates
+dispatch/review to subagents on `[architect] dispatch_model`/`review_model`
+(inherit-by-default, no `draft_model` — drafting stays in the main loop);
+accounting implication routed to phase-05.
+
+**M27 phase-01 — done** (2026-07-08, **approved_first_try**, executor
+Qwen/Qwen3.6-27B-PrismaAURA; commits `108a2f1` refactor / `fcec7c1` approve).
+Retired `[budget] escalation_slots` from `BudgetConfig` (field + `Default` +
+~40 fixture lines via `sed`) and redefined `[escalation] max_assists` as the
+flat, tier-independent per-phase assist budget (default 3); `calibrate` stops
+managing `[escalation]` (user settings survive re-calibrate) and strips the
+retired key from old configs; `init` template updated; back-compat pin added
+(`Config::load` ignores a stale `escalation_slots` key). Clean first-try; all
+four gates green on independent re-run (916 passed / 2 ignored). One accepted
+scope deviation (4 `escalation_slots` fixture lines in `mcp/src/server_tests.rs`,
+mechanically required for a clean build). No calibration fold.
+
+**M27 phase-01 — drafted** (2026-07-08). Mechanical multi-site churn is the
+dominant risk (the 4-occurrence stall class): the spec pre-injects the
+compiler-guided ordering (remove field → build → fix the 2 flagged assertions)
+and sanctions `sed` for the ~40 fixture-line deletions. Semantics change folded
+in with rationale: `max_assists` stops being SMALL-tier-derived, so
+`calibrate` neither writes nor removes `[escalation]` on any tier (pinned
+negative: a user's explicit section must survive re-calibrate). Back-compat
+pinned: `Config::load` must ignore a stale `escalation_slots` key.
+`architecture.md` § Configuration amended at draft time (architect-side).
+~150 lines, size=m.
+
+**📌 M27 — Autonomous Escalation Loop kicked off (2026-07-08, with the user).**
+The architect-side autonomous cycle queued at the M26 phase-06 talk-through.
+Design fixed at kickoff via a four-fork talk-through (full-milestone loop; full
+review rigor with no per-phase pause + per-activity token/cost accounting; all
+three threads in scope; budget consolidated on `[escalation] max_assists`,
+`escalation_slots` retired). Seven planned phases in three threads —
+**substrate** (01 knob consolidation, 02 loop-journal telemetry), **executor/
+server autonomy** (03 D8/D9 server-authored bookkeeping + executor-contract
+amendment, 04 `continue_phase` briefing-seeded resume), **architect loop &
+accounting** (05 Claude Code transcript usage harvester + dashboard wiring, 06
+`/rexymcp:auto` loop skill + loop report, 07 stretch: advisory model routing).
+Kickoff amendments landed: `architecture.md` § "Escalation = Claude Code
+itself" (resume candidate → committed, briefing-seeded; autonomous-loop
+paragraph) + § Status #27; `WORKFLOW.md` § "Phase progression & triggers"
+autonomous-loop paragraph expanded (plugin-template mirror deferred to
+phase-06). Milestone
+[README](milestones/M27-autonomous-escalation-loop/README.md) holds the full
+design record. Phases drafted on demand via `/rexymcp:architect next`.
+
+**M26 — Polish & Hardening closed 2026-07-08** (9/9 phases done; see the
+[milestone README retrospective](milestones/M26-polish-and-hardening/README.md#retrospective--2026-07-08)).
+
+**M26 phase-08 — done** (2026-07-08, **approved_first_try**; commits `7b52496`
+feat / `78895cd` approve). Verifier `tsc` resolution
+(`node_modules/.bin` → `npx --no-install tsc` → PATH). Three pure resolver
+helpers (`find_local_tsc` — ancestor-walk for `node_modules/.bin/tsc`, catching
+monorepo hoisting; `binary_in_dirs` — a PATH-scan mirroring
+`doctor::resolve_binary`; `resolve_tsc_command(project_root, npx_on_path) ->
+TscCommand` — local → `npx --no-install tsc` → bare `tsc`) plus the one spawn
+rewired to use the resolved program + prefix args. Diff landed byte-identical
+to the phase doc's pre-injected code. 10 unit tests + 1 `#[cfg(unix)]` E2E test
+(plants an executable fake `node_modules/.bin/tsc`, confirms `Checked` with its
+emitted diagnostic — proves the local binary is actually spawned). Clean
+60-turn first-try; all four gates green on independent re-run (915 passed / 2
+ignored). No scope deviation, no calibration fold.
+
+**M26 phase-08 — drafted** (2026-07-08). `verify_typescript`
+(`executor/src/governor/verifier.rs:431`) spawns a **bare** `tsc`, so it
+`Skipped`s (NotFound) in real Node repos where `tsc` lives in `node_modules/.bin`.
+The phase adds three pure resolver helpers (`find_local_tsc` — ancestor-walk for
+`node_modules/.bin/tsc`, catching monorepo hoisting; `binary_in_dirs` — a
+PATH-scan mirroring `doctor::resolve_binary` since the `mcp` crate that owns it
+depends on `executor`, not the reverse; `resolve_tsc_command(project_root,
+npx_on_path) -> TscCommand` — local → `npx --no-install tsc` → bare `tsc`) and
+rewires the one spawn to use the resolved program + prefix args. Resolution runs
+**after** the `find_typescript_project_root` None check, so the "no tsconfig.json"
+`Failed` path is byte-identical; `spawn_failure`→`Skipped` unchanged (just a
+local-install hint). Pre-injected: the full verify_typescript block to replace,
+the `doctor.rs` resolve_binary shape to mirror, verbatim helper bodies, the
+`.is_file()` directory-negative pin, and a `#[cfg(unix)]` **fake-local-binary
+E2E** (plant an executable `node_modules/.bin/tsc` shell script → assert `Checked`
+with its emitted diagnostic — proves the local binary is actually spawned, no
+host `tsc` needed). No new dep, no `Cargo.toml`/`architecture.md` edit. ~160
+lines, size=m.
+
+**M26 phase-07b — done** (2026-07-08, approved_first_try; commits `82b7830`
+draft / `ccaf130` feat / `55e69b7` approve). A clock-based **budget terminal** (not a
+governor detector): a new `#[serde(default)] wall_clock_secs: u64` on `BudgetConfig`
+(default 0 = disabled) and a sibling `wall_clock_secs: u64` on `LoopDeps`, threaded
+to all 15 construction sites via the phase-06 `gate_retries` precedent (mechanical
+"add a line after each `gate_retries:`" rule, grep-verified). The loop captures a
+`loop_started_ms` baseline off the injected `deps.clock` (no real `SystemTime` in
+`executor/`) and adds a "Step 2a" terminal at the top of the loop: when
+`wall_clock_secs > 0` and elapsed ≥ ceiling, return `budget_exceeded` (mirroring the
+Step-2 context-overflow block). Unlike `gate_retries` it is **flat opt-in** — no tier
+derivation, no `ModelOverride`, no `effective_*` helper — and **is** written to the
+`rexymcp init` `[budget]` template. Pre-injected: the 15-site `LoopDeps` table + grep
+rule, the Step-2 worked example to copy, the `AtomicU64` advancing-clock test helper
+(clock is `Fn` not `FnMut`), and the enabled/disabled integration-test pair (ceiling
+fires before Step 3, so no mock-exhaustion risk). ~180 lines, size=m.
+
+**M26 phase-07a — done** (2026-07-08, approved_first_try). Two additive, standalone pure detectors
+in `executor/src/governor/hard_fail.rs`, chained after `evaluate` in the Step-7
+hard-fail seam (mirroring M22's `check_empty_completion_stall` pattern — **not**
+folded into `evaluate`, so its ~10 test call sites are untouched):
+- **`check_oscillation`** — sliding-window distinct-`(tool, arguments)`-set
+  detector; fires `Oscillation` when the last `oscillation_window` (default 8) calls
+  collapse to `2..=oscillation_distinct_max` (default 2) distinct calls, catching the
+  A,B,A,B read↔patch cycle that `IdenticalToolCallRepetition` (consecutive-identical
+  only) misses. Distinct-count 1 is left to identical-repetition; `serde_json::Value`
+  isn't `Hash`/`Ord` so distinctness is a linear `Vec` scan.
+- **`check_windowed_output`** — sums the last `output_window` (default 6) tool
+  outputs (new lockstep `recent_output_bytes: VecDeque<usize>`); fires
+  `CumulativeOutputFlood` above `output_window_bytes` (default 256 KB), catching a
+  multi-call flood of sub-`runaway_output_bytes` outputs the single-call
+  `check_runaway_output` misses.
+Four `GovernorConfig` fields + `ModelOverride` counterparts + `resolve_for_model`
+application + `rexymcp init` template docs; `window = 0` disables each. Pre-injected:
+the standalone-vs-`evaluate` pattern choice, the `.or_else` chain at the Step-7 seam,
+the linear distinct-set scan, tuned-`GovernorConfig` integration tests (small windows,
+compaction-immune), the `n >= 2` load-bearing negative pin, and the **phase-06
+mock-exhaustion gotcha** (script enough `MockAiClientScript` turns or the loop drifts
+to the turn cap via the empty-completion branch). **The wall-clock ceiling split out
+to phase-07b** (drafted on demand after 07a). ~300 lines, size=m.
+
+**M26 phase-06 — done** (2026-07-08, **escalated** — session takeover after
+2nd dispatch `budget_exceeded`; commit pending). Wires `effective_gate_retries(tier)`
+into the M19 gate-retry loop: a resolved `gate_retries: u32` field on `LoopDeps`,
+a `gate_retry_count` counter, and a `gate_budget_exhausted` check that terminates
+as `budget_exceeded` (reason: "gate-retry budget exhausted after N retries") before
+the turn cap. `LARGE`/no-tier still resolve to `u32::MAX` (byte-identical to prior
+behavior); `mcp/src/runner.rs` resolves the field via
+`inp.cfg.budget.effective_gate_retries(inp.cfg.executor.tier)`. Two `config.rs`
+doc comments corrected (`gate_retries` wired M26, escalation deferred to M27).
+**1st dispatch** hard-failed at turn 3 on a backend infra blip (400 from
+`brain:8000` rendering a null-`arguments` tool call back into the next request) —
+plain re-dispatch, no spec change. **2nd dispatch** landed all production code
+byte-identical to the phase doc's pre-injected fragments (grep-confirmed) but ran
+to `budget_exceeded` at 400/400 turns: the two new tests' `MockAiClientScript`
+scripted only one model turn, so once exhausted `chat()` sent zero events and the
+loop fell into the unrelated empty-completion recovery path instead of re-running
+the gate check, drifting to the turn cap. The executor never diagnosed the mock's
+turn-exhaustion behavior across ~330 stalled turns. **Session takeover:** scripted
+4/3 `"All done."` turns in the two tests (no production-code change); all four
+gates green (439 mcp + 888 executor tests, 2 ignored). **Calibration (2nd
+occurrence, no fold):** executor stalls on a test-harness/mock subtlety it can't
+diagnose, distinct from a production-code gap — flagged for the user.
+
+**M26 phase-05 — done** (2026-07-07, **approved_first_try**; commits `d5acc0c`
+draft / `cb9c1f1` fix / `ecdd970` approve). The post-write format hook no longer
+no-ops: a new writing `format_fix` field (mirroring `lint`/`lint_fix`) lets the
+hook rewrite a just-written misformatted file while the DoD fmt gate keeps running
+the check-form `format`. Closes the M21 executor-vs-reviewer fmt divergence.
+**Wire-or-retire fork for phase-06 resolved with the user (2026-07-07):** wire
+`gate_retries` (phase-06, drafted above); **defer** the escalation knobs
+(`escalation_slots`/`max_assists`) to a new **M27 — Autonomous Escalation Loop**
+milestone (architect-side `/loop`, starts with a design talk-through + an
+`architecture.md`/executor-contract/`WORKFLOW.md` amendment; absorbs the resume
+lever + D8/D9 server-authored bookkeeping). M27 is a human-gated boundary, not yet
+kicked off. See the [M26 README](milestones/M26-polish-and-hardening/README.md)
+§ "Escalation budgeting moved to M27".
+
+**M26 phase-04 — done** (2026-07-07, **approved_first_try**; commits `4cf24da`
+draft / `cdd8a98` fix / `bc3313f` approve). `write_file` now honors the
+read-before-edit gate: an **overwrite** of an existing unread (or mtime-changed)
+file is refused like `patch`, while **create** and **append** stay ungated, and
+the working set records mtime after a non-append write. (NEXT.md pointer was left
+stale by the approve commit — a recurring pattern — and re-advanced here at the
+next `/rexymcp:architect next`.)
+
+M26 phases 01–03 all **done** (2026-07-07, all approved_first_try):
+[01](milestones/M26-polish-and-hardening/phase-01-contract-docs-and-manifests.md)
+contract docs & manifests,
+[02](milestones/M26-polish-and-hardening/phase-02-run-phase-telemetry-parity.md)
+run-phase telemetry parity,
+[03](milestones/M26-polish-and-hardening/phase-03-silent-degradation-warnings.md)
+silent-degradation warnings. The originally-planned roots-corroboration phase was
+**deferred** (rmcp 1.8.0 deprecated `list_roots` per MCP SEP-2577 — see the
+[milestone README](milestones/M26-polish-and-hardening/README.md) § "Roots
+corroboration deferred"). Remaining phases 05–08 are planned in the README but not
+yet drafted.
+
+**📌 M26 — Polish & Hardening kicked off (2026-07-07, with the user).** Seeded
+from the post-M25 whole-codebase review
+([codebase-review-2026-07-07.md](codebase-review-2026-07-07.md)) rather than an
+e2e failure — the review surfaced seams that fail silently, so no dogfooding run
+trips them. Two threads across nine planned phases: **housekeeping (01–04)** —
+stale `REXYMCP.md` contract lines + divergent plugin manifests (01),
+untelemetered `run-phase` (02), dead `roots/list` corroboration (03),
+silent degradations surfaced as `PhaseResult` warnings (04) — and **loop
+hardening (05–09)** — `write_file` read-before-edit gate (05), post-write format
+hook writing form (06), wire-or-retire the dead budget/tier knobs (07, decision
+with the user at draft time), governor blind-spot detectors (08), verifier `tsc`
+resolution (09). Milestone
+[README](milestones/M26-polish-and-hardening/README.md) +
+`architecture.md` § Status #26 added at kickoff; phases drafted on demand via
+`/rexymcp:architect next`. **M25 closed 2026-06-30** at the human-gated boundary
+below.
 
 **Out-of-band fixes on `feat/executor-thinking-and-autocomplete` (2026-06-26 →
 2026-07-09).** Four ad-hoc commits landed between milestones — direct Claude Code

@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rexymcp_executor::agent::command::CommandRunner;
 use rexymcp_executor::agent::progress::ProgressCallback;
 use rexymcp_executor::agent::verify::FileVerifier;
-use rexymcp_executor::agent::{self, LoopDeps, PhaseInput};
+use rexymcp_executor::agent::{self, CancelSignal, LoopDeps, PhaseInput};
 use rexymcp_executor::ai::{AiClient, OpenAiClient, SamplingParams, ToolSchema};
 use rexymcp_executor::config::Config;
 use rexymcp_executor::context::budget::Budget;
@@ -110,6 +110,56 @@ struct AssemblyInput<'a> {
     progress: Option<&'a dyn ProgressCallback>,
     context_window: Option<usize>,
     project_id: Option<String>,
+    resume: Option<&'a crate::resume::ResumeContext>,
+    cancel: CancelSignal,
+}
+
+/// Resolve the telemetry directory for a CLI-driven `run-phase` invocation:
+/// `--no-telemetry` forces telemetry off regardless of config; otherwise
+/// defer to `cfg.telemetry.dir`, matching the MCP `execute_phase` path
+/// (`server.rs::execute_phase_inner_with_client`), which always telemeters
+/// when `[telemetry] dir` is set.
+pub fn resolve_telemetry_dir(cfg: &Config, no_telemetry: bool) -> Option<&Path> {
+    if no_telemetry {
+        None
+    } else {
+        cfg.telemetry.dir.as_deref()
+    }
+}
+
+/// Collect non-fatal warnings about a phase run's inputs, for surfacing in
+/// `PhaseResult.warnings`. A blank (whitespace-only or absent) STANDARDS
+/// string or an unparsed Goal / Acceptance-criteria section each means the
+/// executor is running degraded, and today that is silent.
+pub fn collect_input_warnings(
+    standards: &str,
+    goal: &str,
+    acceptance_criteria: &str,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if standards.trim().is_empty() {
+        warnings.push(
+            "STANDARDS.md is empty or missing at <repo>/docs/dev/STANDARDS.md — \
+             the executor ran without a Definition of Done. Confirm the file \
+             exists and is readable."
+                .to_string(),
+        );
+    }
+    if goal.trim().is_empty() {
+        warnings.push(
+            "Phase doc has no parseable '## Goal' section — the executor ran \
+             without a stated goal. Confirm the heading is exactly '## Goal'."
+                .to_string(),
+        );
+    }
+    if acceptance_criteria.trim().is_empty() {
+        warnings.push(
+            "Phase doc has no parseable '## Acceptance criteria' section. \
+             Confirm the heading is exactly '## Acceptance criteria'."
+                .to_string(),
+        );
+    }
+    warnings
 }
 
 /// Derive the milestone directory slug from a phase-doc path.
@@ -201,6 +251,19 @@ async fn run_phase_with(
         inp.cfg.budget.max_context_pct,
     );
 
+    let input_warnings =
+        collect_input_warnings(inp.standards, &fields.goal, &fields.acceptance_criteria);
+
+    // Apply resume context: append preamble to phase_doc and set restored task states.
+    let (phase_doc, resumed_task_states) = if let Some(resume) = inp.resume {
+        (
+            format!("{}\n\n{}", phase_doc, resume.preamble),
+            Some(resume.task_states.clone()),
+        )
+    } else {
+        (phase_doc, None)
+    };
+
     let input = PhaseInput {
         standards: inp.standards.to_string(),
         phase_doc,
@@ -212,6 +275,7 @@ async fn run_phase_with(
         project_id: inp.project_id.clone(),
         milestone_id: milestone_id_from_path(inp.phase_doc_path),
         tier: cfg.executor.tier,
+        resumed_task_states,
     };
 
     let session_id = generate_session_id();
@@ -222,6 +286,8 @@ async fn run_phase_with(
         tools: &tool_schemas,
         budget: &budget,
         max_turns: inp.cfg.budget.max_turns as usize,
+        gate_retries: inp.cfg.budget.effective_gate_retries(inp.cfg.executor.tier),
+        wall_clock_secs: inp.cfg.budget.wall_clock_secs,
         project_root: inp.repo_path,
         model: inp.model,
         session_id: &session_id,
@@ -238,9 +304,23 @@ async fn run_phase_with(
         context_window: inp.context_window,
         governor: cfg.governor,
         task_tracking: cfg.executor.task_tracking,
+        cancel: inp.cancel.clone(),
     };
 
-    agent::execute_phase(&input, deps).await
+    let mut result = agent::execute_phase(&input, deps).await?;
+    result.warnings.extend(input_warnings);
+
+    let finalize_input = crate::finalize::FinalizeInput {
+        phase_doc_path: inp.phase_doc_path,
+        repo_root: inp.repo_path,
+        result: &result,
+        now_ms: (seams.clock)(),
+        runner: seams.runner,
+    };
+    if let Err(e) = crate::finalize::finalize_complete(&finalize_input).await {
+        result.warnings.push(format!("server finalize failed: {e}"));
+    }
+    Ok(result)
 }
 
 /// Configuration parameters for `run_phase`, grouped to stay under
@@ -257,6 +337,11 @@ pub struct RunPhaseConfig<'a> {
     pub project_id: Option<String>,
     /// Inject a test client. `None` → production `OpenAiClient`.
     pub test_client: Option<&'a dyn AiClient>,
+    /// Resume context for `continue_phase`. `None` on a normal `execute_phase`.
+    pub resume: Option<crate::resume::ResumeContext>,
+    /// Cooperative cancel signal for the spawned async run. `CancelSignal::never()`
+    /// disables it (the CLI `run-phase` path and `continue_phase`, for now).
+    pub cancel: CancelSignal,
 }
 
 /// Production wrapper — builds real seams + system clock, delegates.
@@ -323,6 +408,8 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             None
         },
         project_id: inp.project_id.clone(),
+        resume: inp.resume.as_ref(),
+        cancel: inp.cancel.clone(),
     };
 
     run_phase_with(&assembly, &seams).await
@@ -523,6 +610,8 @@ mod tests {
             progress: None,
             context_window: None,
             project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
         };
 
         let result = run_phase_with(&inp, &seams).await;
@@ -536,6 +625,72 @@ mod tests {
         assert_eq!(
             phase_result.status,
             rexymcp_executor::phase::PhaseStatus::Complete
+        );
+    }
+
+    #[tokio::test]
+    async fn run_phase_with_finalizes_an_in_progress_doc_to_review() {
+        let dir = TempDir::new().unwrap();
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let phase_doc_path = dir.path().join("phase-01-test.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01: Test\n\n**Status:** in-progress\n\n**Tags:** language=rust, kind=test, size=s\
+             \n\n## Goal\n\nTest goal.\n\n## Acceptance criteria\n\n- [ ] It runs.\
+             \n\n## Update Log\n\n<!-- entries appended below this line -->\
+             \n\n### Update — 2026-01-01 00:00 (started)\n",
+        )
+        .unwrap();
+
+        let cfg = Config::default();
+
+        let mock = MockAiClient::new(vec!["Done.".to_string()]);
+
+        let clock = || 1234567890u64;
+
+        let seams = Seams {
+            client: &mock,
+            verifier: &NoopVerifier,
+            runner: &NoopRunner,
+            clock: &clock,
+        };
+
+        let inp = AssemblyInput {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "standards",
+            model: "test-model",
+            telemetry_dir: None,
+            progress: None,
+            context_window: None,
+            project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+        };
+
+        let result = run_phase_with(&inp, &seams).await;
+
+        assert!(
+            result.is_ok(),
+            "run_phase_with should succeed: {:?}",
+            result
+        );
+        let phase_result = result.unwrap();
+        assert_eq!(
+            phase_result.status,
+            rexymcp_executor::phase::PhaseStatus::Complete
+        );
+        let doc_after = std::fs::read_to_string(&phase_doc_path).unwrap();
+        assert!(
+            doc_after.contains("**Status:** review"),
+            "finalize must flip the completed in-progress doc to review: {doc_after}"
+        );
+        assert!(
+            doc_after.contains("(complete, server-authored)"),
+            "finalize must append the server-authored completion entry: {doc_after}"
         );
     }
 
@@ -569,6 +724,8 @@ mod tests {
             progress: None,
             context_window: None,
             project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
         };
         let result = run_phase_with(&inp, &seams).await;
 
@@ -606,6 +763,10 @@ mod tests {
                 empty_completion_threshold: None,
                 gate_feedback_repeat_threshold: None,
                 thinking: None,
+                oscillation_window: None,
+                oscillation_distinct_max: None,
+                output_window: None,
+                output_window_bytes: None,
             },
         );
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
@@ -629,6 +790,8 @@ mod tests {
             progress: None,
             context_window: None,
             project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
         };
 
         let result = run_phase_with(&inp, &seams).await;
@@ -682,6 +845,8 @@ mod tests {
             progress: None,
             context_window: None,
             project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
         };
 
         let result = run_phase_with(&inp, &seams).await;
@@ -726,6 +891,10 @@ mod tests {
                 empty_completion_threshold: None,
                 gate_feedback_repeat_threshold: None,
                 thinking: None,
+                oscillation_window: None,
+                oscillation_distinct_max: None,
+                output_window: None,
+                output_window_bytes: None,
             },
         );
 
@@ -750,6 +919,8 @@ mod tests {
             progress: None,
             context_window: None,
             project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
         };
 
         let result = run_phase_with(&inp, &seams).await;
@@ -766,6 +937,141 @@ mod tests {
             runs[0].generation_params.temperature,
             Some(0.8),
             "temperature must be the global (0.8) since 'different-model' has no [models] entry"
+        );
+    }
+
+    // --- resolve_telemetry_dir tests ---
+
+    #[test]
+    fn resolve_telemetry_dir_defers_to_config_when_flag_absent() {
+        let mut cfg = Config::default();
+        cfg.telemetry.dir = Some(PathBuf::from("/tmp/telemetry"));
+        assert_eq!(
+            resolve_telemetry_dir(&cfg, false),
+            Some(Path::new("/tmp/telemetry"))
+        );
+
+        let cfg_no_dir = Config::default();
+        assert_eq!(resolve_telemetry_dir(&cfg_no_dir, false), None);
+    }
+
+    #[test]
+    fn resolve_telemetry_dir_forces_none_when_flag_present() {
+        let mut cfg = Config::default();
+        cfg.telemetry.dir = Some(PathBuf::from("/tmp/telemetry"));
+        assert_eq!(resolve_telemetry_dir(&cfg, true), None);
+
+        let cfg_no_dir = Config::default();
+        assert_eq!(resolve_telemetry_dir(&cfg_no_dir, true), None);
+    }
+
+    // --- collect_input_warnings ---
+
+    #[test]
+    fn collect_input_warnings_empty_when_all_present() {
+        let warnings = collect_input_warnings("s", "g", "a");
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn collect_input_warnings_flags_blank_standards() {
+        let warnings = collect_input_warnings("", "g", "a");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("STANDARDS"));
+    }
+
+    #[test]
+    fn collect_input_warnings_flags_whitespace_only_standards() {
+        let warnings = collect_input_warnings("   \n", "g", "a");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("STANDARDS"));
+    }
+
+    #[test]
+    fn collect_input_warnings_flags_blank_goal() {
+        let warnings = collect_input_warnings("s", "", "a");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Goal"));
+    }
+
+    #[test]
+    fn collect_input_warnings_flags_blank_criteria() {
+        let warnings = collect_input_warnings("s", "g", "");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Acceptance criteria"));
+    }
+
+    #[test]
+    fn collect_input_warnings_multiple_blank_inputs() {
+        let warnings = collect_input_warnings("", "", "");
+        assert_eq!(warnings.len(), 3);
+    }
+
+    // --- end-to-end: run_phase_with stamps input warnings ---
+
+    #[tokio::test]
+    async fn run_phase_with_stamps_input_warnings() {
+        let dir = TempDir::new().unwrap();
+
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        std::fs::write(repo_dir.join(".gitkeep"), "").unwrap();
+
+        let phase_doc_path = repo_dir.join("phase-01.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01\n\n## Goal\n\nDo a thing.\n\n## Acceptance criteria\n\n- done\n",
+        )
+        .unwrap();
+
+        let cfg = Config::default();
+
+        let mock = MockAiClient::new(vec!["Done.".to_string()]);
+
+        let clock = || 1234567890u64;
+
+        let seams = Seams {
+            client: &mock,
+            verifier: &NoopVerifier,
+            runner: &NoopRunner,
+            clock: &clock,
+        };
+
+        let inp = AssemblyInput {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "",
+            model: "test-model",
+            telemetry_dir: None,
+            progress: None,
+            context_window: None,
+            project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+        };
+
+        let result = run_phase_with(&inp, &seams).await;
+
+        assert!(
+            result.is_ok(),
+            "run_phase_with should succeed: {:?}",
+            result
+        );
+        let phase_result = result.unwrap();
+
+        assert!(
+            !phase_result.warnings.is_empty(),
+            "expected warnings when standards are blank"
+        );
+        let has_standards_warning = phase_result
+            .warnings
+            .iter()
+            .any(|w| w.contains("STANDARDS"));
+        assert!(
+            has_standards_warning,
+            "expected a STANDARDS warning in: {:?}",
+            phase_result.warnings
         );
     }
 }
