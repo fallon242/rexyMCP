@@ -1,7 +1,7 @@
 # Phase 01: Well-formed bookkeeping output
 
 **Milestone:** M42 — Bookkeeping Format Hygiene
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none (first phase of M42)
 **Estimated diff:** ~160 lines (four small production changes plus tests)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -263,3 +263,7 @@ None. No new dependencies. No edits outside `mcp/src/finalize.rs`. No edits to
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 23:09 (started)
+
+Started implementation by AI executor. Implementing four fixes in `mcp/src/finalize.rs`: (1) blank line separation in `append_entry`, (2) blank line before files-changed list in `baseline_entry`, (3) width-preserving cell replacement in `flip_readme_row`, (4) trailing newline preservation in `flip_readme_row`.

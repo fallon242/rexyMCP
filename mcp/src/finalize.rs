@@ -115,7 +115,7 @@ fn baseline_entry(result: &PhaseResult, now_ms: u64, code_sha: &str, model: &str
          **Gates:** {gates}\n\n\
          **Command output tails:**\n\n\
          ```\n{command_tails}\n```\n\n\
-         **Files changed:**\n{files}\n\n\
+         **Files changed:**\n\n{files}\n\n\
          **Commit:** {code_sha}\n\n\
          **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).\n"
     )
@@ -172,7 +172,7 @@ fn files_changed_list(files: &[FileChange]) -> String {
 /// Return `doc` with the entry appended at end of file, separated by a blank
 /// line.
 fn append_entry(doc: &str, entry: &str) -> String {
-    format!("{}\n{}\n", doc.trim_end(), entry)
+    format!("{}\n\n{}\n", doc.trim_end(), entry.trim_end())
 }
 
 /// Find the one table row that contains `phase_doc_filename` whose last table
@@ -181,6 +181,7 @@ fn append_entry(doc: &str, entry: &str) -> String {
 /// note). Return `None` if no such row.
 pub fn flip_readme_row(readme_doc: &str, phase_doc_filename: &str) -> Option<String> {
     let mut found = false;
+    let had_trailing_newline = readme_doc.ends_with('\n');
     let lines: Vec<String> = readme_doc
         .lines()
         .map(|line| {
@@ -189,13 +190,21 @@ pub fn flip_readme_row(readme_doc: &str, phase_doc_filename: &str) -> Option<Str
                 if let Some(last_pipe) = line.rfind('|') {
                     let before_last = &line[..last_pipe];
                     if let Some(second_last_pipe) = before_last.rfind('|') {
-                        let last_cell = before_last[second_last_pipe + 1..].trim();
+                        let last_cell_raw = &before_last[second_last_pipe + 1..last_pipe];
+                        let last_cell = last_cell_raw.trim();
                         if last_cell.starts_with("todo") || last_cell.starts_with("in-progress") {
                             found = true;
-                            // Replace the cell content between the last two `|` delimiters
+                            let original_cell_width = last_cell_raw.chars().count();
+                            let replacement = " review ";
+                            let new_cell = if replacement.chars().count() >= original_cell_width {
+                                replacement.to_string()
+                            } else {
+                                format!("{:width$}", replacement, width = original_cell_width)
+                            };
                             format!(
-                                "{} review |{}",
+                                "{}{}|{}",
                                 &line[..second_last_pipe + 1],
+                                new_cell,
                                 &line[last_pipe + 1..]
                             )
                         } else {
@@ -213,7 +222,15 @@ pub fn flip_readme_row(readme_doc: &str, phase_doc_filename: &str) -> Option<Str
         })
         .collect();
 
-    if found { Some(lines.join("\n")) } else { None }
+    if found {
+        let mut result = lines.join("\n");
+        if had_trailing_newline {
+            result.push('\n');
+        }
+        Some(result)
+    } else {
+        None
+    }
 }
 
 /// Run `git rev-parse HEAD` via the runner in `repo_root`; return the trimmed
@@ -379,7 +396,7 @@ mod tests {
         let lines: Vec<&str> = updated.lines().collect();
         assert_eq!(
             lines[0],
-            "| 03a | Server-authored finalize ([phase-03a-server-authored-finalize.md](phase-03a-server-authored-finalize.md)) | review |"
+            "| 03a | Server-authored finalize ([phase-03a-server-authored-finalize.md](phase-03a-server-authored-finalize.md)) | review      |"
         );
         assert!(!lines[0].contains("||"));
         assert!(
@@ -430,13 +447,13 @@ mod tests {
         assert!(updated.contains("phase-04.md"));
         let lines: Vec<&str> = updated.lines().collect();
         assert!(
-            lines[0].contains("| review |"),
+            lines[0].contains("review"),
             "bounced 04 row should be review: {lines:?}"
         );
         assert!(!lines[0].contains("||"), "no doubled pipe in bounced row");
         // The sibling review row must be untouched
         assert!(
-            lines[1].contains("| review |"),
+            lines[1].contains("review"),
             "sibling review row unchanged: {lines:?}"
         );
     }
@@ -448,7 +465,7 @@ mod tests {
         let updated = result.expect("row should flip");
         assert_eq!(
             updated.lines().next().unwrap(),
-            "| 02 | Structured output ([phase-02-structured-tool-output.md](phase-02-structured-tool-output.md)) | review |"
+            "| 02 | Structured output ([phase-02-structured-tool-output.md](phase-02-structured-tool-output.md)) | review      |"
         );
         assert!(
             !updated.contains("||"),
@@ -670,7 +687,7 @@ mod tests {
 
         let readme_after = std::fs::read_to_string(&readme_path).unwrap();
         let lines: Vec<&str> = readme_after.lines().collect();
-        assert!(lines[0].contains("| review |"), "03a row should be review");
+        assert!(lines[0].contains("review"), "03a row should be review");
         assert!(
             lines[1].contains("| in-progress |"),
             "03b row should still be in-progress"
@@ -892,5 +909,152 @@ mod tests {
             after.contains("**Executor:** Qwen/Qwen3.6-27B-FP8"),
             "written doc must contain the Executor line with the dispatched model: {after}"
         );
+    }
+
+    // --- append_entry fixes (M42 phase-01) ---
+
+    #[test]
+    fn append_entry_separates_with_blank_line() {
+        assert_eq!(append_entry("a\n", "### E\n"), "a\n\n### E\n");
+    }
+
+    #[test]
+    fn append_entry_ends_with_single_newline() {
+        let result = append_entry("a\n", "### E\n");
+        assert!(result.ends_with('\n'), "must end with newline");
+        assert!(
+            !result.ends_with("\n\n"),
+            "must not end with double newline"
+        );
+    }
+
+    #[test]
+    fn append_entry_collapses_existing_trailing_blanks() {
+        assert_eq!(append_entry("a\n\n\n", "### E\n"), "a\n\n### E\n");
+    }
+
+    // --- baseline_entry blank line before files list (M42 phase-01) ---
+
+    #[test]
+    fn baseline_entry_blank_line_before_files_list() {
+        let result = PhaseResult::complete(rexymcp_executor::phase::Artifacts {
+            files_changed: vec![FileChange {
+                path: PathBuf::from("src/lib.rs"),
+                change_summary: "+5 -2".to_string(),
+            }],
+            diff: String::new(),
+            command_outputs: CommandOutputs::default(),
+            update_log: String::new(),
+            log_path: None,
+            completion_summary: "Done.".to_string(),
+        });
+        let entry = baseline_entry(&result, 12345, "abc123", "test-model");
+        assert!(
+            entry.contains("**Files changed:**\n\n- "),
+            "must have blank line before files list: {entry:?}"
+        );
+    }
+
+    // --- flip_readme_row width preservation (M42 phase-01) ---
+
+    #[test]
+    fn flip_readme_row_preserves_cell_width() {
+        let row =
+            "| 02  | lexer (source → `Token[]`, scan errors)                 | todo        |\n";
+        let result = flip_readme_row(row, "lexer");
+        let updated = result.expect("should find and flip the row");
+        let line = updated.lines().next().unwrap();
+        // Same total char count as input line
+        assert_eq!(
+            line.chars().count(),
+            row.trim_end().chars().count(),
+            "char count must be preserved: input={} output={}",
+            row.trim_end().chars().count(),
+            line.chars().count()
+        );
+        // Last cell trims to "review"
+        let last_cell = line.rsplit('|').nth(1).unwrap().trim();
+        assert_eq!(last_cell, "review");
+    }
+
+    #[test]
+    fn flip_readme_row_preserves_wide_in_progress_width() {
+        let row = "| 03a | Server-authored finalize | in-progress |\n";
+        let result = flip_readme_row(row, "Server-authored");
+        let updated = result.expect("should find and flip the row");
+        let line = updated.lines().next().unwrap();
+        assert_eq!(
+            line.chars().count(),
+            row.trim_end().chars().count(),
+            "char count must be preserved"
+        );
+        let last_cell = line.rsplit('|').nth(1).unwrap().trim();
+        assert_eq!(last_cell, "review");
+    }
+
+    #[test]
+    fn flip_readme_row_narrow_cell_does_not_truncate() {
+        let row = "|04|thing|todo|\n";
+        let result = flip_readme_row(row, "thing");
+        let updated = result.expect("should find and flip the row");
+        let line = updated.lines().next().unwrap();
+        let last_cell = line.rsplit('|').nth(1).unwrap().trim();
+        assert_eq!(
+            last_cell, "review",
+            "narrow cell must not truncate 'review': got '{last_cell}'"
+        );
+    }
+
+    #[test]
+    fn flip_readme_row_preserves_trailing_newline() {
+        let row = "| 01 | Phase | todo |\n";
+        let result = flip_readme_row(row, "Phase");
+        let updated = result.expect("should find and flip the row");
+        assert!(updated.ends_with('\n'), "must preserve trailing newline");
+    }
+
+    #[test]
+    fn flip_readme_row_without_trailing_newline_stays_without() {
+        let row = "| 01 | Phase | todo |";
+        let result = flip_readme_row(row, "Phase");
+        let updated = result.expect("should find and flip the row");
+        assert!(
+            !updated.ends_with('\n'),
+            "must not add trailing newline when input lacks one"
+        );
+    }
+
+    // --- golden round-trip: flip_status_to_review → append_entry (M42 phase-01) ---
+
+    #[test]
+    fn golden_roundtrip_flip_then_append_produces_wellformed_doc() {
+        let doc = "# Phase 01: Well-formed bookkeeping output\n\n**Milestone:** M42 — Bookkeeping Format Hygiene\n**Status:** in-progress\n**Depends on:** none\n\n## Update Log\n\n<!-- entries appended below this line -->\n\n### Update — 2026-07-24 23:09 (started)\n\nStarted implementation by AI executor.\n";
+        let entry = "### Update — ts=1784924570254 (complete, server-authored)\n\n**Summary:** Done.\n\n**Acceptance criteria:** all ticked above.\n\n**Notes:** server-authored completion entry.\n";
+
+        let after_flip = flip_status_to_review(doc);
+        assert!(after_flip.contains("**Status:** review"));
+        assert!(!after_flip.contains("**Status:** in-progress"));
+
+        let final_doc = append_entry(&after_flip, entry);
+
+        // The started entry and the complete entry must be separated by a blank line
+        assert!(
+            final_doc.contains("by AI executor.\n\n### Update — ts="),
+            "blank line must separate entries: {final_doc:?}"
+        );
+
+        // The doc must end with exactly one newline
+        assert!(final_doc.ends_with('\n'), "must end with newline");
+        assert!(
+            !final_doc.ends_with("\n\n"),
+            "must not end with double newline"
+        );
+
+        // The status line must be clean review (no residual in-progress)
+        assert!(final_doc.contains("**Status:** review\n"));
+
+        // Full expected output (byte-for-byte)
+        let expected = "# Phase 01: Well-formed bookkeeping output\n\n**Milestone:** M42 — Bookkeeping Format Hygiene\n**Status:** review\n**Depends on:** none\n\n## Update Log\n\n<!-- entries appended below this line -->\n\n### Update — 2026-07-24 23:09 (started)\n\nStarted implementation by AI executor.\n\n### Update — ts=1784924570254 (complete, server-authored)\n\n**Summary:** Done.\n\n**Acceptance criteria:** all ticked above.\n\n**Notes:** server-authored completion entry.\n";
+        assert_eq!(final_doc, expected);
     }
 }

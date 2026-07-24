@@ -122,7 +122,7 @@ over. Do not dispatch phase 02 before this is settled.
 
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | Well-formed bookkeeping output ([phase-01-wellformed-bookkeeping.md](phase-01-wellformed-bookkeeping.md)) | todo |
+| 01 | Well-formed bookkeeping output ([phase-01-wellformed-bookkeeping.md](phase-01-wellformed-bookkeeping.md)) | in-progress |
 | 02 | Format the server's own writes ([phase-02-format-server-writes.md](phase-02-format-server-writes.md)) — **blocked on the decision above** | todo |
 
 ## Notes
