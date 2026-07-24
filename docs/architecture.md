@@ -1232,6 +1232,44 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+41. **M41 — Serve liveness & run durability** *(planning; opened 2026-07-24 from
+    GitHub issue #5)*. After a dispatched phase reached terminal state,
+    `rexymcp serve` (0.9.1) stopped answering **every** MCP request —
+    permanently — while staying alive and healthy-looking; the phase itself had
+    succeeded and committed, so only the *reporting* path was dead, and
+    `/rexymcp:auto` polled a finished phase for ~11.7 min before hanging past
+    every client timeout. Diagnosed from attached `gdb`/`eu-stack` dumps: 31
+    tokio workers parked **idle**, ~0 s cumulative CPU, and `rexymcp::main` the
+    **only** rexymcp frame in the process — which rules out starvation, lock
+    deadlock, livelock, and the LLM endpoint, and leaves one reading. **The
+    service loop had exited, not stalled** (no thread blocked reading fd 0, and
+    `tokio::io::Stdin` holds a blocking thread only while a read is in flight);
+    rmcp's stdio transport terminates on stdin EOF, a stdin **read error**, or an
+    over-long line (`transport/async_rw.rs:140-145` → `QuitReason::Closed`,
+    `service.rs:1030-1036`) — note that malformed JSON is explicitly *not* fatal
+    there. And `main` never observes that exit: it binds the `RunningService` to
+    `_running` and then awaits `ctrl_c` forever (`mcp/src/main.rs:597-605`)
+    instead of awaiting `running.waiting()`. **Root cause of the transport death:
+    `bash`-tool children inherit the MCP stdin** — `spawn()` defaults stdin to
+    inherit and `executor/src/tools/bash.rs:139-144` sets only stdout/stderr, so
+    every shell child receives fd 0 = the JSON-RPC pipe; a Node/Bun/libuv child
+    setting `O_NONBLOCK` on it (the flag lives on the shared *open file
+    description*) turns the parent's next read into `EAGAIN`. It is the only
+    defective spawn site — every other production launch uses `.output()`, which
+    nulls stdin. Three phases: **(01)** await `waiting()`, log the `QuitReason`
+    plus the in-flight run count, exit — converting an invisible wedge into a
+    one-line stderr message and a dead process; **(02)** `.stdin(Stdio::null())`
+    for `bash` children; **(03)** persist each run's terminal state to
+    `~/.rexymcp/runs/<run_id>.json` with a disk fallback in `get_run_status`,
+    which phase 01 *requires* — a process that now exits would otherwise take a
+    completed run's result with it (`run_id` is a v4 UUID living only in
+    `JobRegistry`'s `HashMap`, which is why `rexymcp status` could report `ended
+    (complete)` throughout the incident while `get_run_status` could not). The
+    issue's own suggested fixes #2 (bound the `get_run_status` long-poll) is
+    **already implemented** and simply never reached (`mcp/src/jobs.rs:88-103`),
+    #4 (serve-loop watchdog) is **rejected** as redundant once loop death is loud
+    and fatal, and #5 (single-instance guard) is **deferred** to the separate
+    duplicate-serve `{state:"unknown"}` bug that phase 03 incidentally softens.
 40. **M40 — Token-ledger dash alignment** *(done 2026-07-24; opened, fixed, and
     closed the same day — implemented directly by the architect at the user's
     request, no dispatch)*. A

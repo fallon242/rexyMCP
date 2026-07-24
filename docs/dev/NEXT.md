@@ -4,7 +4,28 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase:
+[M41 phase-01 — Observe the serve loop's exit](milestones/M41-serve-liveness/phase-01-observe-serve-loop-exit.md)
+(status: todo — drafted, not yet dispatched).**
+
+**M41 — Serve Liveness & Run Durability opened 2026-07-24** from GitHub issue #5:
+`rexymcp serve` goes permanently deaf after a phase completes — every MCP request
+hangs while the process stays alive at ~0 % CPU. Diagnosed from the reporter's
+`gdb`/`eu-stack` dumps: the rmcp **service loop had exited**, and `main` never
+notices because it awaits `ctrl_c` instead of `running.waiting()`
+(`mcp/src/main.rs:597-605`). Root cause of the loop's death: `bash`-tool children
+inherit the MCP stdin (`executor/src/tools/bash.rs:139-144` — `spawn()` defaults
+stdin to inherit), so a child can `O_NONBLOCK` or drain the JSON-RPC pipe out from
+under the transport. Three phases drafted, all `todo`:
+[README](milestones/M41-serve-liveness/README.md) — **01** await `waiting()` +
+log the quit reason (the safety net; ordered first so any future transport death
+is visible), **02** `.stdin(Stdio::null())` (the root cause),
+**03** durable run registry (required by 01 — a process that now exits must not
+take a completed run's result with it). architecture.md §41 planning.
+
+Dispatch order is 01 → 02 → 03; they are independently testable but should ship in
+one release. The bug is **latent in the running `serve` right now** — see the
+rebuild+restart note below.
 
 **M40 — Token-ledger Dash Alignment closed 2026-07-24.** One fix, implemented
 **directly by the architect** at the user's request (no dispatch, no `PhaseRun`) —
@@ -15,10 +36,16 @@ mode unchanged. Retrospective in
 [M40/README.md § M40 completion](milestones/M40-token-ledger-dash-alignment/README.md);
 architecture.md §40 done. Commit `c942fd3`.
 
-⚠️ **Still pending a `serve` rebuild+restart:** `rexymcp.toml`'s
-`read_only_stall_threshold` lowered 500 → 60 this session, **and** the M39 cache-write
-capture (`created_cache_tokens`) — both are in committed code / local config but the
-running `serve` won't reflect them until restarted.
+✅ **`serve` rebuilt and restarted 2026-07-24 15:03** (plugin reinstalled; single
+process, binary `~/.cargo/bin/rexymcp` rebuilt 15:03:08, no stale-exe marker). This
+clears the previously-pending restart: `rexymcp.toml`'s `read_only_stall_threshold`
+(500 → 60) and the M39 cache-write capture (`created_cache_tokens`, commit
+`d3e087c` — confirmed present in the installed binary) are both live now, so the
+first non-zero `cache_write_tokens` in telemetry dates from this restart.
+
+⚠️ **The issue-#5 defects are still live in this process** — it is a pre-M41 build.
+Both the inherited-stdin trigger and the unobserved-serve-loop wedge remain until
+M41 phases 01–02 land *and* `serve` is rebuilt again.
 
 ---
 
