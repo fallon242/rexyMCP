@@ -42,6 +42,7 @@ oscillation_window = 8            # sliding window scanned for A,B,A,B oscillati
 oscillation_distinct_max = 2      # ≤ this many distinct calls in the window → hard-fail
 output_window = 6                 # sliding window of tool outputs summed for flood check (0 disables)
 output_window_bytes = 262144      # total bytes across the output window → hard-fail (256 KB)
+read_only_stall_threshold = 60    # consecutive non-mutating tool calls → hard-fail; resets on any patch/write_file (0 disables)
 novelty_action = "advisory"       # "advisory" (default): log low-novelty churn but keep running; "terminate": hard-fail on it
 
 # [models."<model-id>"]              # per-model knob overrides; key is the exact
@@ -59,6 +60,7 @@ novelty_action = "advisory"       # "advisory" (default): log low-novelty churn 
 # oscillation_distinct_max = 2       # override [governor] oscillation_distinct_max
 # output_window = 8                  # override [governor] output_window
 # output_window_bytes = 524288       # override [governor] output_window_bytes
+# read_only_stall_threshold = 30     # override [governor] read_only_stall_threshold
 # input_per_mtok = 0.0             # M35 executor pricing ($/Mtok); unpriced classes cost $0
 # output_per_mtok = 0.0            # override per-model output pricing
 # cache_read_per_mtok = 0.0        # override per-model cache-read pricing
@@ -149,12 +151,28 @@ mod tests {
         assert_eq!(cfg.governor.identical_call_threshold, 6);
         assert_eq!(cfg.governor.verifier_persistence_threshold, 6);
         assert_eq!(cfg.governor.runaway_output_bytes, 102400);
+        assert_eq!(cfg.governor.read_only_stall_threshold, 60);
         // project.id is a v4 UUID — 36 chars, format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
         let pid = cfg.project.id.expect("project.id must be set by init");
         assert_eq!(pid.len(), 36, "project.id must be a UUID: {pid}");
         assert!(
             pid.chars().all(|c| c.is_ascii_hexdigit() || c == '-'),
             "project.id must contain only hex and dashes: {pid}"
+        );
+    }
+
+    #[test]
+    fn template_spells_out_read_only_stall_threshold() {
+        // A parse-level assertion cannot catch an omission here: a missing key
+        // silently inherits the serde default. Pin the template text itself.
+        let toml = generate_config("test-id");
+        assert!(
+            toml.contains("\nread_only_stall_threshold = 60"),
+            "[governor] block must spell out read_only_stall_threshold: {toml}"
+        );
+        assert!(
+            toml.contains("# read_only_stall_threshold = 30"),
+            "[models] block must offer the per-model override: {toml}"
         );
     }
 
