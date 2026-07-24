@@ -436,26 +436,38 @@ pub fn ledger_lines(
 
     match units {
         LedgerUnits::Tokens => {
+            // A token cell's dash aligned on the decimal column. `fmt_tokens`' bare
+            // "—" right-aligns to the field's right edge, but a `X.Xk`/`X.XM` value
+            // keeps its decimal 2 columns in (`.` + one digit + a k/M suffix); two
+            // trailing spaces drop the em-dash onto that decimal column. Applied
+            // here at the render level, NOT in `fmt_tokens` — that helper is shared
+            // by scorecard/runs/calibrate-governor, where a bare "—" is correct.
+            const TOK_DASH: &str = "—  ";
+            let tok = |n: u64| -> String {
+                let s = metrics::fmt_tokens(n);
+                if s == "—" { TOK_DASH.to_string() } else { s }
+            };
+
             out.push(header);
             out.push(make_row(
                 "Architect:",
-                metrics::fmt_tokens(session.architect_tokens),
-                metrics::fmt_tokens(mile.architect_tokens),
-                metrics::fmt_tokens(project.architect_tokens),
+                tok(session.architect_tokens),
+                tok(mile.architect_tokens),
+                tok(project.architect_tokens),
                 has_milestone,
             ));
             out.push(make_row(
                 "Executor:",
-                metrics::fmt_tokens(session.executor_tokens),
-                metrics::fmt_tokens(mile.executor_tokens),
-                metrics::fmt_tokens(project.executor_tokens),
+                tok(session.executor_tokens),
+                tok(mile.executor_tokens),
+                tok(project.executor_tokens),
                 has_milestone,
             ));
             out.push(make_row(
                 "Net:",
-                "—".to_string(),
-                "—".to_string(),
-                "—".to_string(),
+                TOK_DASH.to_string(),
+                TOK_DASH.to_string(),
+                TOK_DASH.to_string(),
                 has_milestone,
             ));
         }
@@ -1527,6 +1539,57 @@ model = "claude-fable-5"
         assert!(
             net_line.contains('—'),
             "Net in tokens mode must be —: {net_line}"
+        );
+    }
+
+    #[test]
+    fn ledger_tokens_dash_aligns_with_decimal_column() {
+        // Tokens mode: a scope's dash — Architect with 0 tokens, and the always-—
+        // Net row — must sit at the same column as the `.` of a `X.Xk`/`X.XM` value
+        // in that column. Session column here: Architect `—`, Executor `500.0k`,
+        // Net `—`; the em-dashes must land on the Executor decimal.
+        let sess = ScopeReport {
+            saved: None,
+            executor: 0.0,
+            architect: None,
+            net: None,
+            executor_tokens: 500_000, // -> "500.0k"
+            architect_tokens: 0,      // -> "—"
+        };
+        let proj = ScopeReport {
+            saved: None,
+            executor: 0.0,
+            architect: None,
+            net: None,
+            executor_tokens: 2_000_000,
+            architect_tokens: 5_500_000,
+        };
+        let lines = ledger_lines(&sess, None, &proj, LedgerUnits::Tokens);
+        let texts: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        let architect = texts
+            .iter()
+            .find(|s| s.contains("Architect:"))
+            .expect("Architect row");
+        let executor = texts
+            .iter()
+            .find(|s| s.contains("Executor:"))
+            .expect("Executor row");
+        let net = texts.iter().find(|s| s.contains("Net:")).expect("Net row");
+
+        let exec_dot = executor
+            .find('.')
+            .expect("Executor Session column is a k/M value with a decimal");
+        let arch_dash = architect
+            .find('—')
+            .expect("Architect Session column is a dash");
+        let net_dash = net.find('—').expect("Net Session column is a dash");
+        assert_eq!(
+            arch_dash, exec_dot,
+            "Architect dash must align on the Executor decimal\nArchitect: {architect}\nExecutor:  {executor}"
+        );
+        assert_eq!(
+            net_dash, exec_dot,
+            "Net dash must align on the Executor decimal\nExecutor: {executor}\nNet:       {net}"
         );
     }
 
