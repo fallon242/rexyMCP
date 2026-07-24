@@ -1232,6 +1232,23 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+40. **M40 — Token-ledger dash alignment** *(in-progress; opened 2026-07-24)*. A
+    minor budget-panel defect found in use, sibling to M37 phase-06 (which fixed
+    the *dollars*-mode debit/credit decimal alignment). In **tokens** mode the
+    `—` dashes sit one decimal-width (2 columns) *right* of the `.` in the
+    `X.Xk`/`X.XM` values above/below them: measured against the live `costs
+    --tokens` output, decimals land at cols 19/29/39 and dashes at 21/31/41.
+    Root cause: token cells render via `metrics::fmt_tokens`, whose zero value is
+    a **bare `"—"`** (and the Net row uses a bare `"—"` literal); a bare em-dash
+    right-aligns to the field's right edge, while a `X.Xk` value keeps its decimal
+    2 columns in. **M37 phase-06 explicitly declared tokens mode "already
+    consistent" and out of scope — that was the miss.** Fix mirrors phase-06's
+    dollars-mode sign-gutter: pad tokens-mode dashes to `"—  "` (two trailing
+    spaces) at the `ledger_lines` render level so right-alignment drops the em-dash
+    onto the decimal column — **not** in `fmt_tokens`, which is shared by
+    `scorecard`/`runs`/`calibrate-governor` where the bare `—` is correct. Pinned
+    by a real marker-column-equality test (dash col == decimal col across rows) in
+    tokens mode, the tokens-mode analogue of the test phase-06 added for dollars.
 39. **M39 — Executor cache accounting** *(done 2026-07-24, opened and closed the
     same day it was logged as a candidate at the M38 close)*. The executor's
     `cache_read_tokens` and `cache_write_tokens` read **zero across all 41

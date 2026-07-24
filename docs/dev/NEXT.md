@@ -4,7 +4,25 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase: none yet — M40 open, phase-01 not drafted.**
+
+**M40 — Token-ledger Dash Alignment opened 2026-07-24.** Milestone README:
+[M40/README.md](milestones/M40-token-ledger-dash-alignment/README.md);
+architecture.md §40 in-progress. A minor budget-panel defect found in use, sibling
+to M37 phase-06: in **tokens** mode the `—` dashes sit 2 columns right of the `.`
+in the `X.Xk`/`X.XM` values (decimals @ cols 19/29/39, dashes @ 21/31/41). Root
+cause: token cells render a **bare `"—"`** (via `metrics::fmt_tokens`' zero value
+and the Net-row literal) which right-aligns to the field edge, 2 cols right of the
+decimal. Phase-06 explicitly (and wrongly) scoped tokens mode out as "already
+consistent." Fix mirrors phase-06's gutter: pad tokens-mode dashes to `"—  "` at
+the `ledger_lines` render level (**not** in `fmt_tokens`, which is shared), pinned
+by a tokens-mode marker-column-equality test.
+
+**Next step: `/rexymcp:architect next`** to draft phase-01. ⚠️ Also note:
+`rexymcp.toml`'s `read_only_stall_threshold` was lowered 500 → 60 this session but
+needs a `serve` rebuild+restart to take effect.
+
+---
 
 **M39 — Executor Cache Accounting closed 2026-07-24.** One phase,
 approved_first_try. Retrospective in
