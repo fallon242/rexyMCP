@@ -1232,6 +1232,35 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+42. **M42 — Bookkeeping format hygiene** *(done 2026-07-24; opened and closed the
+    same day from GitHub issue #4)*. The server-authored bookkeeping tail — the
+    completion Update Log entry and the milestone README status row — is written
+    **after** the executor's final turn, so the per-turn `format_fix` hook
+    (`executor/src/agent/command.rs:182`) never touches it and every completed
+    phase fails its own `format` gate on writes the executor never made. The
+    reviewer then either bounces the executor for someone else's defect — burning
+    a dispatch and writing a false `bounced` datapoint into the scorecard that
+    routing reads — or hand-normalizes at each approval, which is what was
+    happening silently. Four generation defects, all in `mcp/src/finalize.rs`: no
+    blank line before the appended `###` heading (`append_entry` used a single
+    `\n`), a trailing blank line at EOF (the entry already ended in `\n`), no blank
+    line before the files-changed list, and a README row whose status cell was
+    rewritten at fixed width with the file's trailing newline dropped
+    (`lines.join("\n")`). **Phase 01 fixes the generation** — the property that
+    holds for every project, including those with no formatter configured — pinned
+    by ten exact-equality tests (a substring check passes against the defective
+    form too, which is how the class survived three occurrences) and a per-change
+    mutation check. **Phase 02 — running the project's `format_fix` over the
+    server's writes, the issue's own primary suggestion — is deliberately not
+    planned**: `format_fix` is a whole-repo command string that cannot be scoped
+    without parsing it, so invoking it at commit time carries the hazard this repo
+    already bans for `cargo fmt --all`; its opt-in spec is kept for a possible
+    reopen. Dispatched to the local executor rather than architect-implemented,
+    which made it the live test vehicle that closed M41's outstanding
+    verification. Closed with its **live criterion waived**: this repo's `format`
+    gate is `cargo fmt`, which does not check markdown, so it structurally cannot
+    reproduce the reporter's Prettier symptom — closed on the code with a stated
+    reopening condition instead of simulating the check locally.
 41. **M41 — Serve liveness & run durability** *(done 2026-07-24; opened and closed
     the same day from GitHub issue #5, all three phases architect-implemented —
     no dispatch, no `PhaseRun`)*. After a dispatched phase reached terminal state,

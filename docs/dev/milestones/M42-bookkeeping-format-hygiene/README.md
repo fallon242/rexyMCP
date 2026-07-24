@@ -5,10 +5,10 @@ entry and the milestone README status row — **well-formed markdown**, so a
 completed phase stops arriving at review with a failing `format` gate the executor
 never caused.
 
-**Status:** review *(opened 2026-07-24; phase 01 done and approved the same day,
-phase 02 not planned per the decision below — one exit criterion outstanding: the
-live tail confirmation on the next completed phase, which only a real run can
-produce.)*
+**Status:** done *(opened and closed 2026-07-24; phase 01 done and approved,
+phase 02 not planned per the decision below. GitHub issue #4 closed on the
+strength of the code, with the reporter reopening if Prettier still complains —
+see § "Closing without the live confirmation".)*
 
 **Depends on:** M27 phase-03 (the server-authored finalize this fixes), M32 (the
 `flip_readme_row` slice fix this builds on).
@@ -121,10 +121,10 @@ already written in `phase-02-format-server-writes.md`.
   output with no missing blank lines, no trailing blank line, and an unchanged
   table shape — pinned by tests that fail against today's code.
 - All four gates green.
-- **Reviewer-run, after a `serve` rebuild:** the next real phase's bookkeeping tail
-  shows the blank line before `### Update` and a single trailing newline. The
-  running server writes this tail, so the fix cannot be observed in the run that
-  implements it.
+- ~~**Reviewer-run, after a `serve` rebuild:** the next real phase's bookkeeping
+  tail shows the blank line before `### Update` and a single trailing newline.~~
+  **Waived at close** — see below. Still worth an eyeball on the next dispatch,
+  but no longer gating.
 
 ## Architecture references
 
@@ -157,3 +157,25 @@ written by the **currently running** `serve`, i.e. the pre-fix binary. So phase
 01's own completion entry will still show the defect. That is expected, not a
 failure, and it is why the exit criteria put the live confirmation on the *next*
 phase after a rebuild.
+
+## Closing without the live confirmation (2026-07-24)
+
+The milestone closed with its live criterion **unmet by design**, and that is worth
+being explicit about rather than quietly dropping.
+
+What is verified: ten exact-equality tests, a mutation check on each of the four
+production changes, and the fixed template present in the installed binary
+(`**Files changed:**\n\n`). What is **not**: a real completed phase on a Prettier
+project producing a clean `prettier --check`. This repo's `format` gate is
+`cargo fmt`, which does not check markdown — so this project structurally cannot
+adjudicate the reporter's symptom. Waiting for a local dispatch would have produced
+a *weaker* signal than the reporter simply reopening.
+
+So the human closed issue #4 with an explicit invitation to reopen with the
+`prettier --check` output attached, and the opt-in formatter hook
+(`phase-02-format-server-writes.md`) is the ready answer if it does. **The right
+lesson is not "skip live verification" — it is that a verification this repo cannot
+perform is better delegated to the environment that can, with a stated reopening
+condition, than simulated locally and called done.**
+
+The next dispatch's tail is still worth an eyeball; it just is not blocking.

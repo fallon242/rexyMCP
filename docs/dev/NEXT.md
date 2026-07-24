@@ -20,27 +20,22 @@ closed. Retrospective in
 [M41/README.md § M41 retrospective](milestones/M41-serve-liveness/README.md);
 architecture.md §41 done.
 
-**M42 — Bookkeeping Format Hygiene is open** (GitHub issue #4), phase-01 **done**:
-the server's completion entry and README row are now well-formed markdown
-(`5ab2d07`, reviewed `8c60836`). **Phase 02 is not planned** — decision (c) taken
-2026-07-24: ship phase-01 alone, no `format_fix` at finalize time and no new config
-key. Settled; the spec is kept in `phase-02-format-server-writes.md` only so it can
-be implemented without re-derivation if a project's `format` gate still flags the
-bookkeeping *after* phase-01 is live. Reopen with the formatter's actual complaint
-attached, not on suspicion.
+**M42 — Bookkeeping Format Hygiene closed 2026-07-24.** Phase-01 done and approved
+(`5ab2d07`, reviewer hardening `8c60836`); phase-02 **not planned** per decision (c)
+— no `format_fix` at finalize time, no new config key, spec kept for a possible
+reopen. **GitHub issue #4 closed**, together with #5 from M41.
 
-✅ **Rebuilt, reinstalled and restarted 2026-07-24 16:34/16:35** — the installed
-binary carries both M41 phase-03 and M42 phase-01 (verified: the entry template in
-the binary reads `**Files changed:**\n\n`), and the running `serve` (pid 83443)
-is that binary with no stale-exe marker.
+The milestone closed with its **live criterion waived**: this repo's `format` gate
+is `cargo fmt`, which does not check markdown, so it structurally cannot reproduce
+the reporter's Prettier symptom. Closed on the strength of the code (10
+exact-equality tests, a mutation check per change, fixed template confirmed in the
+installed binary) with an explicit reopening condition — the reporter attaches
+`prettier --check` output if anything still flags, and the opt-in formatter hook is
+the ready answer. Still worth an eyeball on the next dispatch's bookkeeping tail:
+blank line before `### Update`, exactly one trailing newline, README newline intact.
 
-**M42's one outstanding exit criterion is the live tail confirmation**, and it can
-only come from a real completed phase — the server writes that tail, so no
-synthetic check substitutes. The next dispatch, whatever it is, doubles as the
-confirmation: check that the appended `### Update` has a blank line before it, the
-phase doc ends with exactly one newline, and the milestone README keeps its
-trailing newline. **GitHub issue #4 stays open until then** — closing a bug report
-before the reporter's own path is exercised would be premature.
+✅ **Rebuilt, reinstalled and restarted 2026-07-24 16:34/16:35** — the running
+`serve` (pid 83443) carries both M41 phase-03 and M42 phase-01.
 
 **Carried calibration (2 occurrences, unfolded):** architect-authored *predicted
 command output* never executed before being written into a phase doc (M39's
