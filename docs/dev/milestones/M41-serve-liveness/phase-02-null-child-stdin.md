@@ -1,7 +1,7 @@
 # Phase 02: Deny `bash`-tool children the MCP stdin
 
 **Milestone:** M41 — Serve Liveness & Run Durability
-**Status:** todo
+**Status:** done
 **Depends on:** none (independent of phase 01; ordered second)
 **Estimated diff:** ~45 lines (a 1-line production change plus tests)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -95,13 +95,13 @@ requests), and it now fails fast instead.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes — the existing `tools::bash::tests::*` suite included,
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes — the existing `tools::bash::tests::*` suite included,
       unchanged.
-- [ ] The `bash` tool's `cmd` builder sets `Stdio::null()` for stdin.
-- [ ] A child that reads stdin observes EOF immediately rather than inheriting the
+- [x] The `bash` tool's `cmd` builder sets `Stdio::null()` for stdin.
+- [x] A child that reads stdin observes EOF immediately rather than inheriting the
       parent's descriptor (pinned by the tests below).
 
 ## Test plan
@@ -173,3 +173,66 @@ or `docs/architecture.md`. Files you may edit: `executor/src/tools/bash.rs`.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 15:25 (complete)
+
+**Summary:** Implemented **directly by the architect** at the user's request (no
+dispatch, no `PhaseRun`). Added `.stdin(std::process::Stdio::null())` to the `cmd`
+builder in `executor/src/tools/bash.rs`, before `.stdout(...)` so the three streams
+read in fd order, with a four-line comment stating the contract (the tool runs
+in-process with the MCP stdio transport; a child must never receive the server's
+fd 0). Nothing else changed — same command, env filtering, timeout handling, and
+output capture.
+
+**Acceptance criteria:** all ticked above.
+
+**Commands:** `cargo build` green; `cargo clippy --all-targets --all-features -- -D
+warnings` clean; `cargo test` **661 bin + 1053 lib passed, 0 failed, 2 ignored**
+(the pre-existing `tools::bash::tests::*` suite unchanged and green);
+`cargo fmt --all --check` clean after `rustfmt --edition 2024` on the touched file.
+
+**End-to-end verification:**
+
+```
+$ cargo test bash_child
+running 3 tests
+test tools::bash::tests::bash_child_stdin_reads_zero_bytes ... ok
+test tools::bash::tests::bash_child_gets_empty_stdin ... ok
+test tools::bash::tests::bash_child_stdin_is_dev_null ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1052 filtered out
+```
+
+The child-side observation the phase asked for is folded into the suite as
+`bash_child_stdin_is_dev_null`, which runs `readlink /proc/self/fd/0` through the
+real tool and asserts the output names `/dev/null` — the child reporting its own
+descriptor, not the parent inferring it. Keeping it as a test rather than a
+one-off scratch invocation means the check runs in CI forever; it is Linux-only,
+which is this project's CI and dev platform.
+
+**Mutation self-check:** removing the `.stdin(...)` line fails **all three** tests —
+`bash_child_gets_empty_stdin` on `cat should see EOF, not block` (the child blocks
+until the 5 s timeout), `bash_child_stdin_reads_zero_bytes` on
+`result.error.is_none()`, and `bash_child_stdin_is_dev_null` likewise. Restored;
+the suite is green and the mutation was not committed.
+
+**Files changed:**
+- `executor/src/tools/bash.rs` — null stdin for spawned children + three tests.
+
+**New tests:**
+- `bash_child_gets_empty_stdin` in `executor/src/tools/bash.rs`
+- `bash_child_stdin_reads_zero_bytes` in `executor/src/tools/bash.rs`
+- `bash_child_stdin_is_dev_null` in `executor/src/tools/bash.rs`
+
+**Notes for review:** The short 5 s tool timeout in the first two tests is
+deliberate — under the mutation the child blocks, and the timeout is what turns a
+regression into a fast failure instead of a stalled suite.
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Claude Code (direct) — architect-implemented, so this is
+  self-review; the mutation check is the independent evidence.
+- **Scope deviations:** none. No `.output()` call site was touched, no spawn
+  wrapper introduced, no interactive-command classification added.
+- **Calibration:** none.

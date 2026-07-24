@@ -152,7 +152,7 @@ completed run must be reapable the same way.
 | #  | Phase | Status |
 |----|-------|--------|
 | 01 | Observe the serve loop's exit ([phase-01-observe-serve-loop-exit.md](phase-01-observe-serve-loop-exit.md)) — architect-implemented; pre-fix binary hangs on the same input, post-fix logs and exits 0 | done |
-| 02 | Deny children the MCP stdin ([phase-02-null-child-stdin.md](phase-02-null-child-stdin.md)) | todo |
+| 02 | Deny children the MCP stdin ([phase-02-null-child-stdin.md](phase-02-null-child-stdin.md)) — architect-implemented; mutation check bites all three tests | done |
 | 03 | Durable run registry ([phase-03-durable-run-registry.md](phase-03-durable-run-registry.md)) | todo |
 
 **Ordering rationale.** Phase 01 first, even though phase 02 is the root cause: 01

@@ -136,10 +136,15 @@ impl Tool for Bash {
             }
         }
 
+        // `spawn()` defaults stdin to inherit. This tool runs in-process with the
+        // MCP stdio transport, so an inherited fd 0 hands a child the server's
+        // JSON-RPC pipe — draining it, or setting O_NONBLOCK on the shared open
+        // file description, kills the transport for the whole serve process.
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
             .arg(&parsed.command)
             .current_dir(self.scope.root())
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
@@ -323,6 +328,57 @@ mod tests {
     fn make_bash(dir: &Path, timeout: u32) -> Arc<dyn Tool> {
         let scope = Scope::new(dir).unwrap();
         bash(scope, timeout)
+    }
+
+    #[tokio::test]
+    async fn bash_child_gets_empty_stdin() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Short timeout: an inherited stdin makes `cat` block, and this should
+        // fail fast rather than stall the suite.
+        let tool = make_bash(dir.path(), 5);
+        let result = tool
+            .execute(json!({ "command": "cat; echo EOF_OK" }))
+            .await
+            .unwrap();
+
+        assert!(result.error.is_none(), "cat should see EOF, not block");
+        assert!(result.output.contains("EOF_OK"));
+        assert!(result.output.contains("✓ exit 0"));
+    }
+
+    #[tokio::test]
+    async fn bash_child_stdin_reads_zero_bytes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let tool = make_bash(dir.path(), 5);
+        let result = tool.execute(json!({ "command": "wc -c" })).await.unwrap();
+
+        assert!(result.error.is_none());
+        let counted = result
+            .output
+            .lines()
+            .find_map(|l| l.trim().parse::<u64>().ok())
+            .expect("wc -c should report a byte count");
+        assert_eq!(
+            counted, 0,
+            "child stdin must be empty, not the parent's fd 0"
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_child_stdin_is_dev_null() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let tool = make_bash(dir.path(), 5);
+        let result = tool
+            .execute(json!({ "command": "readlink /proc/self/fd/0" }))
+            .await
+            .unwrap();
+
+        assert!(result.error.is_none());
+        assert!(
+            result.output.contains("/dev/null"),
+            "child fd 0 should be /dev/null, got: {}",
+            result.output
+        );
     }
 
     #[tokio::test]
