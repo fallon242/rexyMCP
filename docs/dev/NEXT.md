@@ -4,7 +4,27 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none — M41 is at its milestone boundary, awaiting human sign-off.**
+**Active phase:
+[M42 phase-01 — Well-formed bookkeeping output](milestones/M42-bookkeeping-format-hygiene/phase-01-wellformed-bookkeeping.md)
+(status: todo — drafted, dispatching to the local executor).**
+
+**M42 — Bookkeeping Format Hygiene opened 2026-07-24** from GitHub issue #4: the
+server-authored completion entry and README status row are written unformatted, so
+every completed phase fails its own `format` gate on bookkeeping the executor never
+touched. Six defects confirmed still present in `mcp/src/finalize.rs`
+([README](milestones/M42-bookkeeping-format-hygiene/README.md)). Phase 01 makes the
+generated markdown well-formed (pure string fixes); **phase 02 is drafted but
+blocked on a human decision** — running the whole-repo `format_fix` at finalize
+time carries the same hazard as `cargo fmt --all`, so the fork (whole-repo /
+opt-in key / phase-01-only) is recorded in the README for the human to settle.
+
+**Phase 01 is also the live test vehicle for issue #5** — dispatching it exercises
+the M41 fixes end-to-end (terminal state → `get_run_status` reap → record in
+`~/.rexymcp/runs/`), which is the live verification M41 phase-03 left outstanding.
+Note the fix cannot verify itself: phase 01's *own* bookkeeping tail is written by
+the currently-running pre-fix `serve`, so it will still show the defect.
+
+**M41 remains at its milestone boundary, awaiting human sign-off** (see below).
 
 **M41 — Serve Liveness & Run Durability: all three phases done 2026-07-24**,
 implemented **directly by the architect** at the user's request (no dispatch, no
