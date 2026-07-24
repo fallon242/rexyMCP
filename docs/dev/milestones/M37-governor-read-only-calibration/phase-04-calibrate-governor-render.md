@@ -1,7 +1,7 @@
 # Phase 04: `calibrate-governor` — deterministic row order + k/M byte columns
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** review
+**Status:** done
 **Depends on:** phase-03 (reuses `metrics::fmt_tokens`) — sequencing only; 03 is done
 **Estimated diff:** ~90 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -140,16 +140,16 @@ Two details, both intentional — pin them so they are not "fixed" later:
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] `format_report` produces the same output for the same input **regardless of
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] `format_report` produces the same output for the same input **regardless of
       the input `rows` order** — pinned by the shuffle test below.
-- [ ] The `output_flood_windowed_bytes` block renders percentile cells via
+- [x] The `output_flood_windowed_bytes` block renders percentile cells via
       `metrics::fmt_tokens` (e.g. `22035 → "22.0k"`); every other signal's
       percentiles render raw.
-- [ ] Two `calibrate-governor` runs over the same corpus produce **byte-identical**
+- [x] Two `calibrate-governor` runs over the same corpus produce **byte-identical**
       text output.
 
 ## Test plan
@@ -324,3 +324,60 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
 
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 (61 turns, no oscillation)
+- **Scope deviations:** none. Diff is `calibrate_governor.rs` + the two doc
+  files; the replay path, `percentile`, and signal sampling untouched, so the
+  distributions provably cannot move.
+- **Calibration:** none.
+
+**Reviewer verification.** Four gates re-run with a forced recompile, zero
+warnings. Tests **650 → 654** (four new, exactly the § Test plan).
+
+**Both fixes mutation-checked:**
+
+| mutation | fails |
+|---|---|
+| drop the `signal_rows.sort_by` | `format_report_row_order_is_deterministic` |
+| `is_bytes = true` (compact every signal) | `format_report_non_byte_signal_stays_raw` |
+
+The second is the one worth having — it pins that k/M compaction is *scoped* to
+the flood signal, the subtle way this could have gone wrong. Reverted; tree clean.
+
+**E2E — the payoff, run by the reviewer:**
+
+```
+$ calibrate-governor --repo . > a; calibrate-governor --repo . > b; diff a b
+  STABLE ✓   (empty diff)
+
+signal: output_flood_windowed_bytes
+(all)  budget_exceeded   3   3   29.6k   71.7k   71.7k
+(all)  complete        200 200      —    24.2k   61.1k
+(all)  hard_fail        45  45      —    22.2k   44.8k
+```
+
+Two runs are byte-identical — the row-order fix delivers the stable diff the
+phase-01 review lacked. The flood block is k/M-compacted, and `P50 = 0` renders
+`—` (the intended sentinel: "negligible flood at this percentile"), confirmed by
+`format_report_byte_zero_renders_dash`.
+
+**Distributions did not move.** The diff touches only `format_report`
+(rendering); `replay`, `percentile`, and the signal samplers are untouched, so
+the change is provably order-and-format-only. (Values differ from the phase-01
+baseline only because the corpus grew — new runs joined, not a computation
+change.)
+
+**Phase-05's deferred confirmation landed here, in this very doc.** Serve was
+restarted onto the post-phase-05 binary, so this phase's *own* server-authored
+completion entry reads `**Executor:** Qwen/Qwen3.6-27B-FP8` — while the
+executor's *self-reported* "started" note two lines up reads
+`**Executor:** Claude (Sonnet 4.5)`. The misidentification and its authoritative
+correction sit in the same document: phase-05 working in production, exactly the
+live proof its § E2E deferred to "the next dispatch."
+
+**All M37 phases are now `done`.** Milestone close (retrospective + fold sign-off
++ `NEXT.md` → none) is the human-gated `/rexymcp:architect` step.
