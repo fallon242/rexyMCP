@@ -1232,7 +1232,9 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-40. **M40 — Token-ledger dash alignment** *(in-progress; opened 2026-07-24)*. A
+40. **M40 — Token-ledger dash alignment** *(done 2026-07-24; opened, fixed, and
+    closed the same day — implemented directly by the architect at the user's
+    request, no dispatch)*. A
     minor budget-panel defect found in use, sibling to M37 phase-06 (which fixed
     the *dollars*-mode debit/credit decimal alignment). In **tokens** mode the
     `—` dashes sit one decimal-width (2 columns) *right* of the `.` in the
