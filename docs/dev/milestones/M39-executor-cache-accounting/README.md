@@ -6,7 +6,7 @@ never populated until now) and the cache **write** / creation (surfaced by vLLM
 but currently dropped) — so the discount ledger prices cached tokens at their
 cheaper rate instead of the full input rate.
 
-**Status:** in-progress *(opened 2026-07-24)*
+**Status:** done *(opened 2026-07-24; closed 2026-07-24)*
 
 **Depends on:** M38 (the discount ledger that consumes these fields:
 `scope_costs` sums cache tokens, `scope_report` prices them against
@@ -150,3 +150,63 @@ upgrade makes the fields read zero again before assuming a parser regression.
 must treat it as optional and default to `0` so LM Studio / Ollama / older vLLM
 (which omit the whole details block or the extension field) keep working with
 cache-write correctly zero. The negative test pins this.
+
+## M39 retrospective (2026-07-24)
+
+**One phase, `approved_first_try`, opened and closed the same day.** The whole
+milestone was a ~10-line change to `parse_openai_usage` plus five tests — the
+smallest milestone since the early scorecard work — because the hard part
+(diagnosis) was front-loaded into the *open* step, not spent on executor bounces.
+
+**Investigation-first paid for itself.** The M38-close note said "investigate
+before scoping," and doing the live probe *as the architect during milestone
+open* — not as a phase-01 spike — is what made phase-01 a clean single-shot. Two
+hypotheses (parser bug vs backend gap) collapsed to one empirical fact (vLLM
+returns `prompt_tokens_details: null` despite a `/metrics`-confirmed cache hit),
+which turned a fuzzy "cache accounting" milestone into a precise capture change.
+The probe also surfaced the bonus the note never anticipated — vLLM's non-standard
+`created_cache_tokens` (cache-write) — which became the actual code. **Lesson
+reinforced: when a candidate milestone hinges on an unknown about a live system,
+resolve it with a probe before writing the README, not after dispatching.**
+
+**The ops dependency was the real gate, and it was the human's.** The field only
+appears with vLLM's `--enable-prompt-tokens-details`; the architect cannot restart
+the user's inference server. The milestone correctly routed that decision to the
+human (who enabled it mid-open), rather than the architect assuming or a phase
+trying to configure infra it can't reach. This is the healthy shape for any
+milestone whose correctness depends on backend configuration.
+
+**Two-stage go-live, recorded so telemetry readers aren't confused.** The
+`--enable-prompt-tokens-details` restart made **cache-read** flow immediately —
+even the pre-fix `serve` binary already parsed `cached_tokens` — so the phase-01
+run's own `PhaseRun` recorded `cache_read_tokens = 643680` (the first non-zero in
+project history), and the M38 ledger priced it (M39 milestone Executor total
+733.9k tokens). **Cache-write** required the code fix *and* a `serve` rebuild:
+approved with `cache_write_tokens = 0` in live telemetry (running binary was still
+pre-fix, unit-proven by the cold fixture), then the human **rebuilt and restarted
+`serve` post-approval**, activating cache-write capture for subsequent runs. So a
+reader seeing the first non-zero `cache_write_tokens` should date the go-live to
+the post-approval serve restart, not to phase-01 approval.
+
+**Calibration (1 occurrence, no fold).** The phase-doc Test plan told the cold
+test to assert `total() == 3017`; the correct value is `3019` (`total()` includes
+`output_tokens`). Architect arithmetic slip — I hand-wrote a total instead of
+summing the four token classes. The executor asserted the right number (`3019`)
+and ignored the spec's wrong one. It's the "derive every spec fact from its
+source" pattern again (a pre-injected *number* is a spec fact like any other), but
+at one occurrence for this specific sub-form (a computed assertion value) it stays
+recorded, not folded. Held for recurrence.
+
+**Deferred / follow-ups leaving M39:**
+
+- **The modeling caveat stands, unactioned by choice.** Pricing vLLM cache-hits at
+  Claude's cache-read rate conflates two unrelated caches (architecture.md §39).
+  The human elected to capture the measurement anyway; revisiting whether the
+  discount should apply a cache rate at all is a future pricing-model question, not
+  a bug. No milestone opened.
+- **Carried past M37, still open, none blocking:** the phase-01 `NoProgressStall`
+  backstop calibration on the post-exemption corpus (architecture.md §37); the
+  `missing_spec_test`/broken-fixture failure shape; the `$`-less `executor_val`
+  debit nit (M38).
+
+**No WORKFLOW.md/STANDARDS.md folds landed at this close.**

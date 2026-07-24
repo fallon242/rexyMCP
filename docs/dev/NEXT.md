@@ -4,32 +4,27 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase:
-[M39 phase-01 — Capture `created_cache_tokens` + disjoint `input_tokens`](milestones/M39-executor-cache-accounting/phase-01-capture-cache-write.md)
-(status: todo — drafted 2026-07-24). The whole code change for M39; single-phase
-milestone.**
+**Active phase: none.**
 
-**M39 — Executor Cache Accounting opened 2026-07-24.** Milestone README:
-[M39/README.md](milestones/M39-executor-cache-accounting/README.md);
-architecture.md §39 in-progress. **Investigation done** (live probe against
-`brain:8000`): the parser was never buggy — the original vLLM returned
-`prompt_tokens_details: null` despite a ~93% cache hit rate; the human restarted
-vLLM with `--enable-prompt-tokens-details` and it now surfaces both `cached_tokens`
-(read — already parsed) and `created_cache_tokens` (write — a vLLM extension the
-parser drops at `openai.rs:26`).
+**M39 — Executor Cache Accounting closed 2026-07-24.** One phase,
+approved_first_try. Retrospective in
+[M39/README.md § M39 retrospective](milestones/M39-executor-cache-accounting/README.md);
+architecture.md §39 marked done. Cache-read went live on the vLLM
+`--enable-prompt-tokens-details` restart (phase-01 run logged
+`cache_read_tokens=643680`, priced through the M38 ledger); cache-write went live
+when the human rebuilt+restarted `serve` post-approval. No WORKFLOW/STANDARDS folds
+landed (the one calibration note — an architect arithmetic slip in a spec'd
+assertion value — is at one occurrence, held for recurrence).
 
-**phase-01** is a single-choke-point change in `parse_openai_usage`: read
-`created_cache_tokens` into `cache_write_tokens`, and correct disjointness to
-`input = prompt - cache_read - cache_write` (clamped, never panics). Pinned by
-cold/warm/absent/over-report fixtures using the **exact** vLLM JSON the probe
-captured, pre-injected into the phase doc, plus a mutation self-check. The
-downstream (PhaseRun → scope_costs → M38 ledger) already consumes the field. The
-live-run E2E is a **reviewer-run exit criterion** (can't be done hermetically), not
-a phase-02.
+Open follow-ups carried forward (none block the next milestone): the phase-01
+`NoProgressStall` backstop calibration on the post-exemption corpus
+(architecture.md §37); the `missing_spec_test`/broken-fixture failure shape
+(M37 phase-06); the `$`-less `executor_val` debit nit (M38); and the M39 modeling
+caveat (vLLM cache ≠ Claude cache — capture chosen over removal by user decision;
+a future pricing question, not a bug).
 
-**Next step: `/rexymcp:dispatch phase-01`.** ⚠️ The `rexymcp serve` MCP process
-disconnected this session — restart it (and it must be the freshly-built binary)
-before dispatching, or the dispatch tools won't be reachable.
+The next milestone is a human decision — no auto-advance across the boundary.
+No candidate is currently queued; awaiting direction on what comes after M39.
 
 ---
 

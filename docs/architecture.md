@@ -1232,8 +1232,8 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-39. **M39 — Executor cache accounting** *(in-progress; opened 2026-07-24, same
-    day it was logged as a candidate at the M38 close)*. The executor's
+39. **M39 — Executor cache accounting** *(done 2026-07-24, opened and closed the
+    same day it was logged as a candidate at the M38 close)*. The executor's
     `cache_read_tokens` and `cache_write_tokens` read **zero across all 41
     in-schema `PhaseRun` records** — every run since M35's telemetry version
     bump. `scope_costs` (`mcp/src/costs.rs`) sums them, `scope_report` prices
@@ -1278,6 +1278,20 @@ The project plan. Each entry becomes a milestone with its own
     (pricing every cached token at the full input rate) is a systematic
     *understatement* of savings, so capturing the fields is strictly more
     accurate than the status quo.
+
+    **Close (2026-07-24): one phase, approved_first_try.** `parse_openai_usage`
+    now reads `created_cache_tokens` into `cache_write_tokens` and makes the three
+    input classes disjoint (`input = prompt - cache_read - cache_write`, chained
+    `saturating_sub`, clamped). Cache-**read** went live immediately on the
+    `--enable-prompt-tokens-details` restart (the pre-fix parser already read
+    `cached_tokens`): the phase-01 run's own `PhaseRun` logged
+    `cache_read_tokens = 643680`, priced through the M38 ledger. Cache-**write**
+    required the code fix plus a `serve` rebuild, which the human did
+    post-approval — so first non-zero `cache_write_tokens` in telemetry dates to
+    that restart, not to phase approval. The modeling caveat above is unactioned
+    by user choice (capture chosen over the philosophically-cleaner "don't price a
+    cache Claude doesn't share"); revisiting it is a future pricing question, not a
+    defect.
 38. **M38 — Discount Accounting** *(done 2026-07-24; opened 2026-07-23
     immediately after the M36 close)*. States rexyMCP's premise in the accounting itself:
     work the executor does is work Claude was **not billed for**, so executor
