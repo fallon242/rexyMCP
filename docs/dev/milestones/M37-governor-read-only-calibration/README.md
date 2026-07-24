@@ -92,12 +92,15 @@ Rejected alternatives, recorded so they are not re-litigated:
 
 ## Phases
 
-**01–05 done; 06 drafted** (2026-07-24). Phase 06 was added after 04's approval:
-two budget-panel bugs found using the dashboard (debit decimals misaligned; a
-fake alignment test that let it regress; tokens-mode header wording). Folded into
-M37 by user decision rather than reopening the closed M38 that owns
-`ledger_lines`. After 06 lands the milestone is complete and closes on human
-sign-off.
+**01–06 done** (2026-07-24). Phase 06 was added after 04's approval: two
+budget-panel bugs found using the dashboard (debit decimals misaligned; a fake
+alignment test that let it regress; tokens-mode header wording). Folded into M37
+by user decision rather than reopening the closed M38 that owns `ledger_lines`.
+Phase 06 landed via an **architect takeover** — the dispatched executor was
+human-stopped mid-loop having written only the two mechanical fixes (both new
+tests carrying broken fixtures), so the architect completed the sign-gutter fix,
+repaired the fixtures, and verified with a mutation-check + parsed E2E. **All M37
+phases are now `done`; the milestone is ready to close on human sign-off.**
 
 **Phase 05 was re-scoped at draft time (user decision, 2026-07-24).** The
 milestone note bundled three "completion bookkeeping" defects; drafting found
@@ -121,7 +124,7 @@ resolved out of the code path:
 | 03 | Consolidate the token formatters into `metrics::fmt_tokens` ([phase-03-token-formatter-consolidation.md](phase-03-token-formatter-consolidation.md)) — **4** divergent formatters, not 3; canonical = decimal-SI-with-M, changes `runs`/`scorecard` output — approved_first_try; decimal decision pinned by mutation, cxt_win correctly excluded | done |
 | 04 | `calibrate-governor` deterministic row order + k/M byte columns ([phase-04-calibrate-governor-render.md](phase-04-calibrate-governor-render.md)) — reuses phase-03's `metrics::fmt_tokens`; both fixes in the pure `format_report` — approved_first_try; STABLE-diff E2E, 2 mutations bite; phase-05's live Executor-line proof landed in this doc | done |
 | 05 | Server completion entry: authoritative `**Executor:**` line from the dispatched model ([phase-05-completion-executor-line.md](phase-05-completion-executor-line.md)) — **re-scoped to defect 3 only** (tick=reviewer's job; E2E block deferred) — approved_first_try; negative self-report test bites, live proof deferred to phase-04 dispatch | done |
-| 06 | Budget panel: align debit decimals + `Tokens` header + fix the fake alignment test ([phase-06-budget-panel-alignment.md](phase-06-budget-panel-alignment.md)) — M38 `ledger_lines` regression found in use | todo |
+| 06 | Budget panel: align debit decimals + `Tokens` header + fix the fake alignment test ([phase-06-budget-panel-alignment.md](phase-06-budget-panel-alignment.md)) — M38 `ledger_lines` regression found in use — **escalated** (architect takeover: executor stopped mid-loop having landed only the 2 mechanical fixes with broken test fixtures); mutation-checked, E2E parsed | done |
 
 Phase 01 is the milestone; 02–05 are carried debt and can run in any order after
 it. Phase 01 changes governor termination behavior, so it needs negative tests

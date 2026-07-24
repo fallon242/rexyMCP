@@ -1,7 +1,7 @@
 # Phase 06: Budget panel — align debit decimals + `Tokens` header
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** todo
+**Status:** done
 **Depends on:** none (M38's `ledger_lines`; independent of 01–05)
 **Estimated diff:** ~70 lines
 **Tags:** language=rust, kind=bugfix, size=s
@@ -123,16 +123,16 @@ but the decimal-equality assertion is the one that must be present. This test
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] In dollars mode, the `.` (or `—`) of the `Architect:`, `Executor:`, and
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] In dollars mode, the `.` (or `—`) of the `Architect:`, `Executor:`, and
       `Net:` rows are at the **same column index** in each scope — pinned by a
       real decimal-equality test, not a width check.
-- [ ] Tokens mode renders the header `Tokens` (not `Spend (tok)`); dollars mode
+- [x] Tokens mode renders the header `Tokens` (not `Spend (tok)`); dollars mode
       still renders `Spend`.
-- [ ] `savings_lines_debit_digits_align_with_non_debit` asserts decimal-column
+- [x] `savings_lines_debit_digits_align_with_non_debit` asserts decimal-column
       equality and would fail against the old rendering.
 
 ## Test plan
@@ -192,3 +192,75 @@ None. No new dependencies. No edits to `docs/architecture.md`.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Completion — 2026-07-24 (architect takeover)
+
+**Executor:** Claude (architect, takeover). The dispatched executor run
+(`Qwen/Qwen3.6-27B-FP8`, run `95b407a2`) was stopped by the human at turn 126,
+looping a read-only search. It had landed the two mechanical fixes (tokens header
+rename; the fake test's docstring assertion) but **not** the sign-gutter
+production fix — and both new tests it wrote carried broken fixtures:
+`ledger_dash_and_decimal_share_column` set `net: Some(-10.0)` (rendering Net as a
+debit, so `net.find('—').expect()` would have panicked), and the panels test's
+rates made the Executor row a *debit* `(2.00)` rather than a credit (so it
+compared two debit rows and could not fail pre-fix). The user authorized a
+takeover to complete the phase.
+
+**Summary:** Restored the M35 07d–07h sign-gutter in `ledger_lines`
+(`mcp/src/costs.rs`): `DASH` gains a third trailing space, and both positive
+credit branches (`executor_val`, `net_val`) append one trailing space, so every
+non-debit marker lands 3 chars from the field's right edge — the debit column.
+Renamed the tokens-mode header `Spend (tok)` → `Tokens` (dollars stays `Spend`).
+Rewrote the two executor tests to genuine same-column marker-equality checks and
+updated the pre-existing `ledger_dash_aligns_with_decimal_column` (dash moves
+col 18 → 17) and `savings_lines_tokens_mode_shows_token_counts` (header assertion
+`"tok"` → `"Tokens"`).
+
+**Gates:** `cargo build` clean; `cargo clippy --all-targets --all-features -D
+warnings` clean; `rustfmt --check` clean on both touched files; `cargo test` =
+657 (bin) + 1045 (lib) passing, 0 failed.
+
+**Mutation check (falsifiability):** reverted the sign-gutter production edits and
+confirmed all three alignment tests fail with the exact misalignment
+(marker at col 17 vs 18): `savings_lines_debit_digits_align_with_non_debit`,
+`ledger_dash_and_decimal_share_column`, and `ledger_dash_aligns_with_decimal_column`.
+Restored the fix; all pass.
+
+**End-to-end verification:** `cargo run -p rexymcp -- costs --config rexymcp.toml
+--repo .` — parsed marker columns per row:
+
+```
+Spend          Session Milestone   Project
+  Architect:     (—)       (—)  ($2022.82)     Session —@18  Milestone —@28  Project .@38
+  Executor:    $19.02    $67.06  $1453.78       Session .@18  Milestone .@28  Project .@38
+  Net:            —         —    ($569.04)      Session —@18  Milestone —@28  Project .@38
+```
+
+Every marker aligns per scope (18 / 28 / 38); pre-fix the Executor decimals sat
+one column right. `--tokens` renders the header `Tokens`. The dashboard Budget
+panel renders the same `ledger_lines`, so it is fixed in lock-step.
+
+**Code:** commit `00283cb`.
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** escalated (architect takeover; implementation and review were the
+  same agent — the mutation-check + independent-gate + parsed-E2E discipline
+  substitutes for reviewer independence)
+- **Bounces:** none (the dispatched run was human-stopped mid-loop, not bounced)
+- **Executor:** Claude (architect, takeover) — dispatched model was
+  `Qwen/Qwen3.6-27B-FP8`
+- **Scope deviations:** none. Touched only `ledger_lines` and its tests, plus two
+  pre-existing tests that pinned the old rendering.
+- **Notes for review:** while working `executor_val`'s negative branch, noted it
+  emits `(X.XX)` **without** a `$` where `net_val` emits `($X.XX)` — a pre-existing
+  M38 inconsistency, out of scope here (debit forms were explicitly not to be
+  touched), not fixed. Worth a follow-up nit.
+- **Calibration:** two folds candidate — (1) *a test whose name/docstring promises
+  more than its body checks is worse than none*; the equal-width guard's docstring
+  claimed decimal-column equality but asserted width, and it shipped the very
+  regression it named — this slipped my own M38 review. (2) The executor's failure
+  shape here (correct mechanical edits, broken reasoning on the geometric core,
+  plus **broken test fixtures that would panic/no-op**) is a variant of
+  `missing_spec_test` — the tests existed but were non-falsifiable. Recorded for
+  the M37 close retrospective.
