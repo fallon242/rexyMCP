@@ -1,7 +1,7 @@
 # Phase 01: Capture `created_cache_tokens` + disjoint `input_tokens`
 
 **Milestone:** M39 — Executor Cache Accounting
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none (first phase of M39)
 **Estimated diff:** ~40 lines (a ~10-line parser change + tests)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -226,3 +226,9 @@ None. No new dependencies. No edits outside
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 18:31 (started)
+
+**Executor:** model executor
+
+Implemented `parse_openai_usage` to capture `created_cache_tokens` and made the three input classes disjoint.

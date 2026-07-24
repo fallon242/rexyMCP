@@ -19,11 +19,18 @@ pub(crate) fn parse_openai_usage(u: &serde_json::Map<String, Value>) -> TokenBre
         .and_then(|d| d.get("cached_tokens"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
+    let cache_write = u
+        .get("prompt_tokens_details")
+        .and_then(|d| d.get("created_cache_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
     TokenBreakdown {
-        input_tokens: total_prompt.saturating_sub(cache_read),
+        input_tokens: total_prompt
+            .saturating_sub(cache_read)
+            .saturating_sub(cache_write),
         output_tokens,
         cache_read_tokens: cache_read,
-        cache_write_tokens: 0,
+        cache_write_tokens: cache_write,
     }
 }
 
@@ -554,6 +561,127 @@ mod tests {
         assert_eq!(usage.input_tokens, 1000);
         assert_eq!(usage.cache_read_tokens, 0);
         assert_eq!(usage.cache_write_tokens, 0);
+    }
+
+    #[test]
+    fn openai_parses_created_cache_tokens_as_cache_write() {
+        let usage_obj = serde_json::json!({
+            "prompt_tokens": 3017,
+            "completion_tokens": 2,
+            "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "created_cache_tokens": 1728
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+
+        let usage = parse_openai_usage(&usage_obj);
+
+        assert_eq!(usage.cache_write_tokens, 1728);
+        assert_eq!(usage.cache_read_tokens, 0);
+        assert_eq!(usage.input_tokens, 1289);
+        assert_eq!(usage.total(), 3019);
+    }
+
+    #[test]
+    fn openai_warm_call_reads_cache_not_writes() {
+        let usage_obj = serde_json::json!({
+            "prompt_tokens": 3017,
+            "completion_tokens": 2,
+            "prompt_tokens_details": {
+                "cached_tokens": 1728,
+                "created_cache_tokens": 0
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+
+        let usage = parse_openai_usage(&usage_obj);
+
+        assert_eq!(usage.cache_read_tokens, 1728);
+        assert_eq!(usage.cache_write_tokens, 0);
+        assert_eq!(usage.input_tokens, 1289);
+    }
+
+    #[test]
+    fn openai_input_plus_cache_classes_equal_prompt_tokens() {
+        let cold = serde_json::json!({
+            "prompt_tokens": 3017,
+            "completion_tokens": 2,
+            "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "created_cache_tokens": 1728
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+
+        let warm = serde_json::json!({
+            "prompt_tokens": 3017,
+            "completion_tokens": 2,
+            "prompt_tokens_details": {
+                "cached_tokens": 1728,
+                "created_cache_tokens": 0
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+
+        for (label, obj) in [("cold", &cold), ("warm", &warm)] {
+            let u = parse_openai_usage(obj);
+            let prompt = obj.get("prompt_tokens").unwrap().as_u64().unwrap() as u32;
+            assert_eq!(
+                u.input_tokens + u.cache_read_tokens + u.cache_write_tokens,
+                prompt,
+                "{label}: input + cache_read + cache_write == prompt_tokens"
+            );
+        }
+    }
+
+    #[test]
+    fn openai_created_cache_tokens_absent_is_zero() {
+        let usage_obj = serde_json::json!({
+            "prompt_tokens": 2000,
+            "completion_tokens": 500,
+            "prompt_tokens_details": {
+                "cached_tokens": 800
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+
+        let usage = parse_openai_usage(&usage_obj);
+
+        assert_eq!(usage.cache_write_tokens, 0);
+        assert_eq!(usage.cache_read_tokens, 800);
+        assert_eq!(usage.input_tokens, 1200);
+    }
+
+    #[test]
+    fn openai_cache_over_report_clamps_input_to_zero() {
+        let usage_obj = serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 10,
+            "prompt_tokens_details": {
+                "cached_tokens": 80,
+                "created_cache_tokens": 40
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+
+        let usage = parse_openai_usage(&usage_obj);
+
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.cache_read_tokens, 80);
+        assert_eq!(usage.cache_write_tokens, 40);
     }
 
     #[test]
