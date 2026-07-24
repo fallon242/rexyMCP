@@ -4,25 +4,32 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none yet — M39 open, phase-01 not drafted.**
+**Active phase:
+[M39 phase-01 — Capture `created_cache_tokens` + disjoint `input_tokens`](milestones/M39-executor-cache-accounting/phase-01-capture-cache-write.md)
+(status: todo — drafted 2026-07-24). The whole code change for M39; single-phase
+milestone.**
 
 **M39 — Executor Cache Accounting opened 2026-07-24.** Milestone README:
 [M39/README.md](milestones/M39-executor-cache-accounting/README.md);
-architecture.md §39 marked in-progress. **Investigation is already done** (live
-probe against `brain:8000`): the parser was never buggy — the original vLLM
-returned `prompt_tokens_details: null` despite a ~93% cache hit rate. The human
-restarted vLLM with `--enable-prompt-tokens-details`; the field now populates and
-surfaces **both** `cached_tokens` (read — already parsed) and `created_cache_tokens`
-(write — a vLLM extension the parser currently drops at `openai.rs:26`). Scope: a
-single-choke-point capture change in `parse_openai_usage` plus the disjointness
-correction (`input = prompt - cache_read - cache_write`), pinned by cold/warm/
-absent/underflow fixtures, and a live-run E2E showing non-zero cache tokens priced
-through the M38 ledger.
+architecture.md §39 in-progress. **Investigation done** (live probe against
+`brain:8000`): the parser was never buggy — the original vLLM returned
+`prompt_tokens_details: null` despite a ~93% cache hit rate; the human restarted
+vLLM with `--enable-prompt-tokens-details` and it now surfaces both `cached_tokens`
+(read — already parsed) and `created_cache_tokens` (write — a vLLM extension the
+parser drops at `openai.rs:26`).
 
-**Next step: `/rexymcp:architect next`** to draft phase-01 (capture
-`created_cache_tokens` + disjoint `input_tokens`). Phase-02 (live E2E) may collapse
-into phase-01's End-to-end section — decide at draft time. Nothing is dispatched
-until phase-01 is drafted and you sign off.
+**phase-01** is a single-choke-point change in `parse_openai_usage`: read
+`created_cache_tokens` into `cache_write_tokens`, and correct disjointness to
+`input = prompt - cache_read - cache_write` (clamped, never panics). Pinned by
+cold/warm/absent/over-report fixtures using the **exact** vLLM JSON the probe
+captured, pre-injected into the phase doc, plus a mutation self-check. The
+downstream (PhaseRun → scope_costs → M38 ledger) already consumes the field. The
+live-run E2E is a **reviewer-run exit criterion** (can't be done hermetically), not
+a phase-02.
+
+**Next step: `/rexymcp:dispatch phase-01`.** ⚠️ The `rexymcp serve` MCP process
+disconnected this session — restart it (and it must be the freshly-built binary)
+before dispatching, or the dispatch tools won't be reachable.
 
 ---
 

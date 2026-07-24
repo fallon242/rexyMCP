@@ -123,17 +123,17 @@ systematic *understatement* of savings.
 
 ## Phases
 
-Not yet drafted. Provisional decomposition (one executor session each; the
-architect drafts phase-01 on the next `/rexymcp:architect next`):
-
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | Capture `created_cache_tokens` as `cache_write_tokens` + disjoint `input_tokens`, with cold/warm/absent/underflow fixtures | todo (to draft) |
-| 02 | *(likely)* End-to-end verification against a live run: non-zero cache tokens recorded and priced through the ledger | todo (to draft) |
+| 01 | Capture `created_cache_tokens` as `cache_write_tokens` + disjoint `input_tokens`, with cold/warm/absent/underflow fixtures ([phase-01-capture-cache-write.md](phase-01-capture-cache-write.md)) | todo |
 
-Phase 01 is the whole code change (a single function plus its tests). Phase 02
-may collapse into phase 01's End-to-end verification section if a live dispatch
-during phase-01 review already evidences it — decide at phase-01 draft time.
+**Single-phase milestone.** Phase 01 is the whole code change (`parse_openai_usage`
+plus its tests). The originally-mooted phase-02 (live E2E) is **folded into phase-01
+as a reviewer-run exit criterion**, not a separate executor phase: the live-network
+confirmation cannot be done hermetically by the executor, so the architect runs it
+at approval (dispatch a real phase, confirm non-zero `cache_read_tokens` in the
+`PhaseRun` and that `rexymcp costs` prices them). Decided at draft time
+(2026-07-24).
 
 ## Notes
 
