@@ -1,7 +1,7 @@
 # Phase 05: Server-authored `Executor:` line from the dispatched model
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** in-progress
+**Status:** review
 **Depends on:** none
 **Estimated diff:** ~70 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -251,3 +251,103 @@ executor loop are **not** modified — the model is threaded through
 **Executor:** Qwen/Qwen3.6-27B-FP8
 
 Added `model: &'a str` to `FinalizeInput`, threaded it through `baseline_entry` to emit `**Executor:** {model}` immediately after `**Summary:**`, and wired the caller in `runner.rs`. Updated all existing test `FinalizeInput` fixtures and added three new tests: `baseline_entry_includes_executor_line_from_model`, `baseline_entry_executor_line_ignores_self_report`, and `finalize_complete_writes_executor_line`.
+### Update — ts=1784909598122 (complete, server-authored)
+
+**Summary:** **Summary + Notes for review:**
+
+Added an authoritative `**Executor:** {model}` line to the server-authored completion entry, sourced from the resolved dispatch model rather than the executor's self-report. The change adds `model: &'a str` to `FinalizeInput`, threads it to `baseline_entry` which emits the line immediately after `**Summary:**`, and wires `inp.model` at the `runner.rs` call site. All 6 existing test `FinalizeInput` fixtures were updated, and 3 new tests were added: a positive test confirming the Executor line carries the dispatched model, a negative test confirming a wrong self-report in `completion_summary` doesn't override it, and an integration test confirming the full `finalize_complete` path writes the line to the phase doc. All 1045 tests pass, clippy is clean, and the tree is committed. Live confirmation is deferred to the next dispatched phase's completion entry.
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.74s
+
+
+LINT
+    Checking rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.16s
+
+
+TEST
+sts::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::symbols::tests::caps_at_max_results ... ok
+test tools::symbols::tests::finds_rust_function_by_name ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::no_symbols_returns_advisory_error ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1045 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.09s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-4e85b51f198fbe9f)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+- `docs/dev/milestones/M37-governor-read-only-calibration/README.md` — +1 -1
+- `docs/dev/milestones/M37-governor-read-only-calibration/phase-05-completion-executor-line.md` — +7 -1
+- `mcp/src/finalize.rs` — +121 -2
+- `mcp/src/runner.rs` — +1 -0
+
+**Commit:** fb8fd62f96e61aa0048e892dbc8ef2ace2fcace3
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
