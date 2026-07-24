@@ -86,9 +86,8 @@ Rejected alternatives, recorded so they are not re-litigated:
 
 ## Phases
 
-**Phases 01–03 done; 05 drafted, 04 sketched** (2026-07-24). Per WORKFLOW.md
-§ Milestones on-demand expansion. All remaining phases are independent and may
-land in any order.
+**01–03 + 05 done; 04 drafted — the last phase** (2026-07-24). After 04 lands
+the milestone is complete and closes on human sign-off.
 
 **Phase 05 was re-scoped at draft time (user decision, 2026-07-24).** The
 milestone note bundled three "completion bookkeeping" defects; drafting found
@@ -110,7 +109,7 @@ resolved out of the code path:
 | 01 | Read-only exemption in the oscillation + identical-repetition detectors ([phase-01-read-only-exemption.md](phase-01-read-only-exemption.md)) — approved_first_try; 3 reviewer mutations, calibration distributions unmoved | done |
 | 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` ([phase-02-failure-class-vocabulary.md](phase-02-failure-class-vocabulary.md)) — approved_first_try; negative control holds, 2 guards mutation-checked | done |
 | 03 | Consolidate the token formatters into `metrics::fmt_tokens` ([phase-03-token-formatter-consolidation.md](phase-03-token-formatter-consolidation.md)) — **4** divergent formatters, not 3; canonical = decimal-SI-with-M, changes `runs`/`scorecard` output — approved_first_try; decimal decision pinned by mutation, cxt_win correctly excluded | done |
-| 04 | k/M compaction for `calibrate-governor`'s byte columns **+ deterministic row order** (found at the phase-01 review: HashMap iteration makes before/after diffing unreadable) | todo |
+| 04 | `calibrate-governor` deterministic row order + k/M byte columns ([phase-04-calibrate-governor-render.md](phase-04-calibrate-governor-render.md)) — reuses phase-03's `metrics::fmt_tokens`; both fixes in the pure `format_report` | todo |
 | 05 | Server completion entry: authoritative `**Executor:**` line from the dispatched model ([phase-05-completion-executor-line.md](phase-05-completion-executor-line.md)) — **re-scoped to defect 3 only** (tick=reviewer's job; E2E block deferred) — approved_first_try; negative self-report test bites, live proof deferred to phase-04 dispatch | done |
 
 Phase 01 is the milestone; 02–05 are carried debt and can run in any order after

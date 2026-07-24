@@ -5,8 +5,30 @@ Single source of truth for which phase is active. The principal engineer
 § "Read these first") to know which phase to work next.
 
 **Active phase:
-[M37 phase-05 — server completion entry's authoritative `Executor:` line](milestones/M37-governor-read-only-calibration/phase-05-completion-executor-line.md)
-(status: todo — drafted 2026-07-24).**
+[M37 phase-04 — `calibrate-governor` deterministic row order + k/M byte columns](milestones/M37-governor-read-only-calibration/phase-04-calibrate-governor-render.md)
+(status: todo — drafted 2026-07-24). **The last M37 phase** — milestone closes on
+human sign-off after it lands.**
+
+**phase-04 clears the friction phase-01's review exposed.** `format_report`
+(`calibrate_governor.rs:218`) pushes rows in `HashMap` order, so two runs over the
+same corpus diff by 100+ reordered lines — I hit exactly this comparing phase-01's
+calibration before/after, and had to sort both sides by hand. Fix: sort each
+signal's rows (`(all)` first, then model/outcome asc) at render, and k/M-compact
+the `output_flood_windowed_bytes` percentile cells via **phase-03's**
+`metrics::fmt_tokens` (nice composition — 03 landed the exact helper 04 needs).
+Both live in the one pure function. Distributions must **not** move — order and
+byte-rendering only. E2E payoff is a byte-identical diff between two runs.
+**Serve was restarted onto the post-phase-05 binary**, so phase-04's own
+completion entry should carry `**Executor:** Qwen/Qwen3.6-27B-FP8` — phase-05's
+deferred live confirmation, checkable at the phase-04 review.
+
+**phase-05 — done (2026-07-24, approved_first_try; 101 turns).** Server completion
+entry now carries an authoritative `**Executor:**` line from the resolved dispatch
+model (new `FinalizeInput.model`, threaded to `baseline_entry`), never the
+self-report. Negative test bites: mutating the line to read from `{summary}` lets
+`Claude Sonnet 4.5` leak and the guard catches it. Re-scoped to defect 3 only;
+tick stays the reviewer's job, E2E block deferred (needs a `PhaseResult` contract
+change).
 
 **phase-05 was re-scoped at draft time (user decision).** The milestone note
 bundled three "completion bookkeeping" defects; drafting found they are not
