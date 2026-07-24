@@ -1,7 +1,7 @@
 # Phase 02: Add `oscillation_stall` and `missing_spec_test` to `FAILURE_CLASSES`
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none (independent of phase-01; both may land in either order)
 **Estimated diff:** ~50 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -201,3 +201,9 @@ deliberately elliptical and stays accurate as the list grows.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 13:33 (started)
+
+**Executor:** Claude (Sonnet)
+
+Added `oscillation_stall` and `missing_spec_test` to `FAILURE_CLASSES`, extended the doc comment with boundary distinctions, and added vocabulary tests.

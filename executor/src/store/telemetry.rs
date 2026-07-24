@@ -316,6 +316,18 @@ pub fn fold_reviews(runs: Vec<PhaseRun>, reviews: &[PhaseReview]) -> Vec<PhaseRu
 /// § Calibration) — so this is a *documented* vocabulary, not a closed enum.
 /// `spec_bug` and `infra_blip` exist so a bounce caused by the architect's spec
 /// or by transient infrastructure is NOT charged against the model's competency.
+///
+/// `oscillation_stall` and `parse_format` both appear as a run with no progress,
+/// but `parse_format` is tool-call syntax churn the forgiving parser repaired,
+/// while `oscillation_stall` is the **governor** terminating a run that was
+/// repeating or cycling — if a `HardFail` names an oscillation, identical-repetition,
+/// or stall detector, it is `oscillation_stall`.
+/// `missing_spec_test` and `false_completion` are opposites: `false_completion`
+/// is a red gate the model reported as complete, while `missing_spec_test` is
+/// all gates genuinely green with production code correct but a test the spec's
+/// § Test plan named was never written. It is charged to the model (the spec named
+/// the test), unlike `spec_bug`. `missing_spec_test` is doing *less* than the spec
+/// asked; `scope_deviation` is doing *more*.
 pub const FAILURE_CLASSES: &[&str] = &[
     "none",              // clean approval
     "false_completion",  // self-reported complete on a red gate
@@ -326,6 +338,8 @@ pub const FAILURE_CLASSES: &[&str] = &[
     "scope_deviation",   // touched out-of-scope files or widened scope
     "spec_bug",          // the bounce was the architect's spec fault, not the model's
     "infra_blip",        // transient backend/decode error, not a work defect
+    "oscillation_stall", // governor terminated the run (oscillation / identical-repetition / stall)
+    "missing_spec_test", // implementation correct, but a test the spec named was not written
 ];
 
 /// True if `class` is in the canonical `FAILURE_CLASSES` vocabulary.
@@ -1290,7 +1304,30 @@ mod tests {
         assert!(is_known_failure_class("none"));
         assert!(is_known_failure_class("spec_bug"));
         assert!(is_known_failure_class("infra_blip"));
+        assert!(is_known_failure_class("oscillation_stall"));
+        assert!(is_known_failure_class("missing_spec_test"));
         assert!(!is_known_failure_class("made_up"));
+    }
+
+    #[test]
+    fn failure_classes_preserves_existing_vocabulary() {
+        let existing = [
+            "none",
+            "false_completion",
+            "prod_unwrap",
+            "multi_site_break",
+            "parse_format",
+            "masked_diagnostic",
+            "scope_deviation",
+            "spec_bug",
+            "infra_blip",
+        ];
+        for class in existing {
+            assert!(
+                is_known_failure_class(class),
+                "existing failure class \"{class}\" missing from FAILURE_CLASSES",
+            );
+        }
     }
 
     #[test]
