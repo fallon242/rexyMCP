@@ -5,8 +5,19 @@ Single source of truth for which phase is active. The principal engineer
 § "Read these first") to know which phase to work next.
 
 **Active phase:
-[M41 phase-01 — Observe the serve loop's exit](milestones/M41-serve-liveness/phase-01-observe-serve-loop-exit.md)
+[M41 phase-03 — Durable run registry](milestones/M41-serve-liveness/phase-03-durable-run-registry.md)
 (status: todo — drafted, not yet dispatched).**
+
+**M41 phases 01 and 02 are done (2026-07-24), implemented directly by the
+architect** at the user's request (no dispatch, no `PhaseRun`) — commits `87c6c15`
+and `c7234cf`. `serve` now waits on `running.waiting()` and logs the `QuitReason`
+plus the in-flight run count before exiting; `bash`-tool children get
+`Stdio::null()` for stdin. Both independently evidenced: the same
+handshake-then-EOF input **hangs forever on the pre-fix binary (timeout 124)** and
+exits 0 with the new log line post-fix, and removing the `.stdin(...)` line fails
+all three new `bash_child_*` tests. Phase 03 remains — and matters more now, not
+less: `serve` exits on transport death where it used to hang, so a completed run's
+result must survive the process.
 
 **M41 — Serve Liveness & Run Durability opened 2026-07-24** from GitHub issue #5:
 `rexymcp serve` goes permanently deaf after a phase completes — every MCP request
