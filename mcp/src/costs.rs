@@ -416,7 +416,7 @@ pub fn ledger_lines(
         match units {
             LedgerUnits::Tokens => format!(
                 "{:<12}{:>10}{:>10}{:>10}",
-                "Spend (tok)", "Session", "Milestone", "Project"
+                "Tokens", "Session", "Milestone", "Project"
             ),
             LedgerUnits::Dollars => format!(
                 "{:<12}{:>10}{:>10}{:>10}",
@@ -425,7 +425,7 @@ pub fn ledger_lines(
         }
     } else {
         match units {
-            LedgerUnits::Tokens => format!("{:<12}{:>9}{:>9}", "Spend (tok)", "Session", "Project"),
+            LedgerUnits::Tokens => format!("{:<12}{:>9}{:>9}", "Tokens", "Session", "Project"),
             LedgerUnits::Dollars => {
                 format!("{:<12}{:>9}{:>9}", "Spend", "Session", "Project")
             }
@@ -475,14 +475,17 @@ pub fn ledger_lines(
                 has_milestone,
             ));
 
-            // A non-debit cell with no value. Two trailing spaces put the dash on the
-            // decimal column: an amount renders `$X.XX`, so `.` sits 3 chars from the
-            // right once `make_row` right-aligns it — and so does `—` followed by two
-            // spaces. This is the M35 07g convention, now expressed for non-debit rows
-            // (the debit form lives in `paren`, which emits `"(—)  "`).
-            const DASH: &str = "—  ";
+            // A non-debit cell with no value. A debit renders `($X.XX)` and places
+            // its `.` 3 chars from the right edge (`.XX)`); a non-debit credit renders
+            // `$X.XX` with its `.` only 2 chars in. To land every marker in the same
+            // column, non-debit forms carry a trailing sign-gutter space so their
+            // marker also sits 3 from the right: `—` followed by three spaces here,
+            // and a single trailing space appended to each credit below. This is the
+            // M35 07g convention; the debit form lives in `paren` (`"(—)  "`).
+            const DASH: &str = "—   ";
 
-            // Executor: credit = saved - executor, plain; parenthesised if negative
+            // Executor: credit = saved - executor, plain; parenthesised if negative.
+            // The positive branch carries a trailing sign-gutter space (see DASH).
             let executor_val = |r: &ScopeReport| -> String {
                 match r.saved {
                     None => DASH.to_string(),
@@ -491,7 +494,7 @@ pub fn ledger_lines(
                         if val < 0.0 {
                             format!("({:.2})", val.abs())
                         } else {
-                            fmt_dollars(val)
+                            format!("{} ", fmt_dollars(val))
                         }
                     }
                 }
@@ -509,7 +512,8 @@ pub fn ledger_lines(
                 match r.net {
                     None => DASH.to_string(),
                     Some(net) if net < 0.0 => format!("(${:.2})", net.abs()),
-                    Some(net) => fmt_dollars(net),
+                    // Positive net is a credit: trailing sign-gutter space (see DASH).
+                    Some(net) => format!("{} ", fmt_dollars(net)),
                 }
             };
             out.push(make_row(
@@ -1719,26 +1723,109 @@ model = "claude-fable-5"
             .iter()
             .find(|l| l.contains("Net:"))
             .expect("Net row present");
-        // 2-scope layout: "  Net:            —  ($110.00)"
-        // The dash is in the Session column (9-char field), the dot is in the
-        // Project column (9-char field). Each field is right-aligned. The dash
-        // "—  " has two trailing spaces, so the — character sits at position
-        // (field_end - 3) within its field. The dot in "$110.00" sits at
-        // (field_end - 3) within its field. Since both fields are the same
-        // width, the — and the . should be at the same column index.
-        // But the Session column is 9 chars and the Project column is 9 chars,
-        // so the dash at col 18 and the dot at col 28 differ by exactly one
-        // field width (10 chars including the separator). We verify the dash
-        // is right-aligned in its field by checking it appears in the expected
-        // position relative to the label.
+        // 2-scope layout: "  Net:           —   ($110.00)"
+        // The dash is in the Session column (9-char field). Since the M37 phase-06
+        // sign-gutter fix, the non-debit dash `"—   "` carries three trailing spaces,
+        // placing `—` 3 chars from the field's right edge — the same offset a debit's
+        // `.` sits (`.XX)`), so the marker column matches the debit rows. The Session
+        // field starts at column 12 (2 spaces + 10 for label); with a 9-char field the
+        // dash lands at 12 + 9 - 4 = 17.
         let dash_col = net_line.find('—').expect("dash present in Net row");
-        // The dash should be at the rightmost position of the Session column,
-        // minus 2 (since "—  " has the dash 2 chars from the right edge of the
-        // 9-char field). The Session field starts at column 12 (2 spaces + 10
-        // for label), so the dash should be at 12 + 9 - 3 = 18.
         assert_eq!(
-            dash_col, 18,
-            "Dash should be at column 18 (right-aligned in 9-char Session field): {net_line}"
+            dash_col, 17,
+            "Dash should be at column 17 (sign-gutter aligned in 9-char Session field): {net_line}"
+        );
+    }
+
+    #[test]
+    fn ledger_dash_and_decimal_share_column() {
+        // Architect: (—) in Session (debit dash), Executor: $X.XX in Session
+        // (credit), Net: — in Session (non-debit dash). The —/./— markers
+        // must be at the same column index.
+        // Session scope carries all three intended forms:
+        //   Architect: `(—)`  (architect None -> debit dash)
+        //   Executor:  `$40.00` credit (saved 50 - executor 10)
+        //   Net:       `—`     (net None -> non-debit dash)
+        // Their markers must land in the same column.
+        let sess = ScopeReport {
+            saved: Some(50.0),
+            executor: 10.0,
+            architect: None,
+            net: None,
+            executor_tokens: 0,
+            architect_tokens: 0,
+        };
+        let proj = ScopeReport {
+            saved: Some(100.0),
+            executor: 10.0,
+            architect: Some(5.0),
+            net: None,
+            executor_tokens: 0,
+            architect_tokens: 0,
+        };
+        let lines = ledger_lines(&sess, None, &proj, LedgerUnits::Dollars);
+        let texts: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+
+        let architect = texts
+            .iter()
+            .find(|s| s.contains("Architect:"))
+            .expect("Architect row");
+        let executor = texts
+            .iter()
+            .find(|s| s.contains("Executor:"))
+            .expect("Executor row");
+        let net = texts.iter().find(|s| s.contains("Net:")).expect("Net row");
+
+        // Architect Session column has (—) — find the em-dash
+        let arch_dash_col = architect
+            .find('—')
+            .expect("Architect row should have em-dash in Session column");
+        // Executor Session column has $X.XX — find the dot
+        let exec_dot_col = executor
+            .find('.')
+            .expect("Executor row should have decimal point in Session column");
+        // Net Session column has — (non-debit dash) — find the em-dash
+        let net_dash_col = net
+            .find('—')
+            .expect("Net row should have em-dash in Session column");
+
+        assert_eq!(
+            arch_dash_col, exec_dot_col,
+            "Architect dash and Executor dot must share column\nArchitect: {architect}\nExecutor:  {executor}"
+        );
+        assert_eq!(
+            exec_dot_col, net_dash_col,
+            "Executor dot and Net dash must share column\nExecutor: {executor}\nNet:       {net}"
+        );
+    }
+
+    #[test]
+    fn ledger_tokens_header_is_tokens() {
+        let sess = ScopeReport::default();
+        let proj = ScopeReport::default();
+        let lines = ledger_lines(&sess, None, &proj, LedgerUnits::Tokens);
+        let header = lines.first().expect("header present");
+        let header_text = header.to_string();
+        assert!(
+            header_text.contains("Tokens"),
+            "tokens-mode header must contain 'Tokens': {header_text}"
+        );
+        assert!(
+            !header_text.contains("Spend"),
+            "tokens-mode header must not contain 'Spend': {header_text}"
+        );
+    }
+
+    #[test]
+    fn ledger_dollars_header_still_spend() {
+        let sess = ScopeReport::default();
+        let proj = ScopeReport::default();
+        let lines = ledger_lines(&sess, None, &proj, LedgerUnits::Dollars);
+        let header = lines.first().expect("header present");
+        let header_text = header.to_string();
+        assert!(
+            header_text.starts_with("Spend"),
+            "dollars-mode header must start with 'Spend': {header_text}"
         );
     }
 }

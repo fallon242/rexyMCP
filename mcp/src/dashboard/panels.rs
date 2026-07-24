@@ -1918,21 +1918,26 @@ mod tests {
 
     #[test]
     fn savings_lines_debit_digits_align_with_non_debit() {
-        // In dollars mode, the decimal point of a debit row (Architect) and
-        // a non-debit row (Executor) must be at the same column index.
+        // In dollars mode, a debit row's marker and a non-debit row's marker must
+        // share a column. The Session column here is the discriminating one:
+        //   Architect: `(—)`     — debit dash (no session architect cost)
+        //   Executor:  `$103.50` — non-debit credit (avoided >> executor cost)
+        // Rates make the executor a *credit*, not a debit, so this exercises the
+        // debit-vs-non-debit case the sign-gutter fixes (a debit-vs-debit fixture
+        // would pass even against the misaligned rendering).
         let summary = StatusSummary {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
         let rates = BudgetRates {
-            input_per_mtok: 3.0,
-            output_per_mtok: 15.0,
+            input_per_mtok: 30.0,
+            output_per_mtok: 150.0,
             executor: ModelRates {
-                input_per_mtok: 5.0,
-                output_per_mtok: 15.0,
-                cache_read_per_mtok: 2.0,
-                cache_creation_per_mtok: 8.0,
+                input_per_mtok: 1.0,
+                output_per_mtok: 1.0,
+                cache_read_per_mtok: 0.0,
+                cache_creation_per_mtok: 0.0,
             },
         };
         let project_costs = ScopeCosts {
@@ -1946,7 +1951,7 @@ mod tests {
                 cache_creation: 0,
                 cache_read: 0,
             },
-            architect_cost: None,
+            architect_cost: Some(5.00),
         };
         let lines = savings_lines(
             &summary,
@@ -1957,12 +1962,35 @@ mod tests {
             BudgetDisplay::Dollars,
         );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        // All rows must be equal width (the alignment invariant).
+
         let data_lines: Vec<&String> = texts.iter().filter(|s| s.contains(':')).collect();
         let widths: Vec<usize> = data_lines.iter().map(|s| s.chars().count()).collect();
         assert!(
             !widths.is_empty() && widths.iter().all(|&w| w == widths[0]),
             "all data rows must be equal width for column alignment: {widths:?}"
+        );
+
+        // Marker-column equality in the Session column: the Architect row's debit
+        // dash `(—)` and the Executor row's credit decimal `$103.50` must sit at the
+        // same offset. Each line's first `—`/`.` is its Session-column marker (the
+        // label field is fixed-width ASCII, so the byte offset equals the column).
+        let architect = data_lines
+            .iter()
+            .find(|s| s.contains("Architect:"))
+            .expect("Architect row");
+        let executor = data_lines
+            .iter()
+            .find(|s| s.contains("Executor:"))
+            .expect("Executor row");
+        let arch_marker = architect
+            .find('—')
+            .expect("Architect Session column is a debit dash");
+        let exec_marker = executor
+            .find('.')
+            .expect("Executor Session column is a credit decimal");
+        assert_eq!(
+            arch_marker, exec_marker,
+            "debit dash and non-debit decimal must be at the same column index\nArchitect: {architect}\nExecutor:  {executor}"
         );
     }
 
@@ -2077,11 +2105,11 @@ mod tests {
         );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
 
-        // Header should indicate tokens mode
+        // Header should indicate tokens mode (M37 phase-06: `Tokens`, not `Spend (tok)`)
         let header = &texts[0];
         assert!(
-            header.contains("tok"),
-            "Tokens-mode header should indicate tokens: {header}"
+            header.contains("Tokens"),
+            "Tokens-mode header should read Tokens: {header}"
         );
 
         // Find the Executor row and verify it shows the summed executor tokens
