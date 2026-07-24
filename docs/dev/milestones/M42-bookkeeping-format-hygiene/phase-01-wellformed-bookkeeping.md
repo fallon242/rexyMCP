@@ -1,7 +1,7 @@
 # Phase 01: Well-formed bookkeeping output
 
 **Milestone:** M42 — Bookkeeping Format Hygiene
-**Status:** in-progress
+**Status:** review
 **Depends on:** none (first phase of M42)
 **Estimated diff:** ~160 lines (four small production changes plus tests)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -267,3 +267,105 @@ None. No new dependencies. No edits outside `mcp/src/finalize.rs`. No edits to
 ### Update — 2026-07-24 23:09 (started)
 
 Started implementation by AI executor. Implementing four fixes in `mcp/src/finalize.rs`: (1) blank line separation in `append_entry`, (2) blank line before files-changed list in `baseline_entry`, (3) width-preserving cell replacement in `flip_readme_row`, (4) trailing newline preservation in `flip_readme_row`.
+### Update — ts=1784935592394 (complete, server-authored)
+
+**Summary:** **Summary + Notes for review:**
+
+I implemented all four fixes in `mcp/src/finalize.rs`: (1) `append_entry` now inserts a blank line between the document and entry and trims both sides so the result ends with exactly one `\n`; (2) `baseline_entry` now has a blank line before the files-changed list; (3) `flip_readme_row` preserves the original cell's character width when replacing with "review" (using `chars().count()`, not byte `len()`), falling back to unpadded `" review "` when the original is narrower; (4) `flip_readme_row` preserves the README's trailing newline using the same idiom as `flip_status_to_review`.
+
+I updated four pre-existing tests that asserted the old defective output (`flip_readme_row_flips_matching_row_only`, `flip_readme_row_emits_single_trailing_pipe`, `flip_readme_row_flips_bounced_row`, `finalize_updates_matching_readme_row_only`) and added 10 new tests (3 for `append_entry`, 1 for `baseline_entry`, 5 for `flip_readme_row`, and 1 golden round-trip). Mutation self-check confirmed each production change is pinned — reverting any one causes its corresponding test(s) to fail. All 1053 tests pass, clippy is clean, and `cargo fmt --all --check` reports no diff.
+
+**Executor:** Qwen/Qwen3.6-27B-FP8
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.73s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+
+
+TEST
+ ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::symbols::tests::caps_at_max_results ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::no_symbols_returns_advisory_error ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1053 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.09s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-4e85b51f198fbe9f)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+- `docs/dev/milestones/M42-bookkeeping-format-hygiene/README.md` — +1 -1
+- `docs/dev/milestones/M42-bookkeeping-format-hygiene/phase-01-wellformed-bookkeeping.md` — +5 -1
+- `mcp/src/finalize.rs` — +175 -11
+
+**Commit:** 5ab2d07ac547a5ab5c6546a2d6af4b95ddbc93a2
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
