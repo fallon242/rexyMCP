@@ -4,55 +4,44 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase:
-[M42 phase-01 — Well-formed bookkeeping output](milestones/M42-bookkeeping-format-hygiene/phase-01-wellformed-bookkeeping.md)
-(status: todo — drafted, dispatching to the local executor).**
+**Active phase: none.**
 
-**M42 — Bookkeeping Format Hygiene opened 2026-07-24** from GitHub issue #4: the
-server-authored completion entry and README status row are written unformatted, so
-every completed phase fails its own `format` gate on bookkeeping the executor never
-touched. Six defects confirmed still present in `mcp/src/finalize.rs`
-([README](milestones/M42-bookkeeping-format-hygiene/README.md)). Phase 01 makes the
-generated markdown well-formed (pure string fixes); **phase 02 is drafted but
-blocked on a human decision** — running the whole-repo `format_fix` at finalize
-time carries the same hazard as `cargo fmt --all`, so the fork (whole-repo /
-opt-in key / phase-01-only) is recorded in the README for the human to settle.
+**M41 — Serve Liveness & Run Durability closed 2026-07-24.** Three phases, all
+architect-implemented (no dispatch, no `PhaseRun`) — commits `87c6c15`, `c7234cf`,
+`f67acde`, plus the `docs:` close. `serve` waits on `running.waiting()` and logs
+the `QuitReason` + in-flight run count before exiting; `bash`-tool children get
+`Stdio::null()` for stdin; terminal run states persist to
+`$HOME/.rexymcp/runs/<run_id>.json` with a disk fallback in `get_run_status`.
+**Live-verified via the M42 phase-01 dispatch** — that run reached terminal state,
+`get_run_status` returned the full `PhaseResult` on the first poll (the issue-#5
+symptom absent), and its record landed at
+`~/.rexymcp/runs/ec7e163b-….json` (19,929 B, `state: done`). GitHub issue #5
+closed. Retrospective in
+[M41/README.md § M41 retrospective](milestones/M41-serve-liveness/README.md);
+architecture.md §41 done.
 
-**Phase 01 is also the live test vehicle for issue #5** — dispatching it exercises
-the M41 fixes end-to-end (terminal state → `get_run_status` reap → record in
-`~/.rexymcp/runs/`), which is the live verification M41 phase-03 left outstanding.
-Note the fix cannot verify itself: phase 01's *own* bookkeeping tail is written by
-the currently-running pre-fix `serve`, so it will still show the defect.
+**M42 — Bookkeeping Format Hygiene is open** (GitHub issue #4), phase-01 **done**:
+the server's completion entry and README row are now well-formed markdown
+(`5ab2d07`, reviewed `8c60836`). **Phase 02 is drafted but blocked on a human
+decision** — running the whole-repo `format_fix` at finalize time carries the same
+hazard as `cargo fmt --all`, so the fork (whole-repo / opt-in config key /
+phase-01-only) is recorded in
+[M42/README.md](milestones/M42-bookkeeping-format-hygiene/README.md) § "Pre-dispatch
+decision required". Architect recommendation: ship phase-01, see whether it
+satisfies Prettier on the reporter's project, and only add config surface if
+something is left over.
 
-**M41 remains at its milestone boundary, awaiting human sign-off** (see below).
+⚠️ **Needs a rebuild+restart** — the installed binary predates both M41 phase-03
+and M42 phase-01. The #4 fix cannot be observed until then: the *next* phase's
+bookkeeping tail is its live confirmation, which is M42's remaining exit criterion.
 
-**M41 — Serve Liveness & Run Durability: all three phases done 2026-07-24**,
-implemented **directly by the architect** at the user's request (no dispatch, no
-`PhaseRun`) — commits `87c6c15`, `c7234cf`, `f67acde`. `serve` waits on
-`running.waiting()` and logs the `QuitReason` + in-flight run count before exiting;
-`bash`-tool children get `Stdio::null()` for stdin; terminal run states persist to
-`$HOME/.rexymcp/runs/<run_id>.json` with a disk fallback in `get_run_status`. Each
-independently evidenced, not just unit-tested: the same handshake-then-EOF input
-**hangs forever on the pre-fix binary (timeout 124)** and exits 0 with the new log
-line post-fix; removing `.stdin(...)` fails all three `bash_child_*` tests; and a
-**fresh serve process reaps a run it never saw** after the process that ran it was
-killed.
+**Carried calibration (2 occurrences, unfolded):** architect-authored *predicted
+command output* never executed before being written into a phase doc (M39's
+`total() == 3017`; M41 phase-01's E2E step 1). A third folds a rule into
+WORKFLOW.md. Separately, M42 phase-01 logged a first occurrence of an executor
+*loosening* an existing assertion when adapting it — watch for recurrence.
 
-**The milestone close is the human's gate** (WORKFLOW.md § "Phase progression &
-triggers"): retrospective, any WORKFLOW/STANDARDS folds, and the `architecture.md`
-§41 flip from planning → done belong there. Two items for that conversation:
-
-1. **Not yet verified live:** a real Qwen-backed phase completing, persisting, and
-   being reaped after a restart. The E2E used a fast `failed` run for the process
-   boundary and a hand-written record for the `done` payload shape. Worth an
-   eyeball on the next real dispatch.
-2. **Calibration held at two occurrences:** architect-authored *predicted command
-   output* that was never executed before being written into a phase doc (M39's
-   `total() == 3017`; M41 phase-01's E2E step 1). Watch for a third before folding
-   a rule into WORKFLOW.md.
-
-⚠️ **Needs a rebuild+restart to take effect** — the installed binary (15:43:53)
-predates phase-03.
+---
 
 **M41 — Serve Liveness & Run Durability opened 2026-07-24** from GitHub issue #5:
 `rexymcp serve` goes permanently deaf after a phase completes — every MCP request

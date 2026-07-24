@@ -1232,8 +1232,9 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-41. **M41 — Serve liveness & run durability** *(planning; opened 2026-07-24 from
-    GitHub issue #5)*. After a dispatched phase reached terminal state,
+41. **M41 — Serve liveness & run durability** *(done 2026-07-24; opened and closed
+    the same day from GitHub issue #5, all three phases architect-implemented —
+    no dispatch, no `PhaseRun`)*. After a dispatched phase reached terminal state,
     `rexymcp serve` (0.9.1) stopped answering **every** MCP request —
     permanently — while staying alive and healthy-looking; the phase itself had
     succeeded and committed, so only the *reporting* path was dead, and
@@ -1270,6 +1271,17 @@ The project plan. Each entry becomes a milestone with its own
     #4 (serve-loop watchdog) is **rejected** as redundant once loop death is loud
     and fatal, and #5 (single-instance guard) is **deferred** to the separate
     duplicate-serve `{state:"unknown"}` bug that phase 03 incidentally softens.
+    **Closed with all three phases green** (`87c6c15`, `c7234cf`, `f67acde`), each
+    evidenced beyond its unit tests: the same handshake-then-EOF input hangs
+    forever on the pre-fix binary (`timeout 124`) and exits 0 with the new
+    `QuitReason` line post-fix; removing `.stdin(Stdio::null())` fails all three
+    `bash_child_*` tests; and a fresh serve process reaps a run it never saw after
+    the process that ran it was killed. The **live** confirmation came from
+    dispatching M42 phase-01 rather than a bespoke harness — that run reached
+    terminal state, `get_run_status` returned the full `PhaseResult` on the first
+    poll, and the terminal record landed in `~/.rexymcp/runs/`. Open follow-ups
+    leaving the milestone (none blocking): the single-instance guard, a CLI view
+    for run records, and an unexercised 30-day prune horizon.
 40. **M40 — Token-ledger dash alignment** *(done 2026-07-24; opened, fixed, and
     closed the same day — implemented directly by the architect at the user's
     request, no dispatch)*. A

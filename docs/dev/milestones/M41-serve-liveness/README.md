@@ -5,10 +5,10 @@ permanent, stop child processes from being handed the MCP stdin they can kill th
 transport with, and make a completed run's result reapable after the serve process
 goes away.
 
-**Status:** review *(opened 2026-07-24; all three phases done the same day,
-architect-implemented — awaiting human sign-off at the milestone boundary, which
-WORKFLOW.md § "Phase progression & triggers" makes a human gate regardless of mode.
-The retrospective and any doc folds belong to that sign-off, not to this line.)*
+**Status:** done *(opened and closed 2026-07-24; all three phases
+architect-implemented at the user's request — no dispatch, no `PhaseRun`. Signed
+off by the human at the milestone boundary after the live verification landed via
+the M42 phase-01 dispatch.)*
 
 **Depends on:** M30 (the async `execute_phase` job model — `JobRegistry`,
 `get_run_status`, `stop_phase`), M27 (the `/rexymcp:auto` loop that polls
@@ -191,3 +191,75 @@ mid-flight."
 description mechanism would need `fcntl`. Phase 02 pins the *contract* (children
 get a null stdin) rather than the mechanism, which is the durable property anyway
 and keeps the dependency set closed.
+
+## M41 retrospective (2026-07-24)
+
+**Three phases, opened and closed the same day, all `approved_first_try`.** The
+milestone existed because a user filed a bug report containing `gdb` and
+`eu-stack` dumps. That is the whole story of why it was cheap: the reporter had
+already excluded starvation, lock deadlock, livelock, and the LLM endpoint by
+process forensics, so the architect's job was reading the census rather than
+reproducing an intermittent hang.
+
+**The dumps decided the diagnosis, and one negative fact did most of the work.**
+`rexymcp::main` being the *only* rexymcp frame in the process is what proved the
+service loop had exited rather than stalled — because `tokio::io::Stdin` holds a
+blocking thread only while a read is in flight, so "no thread blocked on fd 0"
+means "nobody is reading." Everything else followed: rmcp terminates the loop on
+EOF/read-error, `main` awaited `ctrl_c` instead of `waiting()`, and children
+inheriting fd 0 explained how a read error could arrive at all. **Lesson: when a
+report includes stack dumps, mine the frames that are *absent* before theorising
+about the ones present.** Three of the reporter's own hypotheses (dropped
+`oneshot`, panicking task, dropped stdio future) were each ruled out by that same
+absence.
+
+**Safety-net-first ordering was the right call and should generalise.** Phase 01
+(observe the loop's exit) is not the root cause — phase 02 is — but it shipped
+first, because it converts *any* future transport death, including causes not yet
+found, from an invisible wedge into one stderr line and a dead process. A fix that
+makes the next bug cheap to diagnose outranks a fix that closes one known path.
+
+**A fix that changes the failure mode owes you the follow-up.** Phase 01 made
+`serve` exit where it used to hang, which silently converted "result unreachable
+but present" into "result gone." Phase 03 existed only because of phase 01. Worth
+generalising: when a phase changes *how* something fails, ask what the new failure
+loses that the old one kept.
+
+**Cross-milestone live verification.** The one thing the milestone could not prove
+about itself — a real dispatched phase completing, being reaped, and leaving a
+durable record — was verified by **dispatching M42 phase-01** rather than by
+building a bespoke harness. The next real piece of work became the test. That is
+worth repeating whenever a runtime fix cannot verify itself in the run that
+implements it.
+
+**Three of the issue's five suggested fixes were declined, on the record.** #2 (a
+bounded `get_run_status` poll) already existed and simply was never reached — a
+reminder to check whether a reported-missing behavior is missing or merely
+unreachable. #4 (a watchdog) was redundant once loop death became loud and fatal.
+#5 (single-instance guard) belongs to the separate duplicate-serve bug. Declining
+with a reason, in the milestone doc, beats silently implementing all five.
+
+**Calibration (2 occurrences, not yet folded).** Phase-01's E2E step 1 predicted
+output from `echo -n "" | rexymcp serve` that turned out wrong when run — the
+no-handshake path fails inside `serve_server` before `waiting()` is reached. Same
+class as M39's `total() == 3017`: an **architect-authored predicted command output
+that was never executed before being written into a phase doc**. Two occurrences,
+different sub-forms (a computed value; a predicted CLI behavior). Held for a third
+before folding a rule into WORKFLOW.md — the candidate wording is "a phase doc's
+predicted command output must either be run first or be marked as an unverified
+prediction."
+
+**No WORKFLOW.md / STANDARDS.md folds landed at this close.**
+
+**Open follow-ups leaving M41:**
+
+- **Single-instance guard** for `serve` (issue #5's suggested fix #5) — still
+  unaddressed, and now partly softened by phase 03: a run recorded by one serve is
+  readable by another. Worth re-checking whether the guard still earns its friction
+  before opening anything.
+- **No way to inspect run records** from the CLI (`~/.rexymcp/runs/`). Noted during
+  phase 03 and deliberately not built. If reaping-after-restart becomes routine, a
+  `rexymcp runs --record <id>` view is the obvious shape.
+- **Prune horizon unexercised.** `RECORD_MAX_AGE_MS` is 30 days and prunes on serve
+  start; nothing has aged out yet, so the path is unit-tested but has never fired
+  in production.
