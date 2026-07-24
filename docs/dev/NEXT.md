@@ -5,9 +5,30 @@ Single source of truth for which phase is active. The principal engineer
 § "Read these first") to know which phase to work next.
 
 **Active phase:
-[M37 phase-04 — `calibrate-governor` deterministic row order + k/M byte columns](milestones/M37-governor-read-only-calibration/phase-04-calibrate-governor-render.md)
+[M37 phase-06 — Budget panel: align debit decimals + `Tokens` header](milestones/M37-governor-read-only-calibration/phase-06-budget-panel-alignment.md)
 (status: todo — drafted 2026-07-24). **The last M37 phase** — milestone closes on
 human sign-off after it lands.**
+
+**phase-06 fixes two dashboard bugs found in use, folded into M37 (user choice)
+rather than reopening closed M38.** (1) Debit decimals sit one column left of
+credit decimals in the Budget ledger — a debit `($1940.72)` ends in `)` so its
+`.` lands at col 38 vs the credit `$1414.70`'s col 39. It's the M35 07d–07h
+alignment problem, reintroduced when M38 phase-02 rewrote `ledger_lines`. Fix:
+non-debit values (credits + `—` dashes) gain a 1-char trailing sign-gutter so all
+markers land at col 38; debit forms unchanged. (2) Tokens-mode header
+`Spend (tok)` → `Tokens`. **(3) The guard test is fake** —
+`savings_lines_debit_digits_align_with_non_debit` promises decimal-column
+equality but asserts only equal *width*, which is why (1) shipped through my M38
+review; the phase strengthens it to the real `find('.')` check. Shared renderer,
+so `rexymcp costs` and the dashboard fix together.
+
+**phase-04 — done (2026-07-24, approved_first_try; 61 turns).** `calibrate-governor`
+renders deterministically (`format_report` sorts each signal's rows) and k/M-compacts
+the byte columns via phase-03's `metrics::fmt_tokens`. Two runs now byte-identical
+(the stable diff phase-01's review lacked). Distributions unmoved — only order and
+rendering changed. **Phase-05's live proof landed in phase-04's own doc:** the
+server-authored completion entry reads `**Executor:** Qwen/Qwen3.6-27B-FP8` while the
+executor's self-reported note two lines up says `Claude (Sonnet 4.5)`.
 
 **phase-04 clears the friction phase-01's review exposed.** `format_report`
 (`calibrate_governor.rs:218`) pushes rows in `HashMap` order, so two runs over the

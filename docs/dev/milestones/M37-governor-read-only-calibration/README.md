@@ -74,6 +74,12 @@ Rejected alternatives, recorded so they are not re-litigated:
   code fix. The E2E block is deferred: the executor's E2E output is unstructured
   prose in `completion_summary`, so extracting it needs a `PhaseResult` contract
   change outside this milestone's scope.)*
+- The Budget ledger (`ledger_lines`, shared by `rexymcp costs` and the dashboard
+  panel) aligns the `.`/`—` markers of the Architect, Executor, and Net rows in
+  the same column — pinned by a **real** decimal-column test, not the
+  equal-width check M38 phase-02 shipped. Tokens mode's header reads `Tokens`
+  (phase 06). *(Added 2026-07-24: two dashboard bugs found in use — a debit/credit
+  decimal misalignment M38 reintroduced, and the fake test that hid it.)*
 - All four gates green.
 
 ## Architecture references
@@ -86,8 +92,12 @@ Rejected alternatives, recorded so they are not re-litigated:
 
 ## Phases
 
-**01–03 + 05 done; 04 drafted — the last phase** (2026-07-24). After 04 lands
-the milestone is complete and closes on human sign-off.
+**01–05 done; 06 drafted** (2026-07-24). Phase 06 was added after 04's approval:
+two budget-panel bugs found using the dashboard (debit decimals misaligned; a
+fake alignment test that let it regress; tokens-mode header wording). Folded into
+M37 by user decision rather than reopening the closed M38 that owns
+`ledger_lines`. After 06 lands the milestone is complete and closes on human
+sign-off.
 
 **Phase 05 was re-scoped at draft time (user decision, 2026-07-24).** The
 milestone note bundled three "completion bookkeeping" defects; drafting found
@@ -111,6 +121,7 @@ resolved out of the code path:
 | 03 | Consolidate the token formatters into `metrics::fmt_tokens` ([phase-03-token-formatter-consolidation.md](phase-03-token-formatter-consolidation.md)) — **4** divergent formatters, not 3; canonical = decimal-SI-with-M, changes `runs`/`scorecard` output — approved_first_try; decimal decision pinned by mutation, cxt_win correctly excluded | done |
 | 04 | `calibrate-governor` deterministic row order + k/M byte columns ([phase-04-calibrate-governor-render.md](phase-04-calibrate-governor-render.md)) — reuses phase-03's `metrics::fmt_tokens`; both fixes in the pure `format_report` — approved_first_try; STABLE-diff E2E, 2 mutations bite; phase-05's live Executor-line proof landed in this doc | done |
 | 05 | Server completion entry: authoritative `**Executor:**` line from the dispatched model ([phase-05-completion-executor-line.md](phase-05-completion-executor-line.md)) — **re-scoped to defect 3 only** (tick=reviewer's job; E2E block deferred) — approved_first_try; negative self-report test bites, live proof deferred to phase-04 dispatch | done |
+| 06 | Budget panel: align debit decimals + `Tokens` header + fix the fake alignment test ([phase-06-budget-panel-alignment.md](phase-06-budget-panel-alignment.md)) — M38 `ledger_lines` regression found in use | todo |
 
 Phase 01 is the milestone; 02–05 are carried debt and can run in any order after
 it. Phase 01 changes governor termination behavior, so it needs negative tests
