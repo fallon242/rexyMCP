@@ -880,7 +880,16 @@ output_filter = true                      # false → raw head+tail truncation, 
 identical_call_threshold        = 6       # consecutive identical tool calls → hard-fail (default 6)
 verifier_persistence_threshold  = 6       # consecutive verifier-failing turns → hard-fail (default 6)
 runaway_output_bytes            = 102400  # single tool-output byte cap → hard-fail (default 100 KiB)
+empty_completion_threshold      = 3       # consecutive empty model completions → hard-fail (default 3)
+gate_feedback_repeat_threshold  = 5       # consecutive byte-identical gate-feedback re-injections → hard-fail (default 5)
+oscillation_window              = 8       # sliding window scanned for an A,B,A,B cycle (default 8; 0 disables)
+oscillation_distinct_max        = 2       # ≤ this many distinct calls filling that window → hard-fail (default 2)
+output_window                   = 6       # sliding window of tool outputs summed for the flood check (default 6; 0 disables)
+output_window_bytes             = 262144  # total bytes across that window → hard-fail (default 256 KiB) — catches multi-call floods each under runaway_output_bytes
 read_only_stall_threshold       = 60      # consecutive non-mutating tool calls → hard-fail; the SOLE backstop for read-only runs (the oscillation / identical-call detectors now exempt no-mutation windows). Resets on any patch/write_file; default 60, 0 disables. Tune to your model with `calibrate-governor`'s max_read_only_run distribution — sit above legit completion runs' P99, below genuine stuck loops.
+novelty_window                  = 24      # trailing read-only calls examined for target novelty (default 24; 0 disables)
+novelty_distinct_floor          = 6       # ≤ this many distinct normalized targets (paths / grep scopes, line ranges and patterns stripped) filling that window → churn (default 6)
+novelty_action                  = "advisory" # what a fired novelty window does: "advisory" (default) records a NoveltySample and keeps running; "terminate" hard-fails with LowNoveltyStall. Advisory is the default because the 24/6 pair is un-calibrated — a data-free early kill must not pre-empt a run the turn budget would still fund.
 
 # ── /rexymcp:auto per-phase escalation budget ─────────────────────
 [escalation]
@@ -896,7 +905,20 @@ temperature                    = 0.2      # any of these override the global val
 # identical_call_threshold     = 8
 # verifier_persistence_threshold = 8
 # runaway_output_bytes         = 204800
+# empty_completion_threshold   = 3
+# gate_feedback_repeat_threshold = 5
+# oscillation_window           = 10
+# oscillation_distinct_max     = 2
+# output_window                = 8
+# output_window_bytes          = 524288
 # read_only_stall_threshold    = 30       # raise for exploration-heavy phases; 0 disables per-model
+# novelty_window               = 24
+# novelty_distinct_floor       = 6
+# novelty_action               = "terminate"  # per-model opt-in to the hard-fail once you've calibrated the pair above
+# input_per_mtok               = 0.15     # M35 executor pricing, USD / Mtok — an unpriced class costs $0
+# output_per_mtok              = 0.60
+# cache_read_per_mtok          = 0.015
+# cache_creation_per_mtok      = 0.1875
 ```
 
 **Section reference:**
@@ -910,9 +932,9 @@ temperature                    = 0.2      # any of these override the global val
 | `[telemetry]` | `dir` — the cross-project store. Omit to disable; `~` is expanded. |
 | `[architect]` | `$/Mtok` rates for architect work and the executor discount (or a Claude `model` to auto-fill), plus the per-role `dispatch_model` / `review_model` keys the `/rexymcp:auto` loop delegates those steps to (M27). |
 | `[context]` | `output_filter` kill-switch for the M10 boundary filter. |
-| `[governor]` | Hard-fail thresholds (identical-call, verifier-persistence, runaway-output, no-progress read-only stall, and the oscillation/output-flood windows). |
+| `[governor]` | Hard-fail thresholds: identical-call, verifier-persistence, runaway-output, empty-completion, stuck-gate-feedback, the no-progress read-only stall, and the oscillation / output-flood / low-novelty windows (the last of these advisory-only by default — see `novelty_action`). |
 | `[escalation]` | `max_assists` — the flat, tier-independent per-phase escalation budget for the `/rexymcp:auto` loop (M27). |
-| `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, and the governor thresholds. |
+| `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, every governor threshold, and the four M35 `$/Mtok` executor rates. Any key omitted inherits the global value. |
 
 **Known-model rate table** (recognized by `[architect] model`, in USD/Mtok
 input/output): `claude-opus-4-8`/`-4-7`/`-4-6` → 5/25 ·
