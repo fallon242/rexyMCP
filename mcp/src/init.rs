@@ -38,11 +38,15 @@ wall_clock_secs = 0               # optional wall-clock ceiling in seconds (0 di
 identical_call_threshold = 6      # consecutive identical tool calls → hard-fail
 verifier_persistence_threshold = 6 # consecutive turns with verifier errors → hard-fail
 runaway_output_bytes = 102400     # single tool output bytes → hard-fail (100 KB)
+empty_completion_threshold = 3    # consecutive empty completions → hard-fail
+gate_feedback_repeat_threshold = 5 # consecutive byte-identical gate-feedback re-injections → hard-fail
 oscillation_window = 8            # sliding window scanned for A,B,A,B oscillation (0 disables)
 oscillation_distinct_max = 2      # ≤ this many distinct calls in the window → hard-fail
 output_window = 6                 # sliding window of tool outputs summed for flood check (0 disables)
 output_window_bytes = 262144      # total bytes across the output window → hard-fail (256 KB)
 read_only_stall_threshold = 60    # consecutive non-mutating tool calls → hard-fail; resets on any patch/write_file (0 disables)
+novelty_window = 24               # trailing read-only calls examined for target novelty (0 disables)
+novelty_distinct_floor = 6        # ≤ this many distinct normalized targets in the window → churn
 novelty_action = "advisory"       # "advisory" (default): log low-novelty churn but keep running; "terminate": hard-fail on it
 
 # [models."<model-id>"]              # per-model knob overrides; key is the exact
@@ -56,11 +60,16 @@ novelty_action = "advisory"       # "advisory" (default): log low-novelty churn 
 # identical_call_threshold = 8       # override [governor] identical_call_threshold
 # verifier_persistence_threshold = 8 # override [governor] verifier_persistence_threshold
 # runaway_output_bytes = 204800      # override [governor] runaway_output_bytes
+# empty_completion_threshold = 3     # override [governor] empty_completion_threshold
+# gate_feedback_repeat_threshold = 5 # override [governor] gate_feedback_repeat_threshold
 # oscillation_window = 10            # override [governor] oscillation_window
 # oscillation_distinct_max = 2       # override [governor] oscillation_distinct_max
 # output_window = 8                  # override [governor] output_window
 # output_window_bytes = 524288       # override [governor] output_window_bytes
 # read_only_stall_threshold = 30     # override [governor] read_only_stall_threshold
+# novelty_window = 24                # override [governor] novelty_window
+# novelty_distinct_floor = 6         # override [governor] novelty_distinct_floor
+# novelty_action = "terminate"       # override [governor] novelty_action
 # input_per_mtok = 0.0             # M35 executor pricing ($/Mtok); unpriced classes cost $0
 # output_per_mtok = 0.0            # override per-model output pricing
 # cache_read_per_mtok = 0.0        # override per-model cache-read pricing
@@ -125,7 +134,7 @@ pub fn run(dir: &Path, force: bool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rexymcp_executor::config::Config;
+    use rexymcp_executor::config::{Config, GovernorConfig, ModelOverride};
     use tempfile::TempDir;
 
     #[test]
@@ -148,10 +157,12 @@ mod tests {
         assert_eq!(cfg.budget.max_context_pct, 70);
         assert_eq!(cfg.budget.max_turns, 200);
         assert_eq!(cfg.escalation.max_assists, 3);
-        assert_eq!(cfg.governor.identical_call_threshold, 6);
-        assert_eq!(cfg.governor.verifier_persistence_threshold, 6);
-        assert_eq!(cfg.governor.runaway_output_bytes, 102400);
-        assert_eq!(cfg.governor.read_only_stall_threshold, 60);
+        // Every templated governor value is the code default — a drifted literal
+        // in the template would otherwise silently misdocument the knob.
+        assert_eq!(
+            serde_json::to_value(cfg.governor).unwrap(),
+            serde_json::to_value(GovernorConfig::default()).unwrap()
+        );
         // project.id is a v4 UUID — 36 chars, format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
         let pid = cfg.project.id.expect("project.id must be set by init");
         assert_eq!(pid.len(), 36, "project.id must be a UUID: {pid}");
@@ -161,19 +172,40 @@ mod tests {
         );
     }
 
+    /// Field names of a `#[derive(Serialize)]` struct, as they appear as TOML keys.
+    fn field_names<T: serde::Serialize>(value: &T) -> Vec<String> {
+        serde_json::to_value(value)
+            .expect("struct serializes to a JSON object")
+            .as_object()
+            .expect("struct serializes to a JSON object")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     #[test]
-    fn template_spells_out_read_only_stall_threshold() {
+    fn template_spells_out_every_governor_knob() {
         // A parse-level assertion cannot catch an omission here: a missing key
-        // silently inherits the serde default. Pin the template text itself.
+        // silently inherits the serde default. Pin the template text against the
+        // struct's own field list, so a new knob fails this test until templated.
         let toml = generate_config("test-id");
-        assert!(
-            toml.contains("\nread_only_stall_threshold = 60"),
-            "[governor] block must spell out read_only_stall_threshold: {toml}"
-        );
-        assert!(
-            toml.contains("# read_only_stall_threshold = 30"),
-            "[models] block must offer the per-model override: {toml}"
-        );
+        for key in field_names(&GovernorConfig::default()) {
+            assert!(
+                toml.contains(&format!("\n{key} = ")),
+                "[governor] block must spell out {key}: {toml}"
+            );
+        }
+    }
+
+    #[test]
+    fn template_offers_every_per_model_override() {
+        let toml = generate_config("test-id");
+        for key in field_names(&ModelOverride::default()) {
+            assert!(
+                toml.contains(&format!("# {key} = ")),
+                "[models] block must offer the {key} override: {toml}"
+            );
+        }
     }
 
     #[test]
