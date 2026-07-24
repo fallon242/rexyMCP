@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use rexymcp_executor::governor::hard_fail::{ToolCallSnapshot, measure_novelty};
-use rexymcp_executor::store::metrics::percentile;
+use rexymcp_executor::store::metrics::{fmt_tokens, percentile};
 use rexymcp_executor::store::sessions::event::{SessionEvent, SessionRecord};
 use rexymcp_executor::store::sessions::jsonl::read_session_log;
 use rexymcp_executor::tools;
@@ -231,10 +231,19 @@ fn format_report(rows: &[ReportRow]) -> String {
         "output_flood_windowed_bytes",
     ];
     for signal in signals {
-        let signal_rows: Vec<_> = rows.iter().filter(|r| r.signal == *signal).collect();
+        let mut signal_rows: Vec<_> = rows.iter().filter(|r| r.signal == *signal).collect();
         if signal_rows.is_empty() {
             continue;
         }
+        signal_rows.sort_by(|a, b| {
+            // "(all)" summary first, then model asc, then outcome asc.
+            let a_all = a.model != "(all)"; // false (0) sorts before true (1)
+            let b_all = b.model != "(all)";
+            a_all
+                .cmp(&b_all)
+                .then_with(|| a.model.cmp(&b.model))
+                .then_with(|| a.outcome.cmp(&b.outcome))
+        });
         let header = if *signal == "empty_completion_run" {
             "signal: empty_completion_run  (lower bound — excludes length-truncated turns)"
         } else if *signal == "oscillation_min_distinct" {
@@ -249,10 +258,24 @@ fn format_report(rows: &[ReportRow]) -> String {
             "MODEL  OUTCOME  RUNS  N  P50  P90  P99"
         };
         lines.push(col_header.to_string());
+        let is_bytes = *signal == "output_flood_windowed_bytes";
+        let cell = |v: usize| -> String {
+            if is_bytes {
+                fmt_tokens(v as u64)
+            } else {
+                v.to_string()
+            }
+        };
         for row in signal_rows {
             lines.push(format!(
-                "{:<8} {:<10} {:>4}  {:>4}  {:>4}  {:>4}  {:>4}",
-                row.model, row.outcome, row.runs, row.n, row.p_mid, row.p_near, row.p_far
+                "{:<8} {:<10} {:>4}  {:>4}  {:>6}  {:>6}  {:>6}",
+                row.model,
+                row.outcome,
+                row.runs,
+                row.n,
+                cell(row.p_mid),
+                cell(row.p_near),
+                cell(row.p_far)
             ));
         }
         lines.push("".to_string());
@@ -1303,5 +1326,123 @@ mod tests {
         );
         let row = flood_rows[0];
         assert_eq!(row.tail, "higher-is-worse");
+    }
+
+    #[test]
+    fn format_report_row_order_is_deterministic() {
+        let rows = vec![
+            ReportRow {
+                signal: "identical_run".into(),
+                model: "zeta".into(),
+                outcome: "complete".into(),
+                runs: 5,
+                n: 5,
+                tail: "higher-is-worse".into(),
+                p_mid: 3,
+                p_near: 4,
+                p_far: 5,
+            },
+            ReportRow {
+                signal: "identical_run".into(),
+                model: "(all)".into(),
+                outcome: "(all)".into(),
+                runs: 15,
+                n: 15,
+                tail: "higher-is-worse".into(),
+                p_mid: 2,
+                p_near: 3,
+                p_far: 4,
+            },
+            ReportRow {
+                signal: "identical_run".into(),
+                model: "alpha".into(),
+                outcome: "complete".into(),
+                runs: 5,
+                n: 5,
+                tail: "higher-is-worse".into(),
+                p_mid: 1,
+                p_near: 2,
+                p_far: 3,
+            },
+        ];
+        let out = format_report(&rows);
+        let lines: Vec<&str> = out.lines().collect();
+        // Find indices of each model line — canonical order is (all) < alpha < zeta.
+        let idx_all = lines.iter().position(|l| l.starts_with("(all)")).unwrap();
+        let idx_alpha = lines.iter().position(|l| l.starts_with("alpha")).unwrap();
+        let idx_zeta = lines.iter().position(|l| l.starts_with("zeta")).unwrap();
+        assert!(
+            idx_all < idx_alpha && idx_alpha < idx_zeta,
+            "expected (all) < alpha < zeta but got {idx_all} < {idx_alpha} < {idx_zeta}"
+        );
+    }
+
+    #[test]
+    fn format_report_byte_signal_is_k_compacted() {
+        let rows = vec![ReportRow {
+            signal: "output_flood_windowed_bytes".into(),
+            model: "model_x".into(),
+            outcome: "complete".into(),
+            runs: 3,
+            n: 3,
+            tail: "higher-is-worse".into(),
+            p_mid: 100,
+            p_near: 22035,
+            p_far: 61128,
+        }];
+        let out = format_report(&rows);
+        assert!(
+            out.contains("22.0k"),
+            "byte signal P90 should be k-compacted: {out}"
+        );
+        assert!(
+            !out.contains("22035"),
+            "raw 22035 should not appear in byte-signal output: {out}"
+        );
+    }
+
+    #[test]
+    fn format_report_non_byte_signal_stays_raw() {
+        let rows = vec![ReportRow {
+            signal: "identical_run".into(),
+            model: "model_x".into(),
+            outcome: "complete".into(),
+            runs: 3,
+            n: 3,
+            tail: "higher-is-worse".into(),
+            p_mid: 100,
+            p_near: 22035,
+            p_far: 61128,
+        }];
+        let out = format_report(&rows);
+        assert!(
+            out.contains("22035"),
+            "non-byte signal should render raw value: {out}"
+        );
+        assert!(
+            !out.contains("22.0k"),
+            "k-compacted form should not appear for non-byte signal: {out}"
+        );
+    }
+
+    #[test]
+    fn format_report_byte_zero_renders_dash() {
+        let rows = vec![ReportRow {
+            signal: "output_flood_windowed_bytes".into(),
+            model: "model_x".into(),
+            outcome: "complete".into(),
+            runs: 3,
+            n: 3,
+            tail: "higher-is-worse".into(),
+            p_mid: 0,
+            p_near: 1000,
+            p_far: 5000,
+        }];
+        let out = format_report(&rows);
+        // p_mid=0 should render as "—" in the P50 column.
+        assert!(
+            out.contains('—'),
+            "byte signal with 0 should render dash sentinel: {out}"
+        );
     }
 }

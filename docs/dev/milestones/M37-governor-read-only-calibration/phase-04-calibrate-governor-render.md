@@ -1,7 +1,7 @@
 # Phase 04: `calibrate-governor` — deterministic row order + k/M byte columns
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-03 (reuses `metrics::fmt_tokens`) — sequencing only; 03 is done
 **Estimated diff:** ~90 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -213,3 +213,9 @@ None. No new dependencies. No edits to `docs/architecture.md`.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 16:39 (started)
+
+**Executor:** Claude (Sonnet 4.5)
+
+Implementing deterministic row sort and k/M byte compaction in `format_report`.
