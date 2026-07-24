@@ -82,15 +82,15 @@ Rejected alternatives, recorded so they are not re-litigated:
 
 ## Phases
 
-**Phases 01–02 are drafted** (2026-07-24); 03–05 stay sketched, per WORKFLOW.md
-§ Milestones on-demand expansion. 02 is independent of 01 and may land in either
-order — it touches only `executor/src/store/telemetry.rs`.
+**Phases 01–03 are drafted** (2026-07-24); 04–05 stay sketched, per WORKFLOW.md
+§ Milestones on-demand expansion. 02 and 03 are both independent of 01 and of
+each other and may land in any order.
 
 | #  | Phase | Status |
 |----|-------|--------|
 | 01 | Read-only exemption in the oscillation + identical-repetition detectors ([phase-01-read-only-exemption.md](phase-01-read-only-exemption.md)) — approved_first_try; 3 reviewer mutations, calibration distributions unmoved | done |
 | 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` ([phase-02-failure-class-vocabulary.md](phase-02-failure-class-vocabulary.md)) — approved_first_try; negative control holds, 2 guards mutation-checked | done |
-| 03 | Consolidate the three token formatters into `metrics` | todo |
+| 03 | Consolidate the token formatters into `metrics::fmt_tokens` ([phase-03-token-formatter-consolidation.md](phase-03-token-formatter-consolidation.md)) — **4** divergent formatters, not 3; canonical = decimal-SI-with-M, changes `runs`/`scorecard` output | todo |
 | 04 | k/M compaction for `calibrate-governor`'s byte columns **+ deterministic row order** (found at the phase-01 review: HashMap iteration makes before/after diffing unreadable) | todo |
 | 05 | Server-authored completion entry: tick acceptance criteria, emit an E2E block, write `Executor:` from the dispatched model | todo |
 

@@ -5,21 +5,32 @@ Single source of truth for which phase is active. The principal engineer
 § "Read these first") to know which phase to work next.
 
 **Active phase:
-[M37 phase-02 — `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES`](milestones/M37-governor-read-only-calibration/phase-02-failure-class-vocabulary.md)
+[M37 phase-03 — consolidate the token formatters into `metrics::fmt_tokens`](milestones/M37-governor-read-only-calibration/phase-03-token-formatter-consolidation.md)
 (status: todo — drafted 2026-07-24).**
 
-**phase-01 — done (2026-07-24, approved_first_try; executor Qwen/Qwen3.6-27B-FP8, 89
-turns, no oscillation).** Read-only windows are exempt from `check_oscillation` and
-`check_identical_repetition`; `NoProgressStall` (threshold 60) is now the sole
-terminator for them. Three reviewer mutations: blanket-disable fails **9** tests,
-never-exempt fails 3, and whole-deque-instead-of-window fails exactly **1** —
-`identical_repetition_window_is_threshold_not_deque_length`, and nothing else, which
-is why that test was worth specifying. Calibration E2E verified against a baseline
-captured *before* dispatch: every `hard_fail` distribution byte-identical; only
-`complete` counts grew by 1 (this phase's own run). **Real-run confirmation is
-deferred** — see architecture.md §37 for the method (re-measure `max_read_only_run`
-for `hard_fail` after several post-exemption dispatches; it currently sits at a
-median of 12 against the 60 backstop).
+**phase-03 carries a decision, not just a refactor.** There are **four**
+divergent k-formatters (not the three the M35 note claimed): `costs::format_tokens`
+(decimal-1000, +M tier), `runs::fmt_tokens` (binary-1024, no M), and two inline
+reclaimed blocks in `scorecard_cli`/`runs` (binary-1024). The spec pins the
+canonical format as **decimal-SI-with-M** (costs' shape), which **changes the
+rendered output of `runs` and `scorecard`** (`12288 → "12.3k"`, was `"12k"`). That
+is deliberate — tokens are decimal, not bytes — and the pinned tests asserting the
+old output get *updated*, not obeyed. Review will confirm `costs` output is
+byte-identical and `runs`/`scorecard` columns still align.
+
+**phase-02 — done (2026-07-24, approved_first_try; executor Qwen/Qwen3.6-27B-FP8,
+32 turns).** `oscillation_stall` + `missing_spec_test` now in `FAILURE_CLASSES`,
+closing the two open-vocab gaps. Negative control holds (unknown class still warns);
+both guards mutation-checked, including the realistic decay (renaming a pre-existing
+entry fails `failure_classes_preserves_existing_vocabulary`).
+
+**phase-01 — done (2026-07-24, approved_first_try; 89 turns, no oscillation).**
+Read-only windows exempt from both oscillation detectors; `NoProgressStall`
+(threshold 60) is now the sole terminator for them. Whole-deque-instead-of-window
+mutation fails exactly one test. Calibration E2E verified against a pre-dispatch
+baseline: every `hard_fail` distribution byte-identical. **Real-run confirmation
+deferred** — architecture.md §37 gives the method (re-measure `max_read_only_run`
+for `hard_fail`; currently median 12 against the 60 backstop).
 
 ## M37 — Governor Read-Only Calibration (OPEN, active)
 
