@@ -125,7 +125,7 @@ systematic *understatement* of savings.
 
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | Capture `created_cache_tokens` as `cache_write_tokens` + disjoint `input_tokens`, with cold/warm/absent/underflow fixtures ([phase-01-capture-cache-write.md](phase-01-capture-cache-write.md)) | review |
+| 01 | Capture `created_cache_tokens` as `cache_write_tokens` + disjoint `input_tokens`, with cold/warm/absent/underflow fixtures ([phase-01-capture-cache-write.md](phase-01-capture-cache-write.md)) — approved_first_try; reviewer mutation-check bites 3 tests, live E2E shows `cache_read_tokens=643680` on this very run | done |
 
 **Single-phase milestone.** Phase 01 is the whole code change (`parse_openai_usage`
 plus its tests). The originally-mooted phase-02 (live E2E) is **folded into phase-01

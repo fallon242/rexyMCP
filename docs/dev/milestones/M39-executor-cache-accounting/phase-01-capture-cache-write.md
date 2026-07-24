@@ -1,7 +1,7 @@
 # Phase 01: Capture `created_cache_tokens` + disjoint `input_tokens`
 
 **Milestone:** M39 — Executor Cache Accounting
-**Status:** review
+**Status:** done
 **Depends on:** none (first phase of M39)
 **Estimated diff:** ~40 lines (a ~10-line parser change + tests)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -331,4 +331,40 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** d3e087ce7dd212cf41c32ed895bfa014d1d81e5a
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none — only `openai.rs` was edited for code; the parser
+  change matches the spec (chained `saturating_sub`, `created_cache_tokens` read
+  mirroring the `cached_tokens` shape). Production code carries no
+  `unwrap()`/`expect()`/`panic!` (only `unwrap_or(0)`); the tests' `unwrap()`s are
+  test-code, exempt.
+- **Independent verification:** all four gates re-run from a forced recompile
+  (fmt/build/clippy clean; `cargo test` 1050 passing). **Reviewer mutation check:**
+  reverting `input_tokens` to the single `saturating_sub(cache_read)` made
+  `openai_parses_created_cache_tokens_as_cache_write`,
+  `openai_input_plus_cache_classes_equal_prompt_tokens`, and
+  `openai_cache_over_report_clamps_input_to_zero` **fail** (the warm test correctly
+  stayed green — its cache_write is 0, so the two arithmetics coincide). The tests
+  pin the fix.
+- **End-to-end (the milestone's exit criterion, reviewer-run):** this run's own
+  `PhaseRun` recorded `cache_read_tokens = 643680` (non-zero for the first time
+  across the project's history — every prior run read zero), and the M38 ledger
+  folds it: the M39 milestone-scope Executor total reads **733.9k** tokens
+  (643.7k cache-read + 85.3k input + 4.9k output) in `rexymcp costs`, priced at
+  `$0.55`. `cache_write_tokens` is `0` **as expected** — the running `serve`
+  process is still the pre-fix binary, whose parser hardcoded cache-write; this
+  phase's `created_cache_tokens` capture activates for real runs only after
+  `serve` is rebuilt and restarted. Cache-read alone already proves the
+  `--enable-prompt-tokens-details` restart feeds the live pipeline; cache-write is
+  unit-proven by the cold-fixture test and will show in telemetry post-rebuild.
+- **Calibration:** the phase-doc Test plan asked the cold test to assert
+  `total() == 3017`; that was an architect arithmetic slip (`total()` includes
+  `output_tokens`, so the correct value is `3019`). The executor asserted `3019` —
+  the right number — rather than the spec's wrong one. Not a bounce; a good catch.
+  Reinforces "derive every spec fact from its source" — I hand-wrote a total
+  instead of summing the four classes. One occurrence; no fold.
 
