@@ -5,8 +5,21 @@ Single source of truth for which phase is active. The principal engineer
 § "Read these first") to know which phase to work next.
 
 **Active phase:
-[M37 phase-01 — exempt read-only windows from the oscillation detectors](milestones/M37-governor-read-only-calibration/phase-01-read-only-exemption.md)
+[M37 phase-02 — `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES`](milestones/M37-governor-read-only-calibration/phase-02-failure-class-vocabulary.md)
 (status: todo — drafted 2026-07-24).**
+
+**phase-01 — done (2026-07-24, approved_first_try; executor Qwen/Qwen3.6-27B-FP8, 89
+turns, no oscillation).** Read-only windows are exempt from `check_oscillation` and
+`check_identical_repetition`; `NoProgressStall` (threshold 60) is now the sole
+terminator for them. Three reviewer mutations: blanket-disable fails **9** tests,
+never-exempt fails 3, and whole-deque-instead-of-window fails exactly **1** —
+`identical_repetition_window_is_threshold_not_deque_length`, and nothing else, which
+is why that test was worth specifying. Calibration E2E verified against a baseline
+captured *before* dispatch: every `hard_fail` distribution byte-identical; only
+`complete` counts grew by 1 (this phase's own run). **Real-run confirmation is
+deferred** — see architecture.md §37 for the method (re-measure `max_read_only_run`
+for `hard_fail` after several post-exemption dispatches; it currently sits at a
+median of 12 against the 60 backstop).
 
 ## M37 — Governor Read-Only Calibration (OPEN, active)
 

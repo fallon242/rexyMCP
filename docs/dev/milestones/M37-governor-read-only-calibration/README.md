@@ -82,14 +82,14 @@ Rejected alternatives, recorded so they are not re-litigated:
 
 ## Phases
 
-**Phase 01 is drafted** (2026-07-24). Phases 02–05 stay sketched — per
-WORKFLOW.md § Milestones the architect expands on demand, and 01 changes a
-terminator whose outcome may inform how the rest are scoped.
+**Phases 01–02 are drafted** (2026-07-24); 03–05 stay sketched, per WORKFLOW.md
+§ Milestones on-demand expansion. 02 is independent of 01 and may land in either
+order — it touches only `executor/src/store/telemetry.rs`.
 
 | #  | Phase | Status |
 |----|-------|--------|
 | 01 | Read-only exemption in the oscillation + identical-repetition detectors ([phase-01-read-only-exemption.md](phase-01-read-only-exemption.md)) — approved_first_try; 3 reviewer mutations, calibration distributions unmoved | done |
-| 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` | todo |
+| 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` ([phase-02-failure-class-vocabulary.md](phase-02-failure-class-vocabulary.md)) | todo |
 | 03 | Consolidate the three token formatters into `metrics` | todo |
 | 04 | k/M compaction for `calibrate-governor`'s byte columns **+ deterministic row order** (found at the phase-01 review: HashMap iteration makes before/after diffing unreadable) | todo |
 | 05 | Server-authored completion entry: tick acceptance criteria, emit an E2E block, write `Executor:` from the dispatched model | todo |
