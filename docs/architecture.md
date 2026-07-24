@@ -1298,8 +1298,8 @@ The project plan. Each entry becomes a milestone with its own
     executor. A `WORKFLOW.md` fold and a `plugin/skills/escalate/SKILL.md` fold
     (green-bounce refined re-dispatch, 4 occurrences) are drafted and held for
     user sign-off rather than landed at close.
-37. **M37 — Governor Read-Only Calibration** *(planned; opened 2026-07-23 at
-    the M35 close)*. The STRONG calibration fold M35 accumulated and deferred.
+37. **M37 — Governor Read-Only Calibration** *(done 2026-07-24; opened
+    2026-07-23 at the M35 close)*. The STRONG calibration fold M35 accumulated and deferred.
     `check_oscillation` and `check_identical_repetition`
     (`executor/src/governor/hard_fail.rs`) key on `(tool, arguments)` and are
     blind to whether a call **mutates** anything, so a model re-running
@@ -1367,6 +1367,30 @@ The project plan. Each entry becomes a milestone with its own
     `max_read_only_run` distribution for `hard_fail`; if it does not shift
     upward toward 60, the backstop is not engaging and the threshold wants
     revisiting. Do not tune it on the pre-exemption corpus.
+
+    **Close (2026-07-24): six phases done.** 01 (read-only exemption in both
+    detectors) — the milestone proper — plus five carried-debt phases: 02
+    (`oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES`), 03 (four
+    divergent token formatters collapsed into `metrics::fmt_tokens`), 04
+    (`calibrate-governor` deterministic row order + k/M byte columns), 05
+    (server completion entry writes the **dispatched** `Executor:` model, not the
+    self-report — the other two completion-bookkeeping defects resolved out of the
+    code path: ticking is the reviewer's job, a structured E2E block needs a
+    `PhaseResult` contract change deferred to a future milestone). 01–05 were
+    `approved_first_try`. **Phase 06** (added mid-milestone: a Budget-ledger
+    debit/credit decimal misalignment M38 phase-02 reintroduced, plus the fake
+    equal-width guard test that let it ship, plus the tokens-header wording) landed
+    **escalated via architect takeover** — the dispatched executor was
+    human-stopped in a read-only diagnosis loop after writing only the two
+    mechanical fixes, both new tests carrying broken fixtures (one panics, one
+    compares two debits and can't fail pre-fix); the architect completed the
+    sign-gutter production fix, repaired the fixtures, and verified with a
+    mutation-check (all three alignment tests fail 17-vs-18 pre-fix) plus a parsed
+    E2E. **New calibration signal, recorded not yet folded (1st occurrence, below
+    the three-strike line):** *a test whose name or docstring promises more than
+    its body asserts is worse than no test* — the equal-width guard claimed
+    decimal-column equality, shipped the very regression it named, and slipped a
+    prior review. Hold for recurrence.
 36. **M36 — Budget Truth Pass** *(done 2026-07-23; opened the same day)*. First real use
     of M35's cost surface exposed one presentation defect and one counting bug.
     **(1) "Baseline" reads as a spend but is a counterfactual** — executor

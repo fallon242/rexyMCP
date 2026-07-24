@@ -3,7 +3,7 @@
 **Goal:** Stop the governor from hard-killing read-only diagnosis at
 write-thrash thresholds, and clear the last of M35's accounting debt.
 
-**Status:** in-progress *(opened 2026-07-24)*
+**Status:** done *(opened 2026-07-24; closed 2026-07-24)*
 
 **Depends on:** M34 (`NoProgressStall`, which this milestone makes the sole
 read-only terminator), M35 (source of the calibration data and the debt)
@@ -187,3 +187,84 @@ by run outcome for every governor signal. Phase 01 should check its
 `oscillation_min_distinct` low-tail output (M35 07a) before and after, and the
 result belongs in the phase's Update Log — this is the first change to a
 terminator since that tooling existed.
+
+## M37 retrospective (2026-07-24)
+
+**Six phases, all done in one day.** 01 (the milestone: read-only exemption in
+`check_oscillation` + `check_identical_repetition`, keyed on
+`!mutates_files`, with negative tests pinning that a mutating window still
+fires) and five carried-debt phases (02 failure-class vocabulary, 03 token-
+formatter consolidation into `metrics::fmt_tokens`, 04 `calibrate-governor`
+deterministic render, 05 server `Executor:` line from the dispatched model).
+**01–05 approved_first_try.** Phase 06 (added mid-milestone) escalated.
+
+**Phase 03 grew on contact and that was right.** The milestone note said "three
+divergent token formatters"; drafting found **four**. The executor consolidated
+all four and pinned the decimal-SI decision by mutation. Counting the real call
+sites at draft time, not from memory, is the lesson — already the standing
+"derive every spec fact from its source" fold; this was another clean instance.
+
+**Phase 05 re-scoped at draft time (recorded, correct).** The milestone note
+bundled three completion-bookkeeping defects; drafting found only one is a clean
+`mcp/`-only fix (the authoritative `Executor:` line). Ticking acceptance criteria
+stays the reviewer's job (it happens at review→done, after the completion entry
+fires at in-progress→review); a structured E2E block needs a `PhaseResult`
+contract change outside this milestone. Narrowing the phase to the tractable
+defect rather than forcing all three was the right call and is worth remembering
+as a pattern: a milestone note's "three defects in one place" is a hypothesis,
+not a spec.
+
+**Phase 06 — the escalation, and the lesson.** A Budget-ledger decimal
+misalignment that M38 phase-02 reintroduced (a credit `$X.XX` rendered its
+decimal one column right of a debit `($X.XX)`), the fake equal-width guard test
+that let it ship, and the tokens-header wording. The dispatched executor
+(`Qwen/Qwen3.6-27B-FP8`) was **human-stopped in a read-only diagnosis loop** at
+126 turns, having written only the two mechanical fixes (header rename, the
+test's docstring) — the sign-gutter production fix was absent, and both new tests
+it wrote carried **broken fixtures** (`ledger_dash_and_decimal_share_column` set
+`net: Some(-10.0)`, rendering Net a debit so `net.find('—').expect()` panics; the
+panels test's rates made the Executor row a *debit*, so it compared two debits
+and could not fail pre-fix). The architect took over (user-authorized),
+completed the fix, repaired the fixtures, and verified with a **mutation-check**
+(all three alignment tests fail 17-vs-18 against pre-fix rendering) plus a
+**parsed E2E** (markers align per scope at cols 18/28/38).
+
+Two observations from phase 06:
+
+1. **A test whose name or docstring promises more than its body asserts is worse
+   than no test.** The equal-width guard's docstring claimed decimal-column
+   equality but asserted only equal width; it shipped alongside the very
+   regression it was named to catch, and slipped a prior review (mine). **This is
+   the 1st clear occurrence — recorded, not yet folded** into WORKFLOW.md per the
+   three-strike discipline. Watch for recurrence at review time: when spot-
+   checking a test (WORKFLOW § "Spot-check tests are real"), read the *body*
+   against the *name*, not just "does it assert something."
+
+2. **`NoProgressStall` did not fire at 126 turns** (threshold 60) because the
+   executor **interleaved** edits with the search loop, resetting its consecutive
+   non-mutating streak below 60 each time. Phase 01's exemption behaved exactly as
+   designed — the loop simply wasn't *purely* non-mutating. This is real signal
+   for the phase-01 follow-up already logged in `architecture.md` §37 ("does the
+   60-call backstop actually catch thrash?"): a **windowed** (not strictly-
+   consecutive) no-progress variant may be the eventual answer. Not opened —
+   needs the post-exemption corpus the §37 follow-up calls for.
+
+**Deferred / follow-ups leaving M37:**
+
+- **Phase-01 backstop calibration** (architecture.md §37 follow-up): re-run
+  `calibrate-governor` after several post-exemption dispatches; check whether the
+  `hard_fail` `max_read_only_run` distribution shifts toward 60. Do not tune on
+  the pre-exemption corpus.
+- **The `missing_spec_test`/broken-fixture failure shape** (phase 06): the
+  executor wrote tests that existed but were non-falsifiable. Recorded against the
+  `missing_spec_test` class added in phase 02; watch whether it recurs distinctly
+  enough to warrant its own label.
+- **`executor_val` `$`-less debit** (noted in phase 06 review, out of scope): the
+  negative branch emits `(X.XX)` while `net_val` emits `($X.XX)` — a pre-existing
+  M38 cosmetic inconsistency. Follow-up nit, unfiled.
+- **M39 — Executor cache accounting** (candidate, logged at the M38 close): the
+  executor's `cache_read`/`cache_write` read zero across all runs. Not opened.
+
+**No WORKFLOW.md/STANDARDS.md folds landed at this close.** The read-only
+calibration folds were already in WORKFLOW.md before M37 (M35 close); the
+fake-test lesson is at one occurrence and held for recurrence.
