@@ -1,7 +1,7 @@
 # Phase 05: Server-authored `Executor:` line from the dispatched model
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~70 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -245,3 +245,9 @@ executor loop are **not** modified — the model is threaded through
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 15:57 (started)
+
+**Executor:** Qwen/Qwen3.6-27B-FP8
+
+Added `model: &'a str` to `FinalizeInput`, threaded it through `baseline_entry` to emit `**Executor:** {model}` immediately after `**Summary:**`, and wired the caller in `runner.rs`. Updated all existing test `FinalizeInput` fixtures and added three new tests: `baseline_entry_includes_executor_line_from_model`, `baseline_entry_executor_line_ignores_self_report`, and `finalize_complete_writes_executor_line`.

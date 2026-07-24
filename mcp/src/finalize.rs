@@ -10,6 +10,9 @@ pub struct FinalizeInput<'a> {
     pub result: &'a PhaseResult,
     pub now_ms: u64,
     pub runner: &'a dyn CommandRunner,
+    /// The resolved dispatch model (same value as `PhaseRun.model`). Written as
+    /// the authoritative `**Executor:**` line — never the model's self-report.
+    pub model: &'a str,
 }
 
 /// Server-authored bookkeeping for a completed phase. No-op (returns
@@ -29,7 +32,7 @@ pub async fn finalize_complete(inp: &FinalizeInput<'_>) -> std::io::Result<bool>
     }
 
     let code_sha = git_head(inp.runner, inp.repo_root).await;
-    let entry = baseline_entry(inp.result, inp.now_ms, &code_sha);
+    let entry = baseline_entry(inp.result, inp.now_ms, &code_sha, inp.model);
     let flipped = flip_status_to_review(&doc);
     let new_doc = append_entry(&flipped, &entry);
     std::fs::write(inp.phase_doc_path, new_doc)?;
@@ -94,7 +97,7 @@ fn flip_status_to_review(doc: &str) -> String {
 }
 
 /// Build the baseline completion entry.
-fn baseline_entry(result: &PhaseResult, now_ms: u64, code_sha: &str) -> String {
+fn baseline_entry(result: &PhaseResult, now_ms: u64, code_sha: &str, model: &str) -> String {
     let summary = if result.completion_summary.trim().is_empty() {
         "(no summary provided by executor)".to_string()
     } else {
@@ -108,6 +111,7 @@ fn baseline_entry(result: &PhaseResult, now_ms: u64, code_sha: &str) -> String {
     format!(
         "### Update — ts={now_ms} (complete, server-authored)\n\n\
          **Summary:** {summary}\n\n\
+         **Executor:** {model}\n\n\
          **Gates:** {gates}\n\n\
          **Command output tails:**\n\n\
          ```\n{command_tails}\n```\n\n\
@@ -480,6 +484,7 @@ mod tests {
             result: &result,
             now_ms: 1000,
             runner: &runner,
+            model: "test-model",
         };
 
         let did_finalize = finalize_complete(&inp).await.expect("should not error");
@@ -535,6 +540,7 @@ mod tests {
             result: &result,
             now_ms: 1000,
             runner: &runner,
+            model: "test-model",
         };
 
         let did_finalize = finalize_complete(&inp).await.expect("should not error");
@@ -590,6 +596,7 @@ mod tests {
             result: &result,
             now_ms: 999999,
             runner: &runner,
+            model: "test-model",
         };
 
         let did_finalize = finalize_complete(&inp).await.expect("should not error");
@@ -655,6 +662,7 @@ mod tests {
             result: &result,
             now_ms: 500,
             runner: &runner,
+            model: "test-model",
         };
 
         let did_finalize = finalize_complete(&inp).await.expect("should not error");
@@ -698,6 +706,7 @@ mod tests {
             result: &result,
             now_ms: 500,
             runner: &runner,
+            model: "test-model",
         };
 
         let _ = finalize_complete(&inp).await.expect("should not error");
@@ -747,6 +756,7 @@ mod tests {
             result: &result,
             now_ms: 999999,
             runner: &runner,
+            model: "test-model",
         };
 
         let did_finalize = finalize_complete(&inp).await.expect("should not error");
@@ -772,6 +782,115 @@ mod tests {
         assert!(
             after.contains("(complete, server-authored)"),
             "server-authored entry present: {after}"
+        );
+    }
+
+    #[test]
+    fn baseline_entry_includes_executor_line_from_model() {
+        let result = PhaseResult::complete(rexymcp_executor::phase::Artifacts {
+            files_changed: vec![],
+            diff: String::new(),
+            command_outputs: CommandOutputs::default(),
+            update_log: String::new(),
+            log_path: None,
+            completion_summary: "Phase complete.".to_string(),
+        });
+        let entry = baseline_entry(&result, 12345, "abc123", "Qwen/Qwen3.6-27B-FP8");
+        assert!(
+            entry.contains("**Executor:** Qwen/Qwen3.6-27B-FP8"),
+            "entry must contain the Executor line with the dispatched model: {entry}"
+        );
+    }
+
+    #[test]
+    fn baseline_entry_executor_line_ignores_self_report() {
+        let result = PhaseResult::complete(rexymcp_executor::phase::Artifacts {
+            files_changed: vec![],
+            diff: String::new(),
+            command_outputs: CommandOutputs::default(),
+            update_log: String::new(),
+            log_path: None,
+            completion_summary: "**Executor:** Claude Sonnet 4.5 — all done".to_string(),
+        });
+        let entry = baseline_entry(&result, 12345, "abc123", "Qwen/Qwen3.6-27B-FP8");
+
+        // The authoritative Executor line must be the dispatched model
+        // (skip the Summary line which may contain the self-report text)
+        let executor_line = entry
+            .lines()
+            .find(|l| l.starts_with("**Executor:**"))
+            .expect("entry must contain an Executor line");
+        assert!(
+            executor_line.contains("Qwen/Qwen3.6-27B-FP8"),
+            "Executor line must carry the dispatched model, got: {executor_line}"
+        );
+
+        // The self-reported model must not appear as an Executor attribution line
+        // (it may appear inside the Summary block, which is fine)
+        let non_summary_lines: Vec<&str> = entry
+            .lines()
+            .filter(|l| !l.contains("**Summary:**"))
+            .collect();
+        for line in &non_summary_lines {
+            assert!(
+                !line.contains("Claude Sonnet 4.5"),
+                "self-reported model must not appear outside the Summary block: {line}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn finalize_complete_writes_executor_line() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/dev/milestones/M99-test")).unwrap();
+        let doc_path = dir
+            .path()
+            .join("docs/dev/milestones/M99-test/phase-01-test.md");
+
+        let doc = r#"# Phase 01: Test
+
+**Milestone:** M99 — Test
+**Status:** in-progress
+**Depends on:** none
+
+## Update Log
+
+<!-- entries appended below this line -->
+"#;
+        std::fs::write(&doc_path, doc).unwrap();
+
+        let result = PhaseResult::complete(rexymcp_executor::phase::Artifacts {
+            files_changed: vec![],
+            diff: String::new(),
+            command_outputs: CommandOutputs {
+                format: Some("ok".to_string()),
+                build: Some("ok".to_string()),
+                lint: Some("ok".to_string()),
+                test: Some("ok".to_string()),
+            },
+            update_log: String::new(),
+            log_path: None,
+            completion_summary: "Done.".to_string(),
+        });
+
+        let runner = RecordingRunner::new();
+
+        let inp = FinalizeInput {
+            phase_doc_path: &doc_path,
+            repo_root: dir.path(),
+            result: &result,
+            now_ms: 1000,
+            runner: &runner,
+            model: "Qwen/Qwen3.6-27B-FP8",
+        };
+
+        let did_finalize = finalize_complete(&inp).await.expect("should not error");
+        assert!(did_finalize, "should finalize");
+
+        let after = std::fs::read_to_string(&doc_path).unwrap();
+        assert!(
+            after.contains("**Executor:** Qwen/Qwen3.6-27B-FP8"),
+            "written doc must contain the Executor line with the dispatched model: {after}"
         );
     }
 }

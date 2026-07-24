@@ -111,7 +111,7 @@ resolved out of the code path:
 | 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` ([phase-02-failure-class-vocabulary.md](phase-02-failure-class-vocabulary.md)) — approved_first_try; negative control holds, 2 guards mutation-checked | done |
 | 03 | Consolidate the token formatters into `metrics::fmt_tokens` ([phase-03-token-formatter-consolidation.md](phase-03-token-formatter-consolidation.md)) — **4** divergent formatters, not 3; canonical = decimal-SI-with-M, changes `runs`/`scorecard` output — approved_first_try; decimal decision pinned by mutation, cxt_win correctly excluded | done |
 | 04 | k/M compaction for `calibrate-governor`'s byte columns **+ deterministic row order** (found at the phase-01 review: HashMap iteration makes before/after diffing unreadable) | todo |
-| 05 | Server completion entry: authoritative `**Executor:**` line from the dispatched model ([phase-05-completion-executor-line.md](phase-05-completion-executor-line.md)) — **re-scoped to defect 3 only** (tick=reviewer's job; E2E block deferred) | todo |
+| 05 | Server completion entry: authoritative `**Executor:**` line from the dispatched model ([phase-05-completion-executor-line.md](phase-05-completion-executor-line.md)) — **re-scoped to defect 3 only** (tick=reviewer's job; E2E block deferred) | in-progress |
 
 Phase 01 is the milestone; 02–05 are carried debt and can run in any order after
 it. Phase 01 changes governor termination behavior, so it needs negative tests

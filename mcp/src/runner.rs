@@ -319,6 +319,7 @@ async fn run_phase_with(
         result: &result,
         now_ms: (seams.clock)(),
         runner: seams.runner,
+        model: inp.model,
     };
     if let Err(e) = crate::finalize::finalize_complete(&finalize_input).await {
         result.warnings.push(format!("server finalize failed: {e}"));
