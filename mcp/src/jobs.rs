@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rexymcp_executor::agent::CancelHandle;
 use rexymcp_executor::phase::CancelReason;
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -40,16 +42,53 @@ struct RunEntry {
     stop_reason: Option<CancelReason>,
 }
 
-/// In-memory registry of spawned `execute_phase` runs, keyed by `run_id`.
+/// How long a persisted run record is kept before `prune_records` removes it.
+pub const RECORD_MAX_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/// A run's terminal outcome, persisted so it survives the serve process.
+/// Only terminal states are written — a missing file means "this process never
+/// saw that run finish", which is exactly the `unknown` answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct RunRecord {
+    pub(crate) run_id: String,
+    /// "done" | "failed" — mirrors `GetRunStatusOutput.state`; never "running".
+    pub(crate) state: String,
+    pub(crate) result: Option<serde_json::Value>,
+    pub(crate) error: Option<String>,
+    /// Unix millis when the record was written.
+    pub(crate) ts: u64,
+}
+
+/// In-memory registry of spawned `execute_phase` runs, keyed by `run_id`,
+/// optionally mirroring terminal states to disk so a completed run stays
+/// reapable after the process that ran it is gone.
 /// Lives for the serve-process lifetime on `RexyMcpServer.runs`.
 #[derive(Default)]
 pub struct JobRegistry {
     runs: Mutex<HashMap<String, RunEntry>>,
+    /// Where terminal `RunRecord`s are written. `None` (the default) keeps the
+    /// registry purely in-memory, which is what every test wants by default.
+    record_dir: Option<PathBuf>,
 }
 
 impl JobRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A registry that mirrors terminal run states into `dir`, best-effort.
+    ///
+    /// The directory is process-wide (not per-repo) on purpose: `get_run_status`
+    /// receives only a `run_id`, so a per-repo location would be unlookupable
+    /// without adding a `repo_path` parameter and changing every caller, the
+    /// plugin skills included. A UUID-keyed directory makes the fallback a single
+    /// read. Old records are pruned here — once per serve start, not per write.
+    pub fn with_record_dir(dir: PathBuf) -> Self {
+        prune_records(&dir, RECORD_MAX_AGE_MS, now_ms());
+        Self {
+            runs: Mutex::new(HashMap::new()),
+            record_dir: Some(dir),
+        }
     }
 
     /// Register a fresh run in `Running`, holding its cancel handle. Call before
@@ -68,11 +107,77 @@ impl JobRegistry {
 
     /// Publish a terminal state. No-op if the id is unknown.
     pub fn publish(&self, run_id: &str, state: RunState) {
+        let mut published = false;
         if let Some(entry) = self.lock().get(run_id) {
             // send_replace stores the value even with no live receivers, so a
             // later subscriber still sees it via `borrow`.
-            entry.state_tx.send_replace(state);
+            published = true;
+            entry.state_tx.send_replace(state.clone());
         }
+        // Mirror to disk after the in-memory publish, so a live poll never waits
+        // on the filesystem. Best-effort: a write failure must not affect the
+        // answer a live poll already has.
+        if published && state.is_terminal() {
+            self.write_record(run_id, &state, now_ms());
+        }
+    }
+
+    /// Write `state` as this run's terminal record. Best-effort and non-fatal —
+    /// every failure logs one line to stderr (never stdout, which is the JSON-RPC
+    /// transport) and returns.
+    fn write_record(&self, run_id: &str, state: &RunState, now_ms: u64) {
+        let Some(dir) = self.record_dir.as_ref() else {
+            return;
+        };
+        let record = match state {
+            RunState::Running => return,
+            RunState::Complete(json) => RunRecord {
+                run_id: run_id.to_string(),
+                state: "done".to_string(),
+                result: Some(json.clone()),
+                error: None,
+                ts: now_ms,
+            },
+            RunState::Failed(e) => RunRecord {
+                run_id: run_id.to_string(),
+                state: "failed".to_string(),
+                result: None,
+                error: Some(e.clone()),
+                ts: now_ms,
+            },
+        };
+
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("rexymcp: could not create run-record dir {dir:?}: {e}");
+            return;
+        }
+        let body = match serde_json::to_vec(&record) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("rexymcp: could not serialize run record {run_id}: {e}");
+                return;
+            }
+        };
+        // Write-then-rename: a reader must never observe a partial file.
+        let tmp = dir.join(format!("{run_id}.json.tmp"));
+        let final_path = record_path(dir, run_id);
+        if let Err(e) = std::fs::write(&tmp, &body) {
+            eprintln!("rexymcp: could not write run record {tmp:?}: {e}");
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, &final_path) {
+            eprintln!("rexymcp: could not commit run record {final_path:?}: {e}");
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+
+    /// The persisted terminal record for `run_id`, if one exists. One read of one
+    /// file — no directory scan, no retry, no waiting, so the `get_run_status`
+    /// long-poll bound still holds. An unparsable record is treated as absent.
+    pub(crate) fn load_record(&self, run_id: &str) -> Option<RunRecord> {
+        let dir = self.record_dir.as_ref()?;
+        let body = std::fs::read(record_path(dir, run_id)).ok()?;
+        serde_json::from_slice(&body).ok()
     }
 
     fn subscribe(&self, run_id: &str) -> Option<watch::Receiver<RunState>> {
@@ -158,6 +263,47 @@ impl JobRegistry {
 /// coarse epoch-seconds `generate_session_id`).
 pub fn new_run_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+/// Where a run's terminal record lives. `run_id` is a v4 UUID, so it is already
+/// filename-safe — no hashing, sanitizing, or nesting.
+fn record_path(dir: &Path, run_id: &str) -> PathBuf {
+    dir.join(format!("{run_id}.json"))
+}
+
+/// Unix millis now. The one impure call in this module; every function that
+/// stamps or compares a timestamp takes it as a parameter so tests stay
+/// deterministic.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Delete run records older than `max_age_ms`, judged by the record's own `ts`
+/// field rather than filesystem mtime (the field is what tests can control).
+/// Best-effort throughout: pruning must never block or fail a serve start.
+pub(crate) fn prune_records(dir: &Path, max_age_ms: u64, now_ms: u64) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let cutoff = now_ms.saturating_sub(max_age_ms);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(body) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(record) = serde_json::from_slice::<RunRecord>(&body) else {
+            continue;
+        };
+        if record.ts < cutoff {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 /// If `reason` is set and `json` is a `cancelled` PhaseResult, insert
@@ -391,6 +537,160 @@ mod tests {
         let registry = JobRegistry::new();
         let count = registry.request_stop_all(CancelReason::UserStop);
         assert_eq!(count, 0, "empty registry should return 0");
+    }
+
+    /// Fixed clock for every record test — no real time anywhere in this module's
+    /// tests, so a record's `ts` is whatever the test says it is.
+    const T0: u64 = 1_700_000_000_000;
+
+    fn registry_with_records(dir: &std::path::Path) -> JobRegistry {
+        JobRegistry::with_record_dir(dir.to_path_buf())
+    }
+
+    #[test]
+    fn publish_terminal_writes_run_record() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = registry_with_records(dir.path());
+        let (handle, _signal) = CancelSignal::new();
+        registry.insert("r1", handle);
+        registry.publish("r1", RunState::Complete(json!({"status": "complete"})));
+
+        let body = std::fs::read(dir.path().join("r1.json")).expect("record should exist");
+        let record: RunRecord = serde_json::from_slice(&body).unwrap();
+        assert_eq!(record.run_id, "r1");
+        assert_eq!(record.state, "done");
+        assert_eq!(record.result.unwrap()["status"], "complete");
+        assert!(record.error.is_none());
+    }
+
+    #[test]
+    fn publish_failed_writes_error_record() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = registry_with_records(dir.path());
+        let (handle, _signal) = CancelSignal::new();
+        registry.insert("r1", handle);
+        registry.publish("r1", RunState::Failed("boom".into()));
+
+        let record = registry.load_record("r1").expect("record should exist");
+        assert_eq!(record.state, "failed");
+        assert_eq!(record.error.as_deref(), Some("boom"));
+        assert!(record.result.is_none());
+    }
+
+    #[test]
+    fn publish_running_writes_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = registry_with_records(dir.path());
+        let (handle, _signal) = CancelSignal::new();
+        registry.insert("r1", handle);
+        registry.publish("r1", RunState::Running);
+
+        assert!(
+            !dir.path().join("r1.json").exists(),
+            "a non-terminal state must not be persisted"
+        );
+        assert!(registry.load_record("r1").is_none());
+    }
+
+    #[test]
+    fn record_write_leaves_no_tmp_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = registry_with_records(dir.path());
+        let (handle, _signal) = CancelSignal::new();
+        registry.insert("r1", handle);
+        registry.publish("r1", RunState::Complete(json!({"status": "complete"})));
+
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "rename should leave no partial file, found: {leftovers:?}"
+        );
+    }
+
+    #[test]
+    fn registry_without_record_dir_writes_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = JobRegistry::new();
+        let (handle, _signal) = CancelSignal::new();
+        registry.insert("r1", handle);
+        registry.publish("r1", RunState::Complete(json!({"status": "complete"})));
+
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "the default registry must stay purely in-memory"
+        );
+        assert!(registry.load_record("r1").is_none());
+    }
+
+    #[test]
+    fn load_record_returns_none_for_unparsable_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = registry_with_records(dir.path());
+        std::fs::write(dir.path().join("r1.json"), b"not json").unwrap();
+
+        assert!(
+            registry.load_record("r1").is_none(),
+            "an unparsable record is treated as absent, not as an error"
+        );
+    }
+
+    #[test]
+    fn load_record_returns_none_for_absent_run() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = registry_with_records(dir.path());
+        assert!(registry.load_record("never-existed").is_none());
+    }
+
+    #[test]
+    fn prune_records_deletes_only_old_records() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let write = |id: &str, ts: u64| {
+            let record = RunRecord {
+                run_id: id.to_string(),
+                state: "done".to_string(),
+                result: None,
+                error: None,
+                ts,
+            };
+            std::fs::write(
+                dir.path().join(format!("{id}.json")),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+        };
+        // max_age 1000ms, now T0: cutoff is T0 - 1000.
+        write("old", T0 - 5_000);
+        write("fresh", T0 - 500);
+        prune_records(dir.path(), 1_000, T0);
+
+        assert!(
+            !dir.path().join("old.json").exists(),
+            "record older than the cutoff should be gone"
+        );
+        assert!(
+            dir.path().join("fresh.json").exists(),
+            "record inside the window should survive"
+        );
+    }
+
+    #[test]
+    fn prune_records_ignores_unparsable_and_foreign_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("garbage.json"), b"not json").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"unrelated").unwrap();
+        prune_records(dir.path(), 1_000, T0);
+
+        assert!(
+            dir.path().join("garbage.json").exists(),
+            "an unreadable record is left alone rather than deleted"
+        );
+        assert!(dir.path().join("notes.txt").exists());
     }
 
     #[test]

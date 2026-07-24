@@ -5,7 +5,10 @@ permanent, stop child processes from being handed the MCP stdin they can kill th
 transport with, and make a completed run's result reapable after the serve process
 goes away.
 
-**Status:** planning *(opened 2026-07-24)*
+**Status:** review *(opened 2026-07-24; all three phases done the same day,
+architect-implemented — awaiting human sign-off at the milestone boundary, which
+WORKFLOW.md § "Phase progression & triggers" makes a human gate regardless of mode.
+The retrospective and any doc folds belong to that sign-off, not to this line.)*
 
 **Depends on:** M30 (the async `execute_phase` job model — `JobRegistry`,
 `get_run_status`, `stop_phase`), M27 (the `/rexymcp:auto` loop that polls
@@ -153,7 +156,7 @@ completed run must be reapable the same way.
 |----|-------|--------|
 | 01 | Observe the serve loop's exit ([phase-01-observe-serve-loop-exit.md](phase-01-observe-serve-loop-exit.md)) — architect-implemented; pre-fix binary hangs on the same input, post-fix logs and exits 0 | done |
 | 02 | Deny children the MCP stdin ([phase-02-null-child-stdin.md](phase-02-null-child-stdin.md)) — architect-implemented; mutation check bites all three tests | done |
-| 03 | Durable run registry ([phase-03-durable-run-registry.md](phase-03-durable-run-registry.md)) | todo |
+| 03 | Durable run registry ([phase-03-durable-run-registry.md](phase-03-durable-run-registry.md)) — architect-implemented; two-process E2E reaps a run the fresh serve never saw | done |
 
 **Ordering rationale.** Phase 01 first, even though phase 02 is the root cause: 01
 is what converts *any* future transport death — including causes we haven't found —

@@ -99,11 +99,22 @@ pub(crate) async fn get_run_status_inner(
 ) -> GetRunStatusOutput {
     let run_id = params.run_id.clone();
     match registry.await_terminal(&run_id, timeout).await {
-        None => GetRunStatusOutput {
-            run_id,
-            state: "unknown".into(),
-            result: None,
-            error: None,
+        // Not in this process's memory. It may still have finished under an
+        // earlier serve — a completed run outlives the process that ran it
+        // (M41 phase-03), so consult the on-disk record before giving up.
+        None => match registry.load_record(&run_id) {
+            Some(record) => GetRunStatusOutput {
+                run_id,
+                state: record.state,
+                result: record.result,
+                error: record.error,
+            },
+            None => GetRunStatusOutput {
+                run_id,
+                state: "unknown".into(),
+                result: None,
+                error: None,
+            },
         },
         Some(crate::jobs::RunState::Running) => GetRunStatusOutput {
             run_id,
@@ -133,9 +144,18 @@ pub struct RexyMcpServer {
 
 impl RexyMcpServer {
     pub fn new(config_path: PathBuf) -> Self {
+        // Terminal run states are mirrored to `$HOME/.rexymcp/runs` so a run that
+        // finished under a previous serve process is still reapable by `run_id`.
+        // With no HOME to anchor them, the registry stays purely in-memory.
+        let runs = match std::env::var_os("HOME") {
+            Some(home) => crate::jobs::JobRegistry::with_record_dir(
+                PathBuf::from(home).join(".rexymcp").join("runs"),
+            ),
+            None => crate::jobs::JobRegistry::new(),
+        };
         Self {
             config_path,
-            runs: std::sync::Arc::new(crate::jobs::JobRegistry::new()),
+            runs: std::sync::Arc::new(runs),
         }
     }
 }

@@ -1024,6 +1024,73 @@ async fn get_run_status_reports_failed() {
 }
 
 #[tokio::test]
+async fn get_run_status_falls_back_to_disk_for_unknown_id() {
+    // The restart scenario, minus the restart: a registry whose in-memory map has
+    // never seen this run, but whose record dir holds the terminal record an
+    // earlier serve process wrote.
+    let dir = tempfile::TempDir::new().unwrap();
+    let run_id = "42a1b6d2-0000-4000-8000-000000000000".to_string();
+
+    let writer = crate::jobs::JobRegistry::with_record_dir(dir.path().to_path_buf());
+    let (handle, _signal) = CancelSignal::new();
+    writer.insert(&run_id, handle);
+    writer.publish(
+        &run_id,
+        crate::jobs::RunState::Complete(serde_json::json!({"status": "complete"})),
+    );
+    drop(writer);
+
+    let fresh = crate::jobs::JobRegistry::with_record_dir(dir.path().to_path_buf());
+    let params = GetRunStatusParams {
+        run_id: run_id.clone(),
+    };
+    let out = get_run_status_inner(&fresh, &params, Duration::from_secs(1)).await;
+
+    assert_eq!(
+        out.state, "done",
+        "a completed run must outlive its process"
+    );
+    assert_eq!(out.result.unwrap()["status"], "complete");
+    assert!(out.error.is_none());
+}
+
+#[tokio::test]
+async fn get_run_status_falls_back_to_disk_for_failed_run() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let run_id = "42a1b6d2-0000-4000-8000-000000000001".to_string();
+
+    let writer = crate::jobs::JobRegistry::with_record_dir(dir.path().to_path_buf());
+    let (handle, _signal) = CancelSignal::new();
+    writer.insert(&run_id, handle);
+    writer.publish(&run_id, crate::jobs::RunState::Failed("boom".into()));
+    drop(writer);
+
+    let fresh = crate::jobs::JobRegistry::with_record_dir(dir.path().to_path_buf());
+    let params = GetRunStatusParams {
+        run_id: run_id.clone(),
+    };
+    let out = get_run_status_inner(&fresh, &params, Duration::from_secs(1)).await;
+
+    assert_eq!(out.state, "failed");
+    assert_eq!(out.error.as_deref(), Some("boom"));
+    assert!(out.result.is_none());
+}
+
+#[tokio::test]
+async fn get_run_status_unknown_when_neither_memory_nor_disk() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let registry = crate::jobs::JobRegistry::with_record_dir(dir.path().to_path_buf());
+    let params = GetRunStatusParams {
+        run_id: "nonexistent".into(),
+    };
+    let out = get_run_status_inner(&registry, &params, Duration::from_secs(1)).await;
+
+    assert_eq!(out.state, "unknown");
+    assert!(out.result.is_none());
+    assert!(out.error.is_none());
+}
+
+#[tokio::test]
 async fn get_run_status_running_times_out() {
     let registry = crate::jobs::JobRegistry::new();
     let run_id = "running-run".to_string();

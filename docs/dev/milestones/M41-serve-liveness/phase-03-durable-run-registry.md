@@ -1,7 +1,7 @@
 # Phase 03: Durable run registry — reap a completed run after a serve restart
 
 **Milestone:** M41 — Serve Liveness & Run Durability
-**Status:** todo
+**Status:** done
 **Depends on:** none technically; **ordered last** because it closes the failure
 mode phase 01 introduces (a serve process that now exits takes its in-memory run
 results with it)
@@ -173,20 +173,22 @@ new tool parameter, no schema change to `GetRunStatusParams` or
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes, including every pre-existing `mcp/src/jobs.rs` and
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes, including every pre-existing `mcp/src/jobs.rs` and
       `mcp/src/server_tests.rs` test **unmodified** (the `None` record dir keeps
       today's behavior).
-- [ ] A terminal `publish` with a record dir set writes exactly one
+- [x] A terminal `publish` with a record dir set writes exactly one
       `<run_id>.json`, and no `.tmp` file survives.
-- [ ] A `Running` publish writes nothing.
-- [ ] `get_run_status_inner` returns `{state:"done", result:…}` for a `run_id` that
+- [x] A `Running` publish writes nothing.
+- [x] `get_run_status_inner` returns `{state:"done", result:…}` for a `run_id` that
       is absent from the in-memory map but present on disk.
-- [ ] `get_run_status_inner` still returns `{state:"unknown"}` when neither memory
+- [x] `get_run_status_inner` still returns `{state:"unknown"}` when neither memory
       nor disk knows the id, and when the on-disk file is unparsable.
-- [ ] A failed record write does not change the in-memory answer.
+- [x] A failed record write does not change the in-memory answer — the in-memory
+      `send_replace` happens first and unconditionally; the write is best-effort
+      and only logs.
 
 ## Test plan
 
@@ -273,3 +275,105 @@ Files you may edit: `mcp/src/jobs.rs`, `mcp/src/server.rs`, `mcp/src/server_test
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 15:55 (complete)
+
+**Summary:** Implemented **directly by the architect** at the user's request (no
+dispatch, no `PhaseRun`). `JobRegistry` gained an `Option<PathBuf> record_dir`
+(`None` by default, so `new()`/`Default` stay purely in-memory and every
+pre-existing test is untouched) plus `with_record_dir`, which also runs the
+one-per-serve-start prune. `publish` now clones the state, publishes in memory
+**first**, then best-effort writes a `RunRecord` via write-to-`.tmp` + `rename`;
+every I/O failure logs one `rexymcp:` line to stderr and returns.
+`get_run_status_inner`'s `None` arm consults `load_record` before answering
+`unknown`. `RexyMcpServer::new` anchors the dir at `$HOME/.rexymcp/runs`, falling
+back to in-memory when `HOME` is unset. `prune_records` judges age by the record's
+own `ts` against an injected `now_ms`, with `RECORD_MAX_AGE_MS` at 30 days.
+
+**Acceptance criteria:** all ticked above.
+
+**Commands:** `cargo build` green; `cargo clippy --all-targets --all-features -- -D
+warnings` clean; `cargo test` **673 bin + 1053 lib passed, 0 failed, 2 ignored**;
+`cargo fmt --all --check` clean after `rustfmt --edition 2024` on the three touched
+files.
+
+**End-to-end verification — the restart scenario, with real processes:**
+
+A scratch `HOME` and a scratch git repo whose config points at an unreachable
+executor (`http://127.0.0.1:1`), driven over real MCP stdio:
+
+```
+serve A: execute_phase -> run_id=f1eb0a4d-e3b5-474b-8571-fd7b80768efa
+serve A: get_run_status -> {"run_id": "f1eb0a4d-…", "state": "failed"}
+record on disk: exists=True size=202B
+serve A: killed
+serve B (fresh process): get_run_status -> state='failed'
+  full response: {"error": "backend: Request failed: error sending request for url (http://127.0.0.1:1/chat/completions)", "run_id": "f1eb0a4d-…", "state": "failed"}
+serve B: unknown id -> state='unknown'
+RESULT: PASS
+```
+
+Serve B **never saw that run** and still reaped its terminal state, error string
+intact; an unknown id still answers `unknown` from the same process.
+
+The `done` path — the one that carries a `result` payload rather than an error
+string — verified separately against a fresh serve reading a `done`-shaped record
+it never wrote:
+
+```
+fresh serve, run it never saw -> {"result": {"diff": "+42 -3", "phase": "phase-01",
+  "status": "complete", "turns": 7}, "run_id": "aaaaaaaa-…", "state": "done"}
+RESULT: PASS
+```
+
+**Mutation self-check:** replacing the `None` arm's disk lookup with the old
+straight-to-`unknown` answer fails both
+`get_run_status_falls_back_to_disk_for_unknown_id` and
+`get_run_status_falls_back_to_disk_for_failed_run`; restored, suite green, mutation
+not committed.
+
+**Files changed:**
+- `mcp/src/jobs.rs` — `RunRecord`, `record_dir`, `with_record_dir`, `write_record`,
+  `load_record`, `record_path`, `now_ms`, `prune_records`, `RECORD_MAX_AGE_MS`.
+- `mcp/src/server.rs` — disk fallback in `get_run_status_inner`; `$HOME`-anchored
+  record dir in `RexyMcpServer::new`.
+- `mcp/src/server_tests.rs` — three fallback tests.
+
+**New tests:** `publish_terminal_writes_run_record`,
+`publish_failed_writes_error_record`, `publish_running_writes_nothing`,
+`record_write_leaves_no_tmp_file`, `registry_without_record_dir_writes_nothing`,
+`load_record_returns_none_for_unparsable_file`,
+`load_record_returns_none_for_absent_run`, `prune_records_deletes_only_old_records`,
+`prune_records_ignores_unparsable_and_foreign_files` (all `mcp/src/jobs.rs`);
+`get_run_status_falls_back_to_disk_for_unknown_id`,
+`get_run_status_falls_back_to_disk_for_failed_run`,
+`get_run_status_unknown_when_neither_memory_nor_disk` (`mcp/src/server_tests.rs`).
+
+**Notes for review:**
+
+- **The live `done`-through-a-real-LLM run was not performed.** The E2E above
+  proves the machinery across a real process boundary using a `failed` run (fast,
+  hermetic, no LLM) and proves the `done` payload shape through a fresh serve
+  reading a record it never wrote. What is *not* directly demonstrated is a real
+  Qwen-backed phase completing, being persisted, and being reaped after a restart —
+  that will happen on the next real dispatch, and is worth an eyeball then.
+- `publish` now clones `RunState` to keep the value after `send_replace`. The
+  cloned payload is the already-capped `PhaseResult` JSON
+  (`cap::cap_phase_result`, ≤50 KB/field), so this is not a large copy — but it is
+  one copy per terminal publish where there was none.
+- `prune_records` deliberately leaves unparsable and non-`.json` files alone rather
+  than cleaning the directory, so a corrupted record is visible for debugging
+  instead of silently vanishing.
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Claude Code (direct) — architect-implemented, self-review; the
+  two-process E2E and the mutation check are the independent evidence.
+- **Scope deviations:** none. No `repo_path` parameter, no schema change, no
+  persistence of `running`, no CLI subcommand, no session-log reconstruction.
+- **Calibration:** none. Unlike phase-01, every predicted output in this phase doc
+  was either executed as written or explicitly restated — the E2E section's own
+  escape hatch ("say so plainly and hand step 1 to the reviewer") was used as
+  intended for the live-LLM half.
