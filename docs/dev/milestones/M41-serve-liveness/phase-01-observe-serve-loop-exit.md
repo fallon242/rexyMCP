@@ -1,7 +1,7 @@
 # Phase 01: Observe the serve loop's exit
 
 **Milestone:** M41 — Serve Liveness & Run Durability
-**Status:** todo
+**Status:** done
 **Depends on:** none (first phase of M41)
 **Estimated diff:** ~70 lines (a ~30-line `main.rs` change, a small `JobRegistry`
 accessor, and tests)
@@ -147,16 +147,16 @@ heartbeat — explicitly out of scope (README § Notes).
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] `mcp/src/main.rs` contains no binding named `_running`, and the `Serve` arm
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] `mcp/src/main.rs` contains no binding named `_running`, and the `Serve` arm
       awaits `running.waiting()`.
-- [ ] `JobRegistry::running_count` returns the number of non-terminal runs.
-- [ ] Driving a real `serve` process to stdin EOF makes it print one
+- [x] `JobRegistry::running_count` returns the number of non-terminal runs.
+- [x] Driving a real `serve` process to stdin EOF makes it print one
       `rexymcp serve: …` line naming the quit reason and **exit** (see E2E below).
-- [ ] Ctrl-C still shuts the server down cleanly.
+- [x] Ctrl-C still shuts the server down cleanly.
 
 ## Test plan
 
@@ -233,3 +233,97 @@ you may edit: `mcp/src/main.rs`, `mcp/src/jobs.rs`.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 15:20 (complete)
+
+**Summary:** Implemented **directly by the architect** at the user's request (no
+dispatch, no `PhaseRun`). `mcp/src/main.rs`'s `Serve` arm now clones the registry
+`Arc` out of the server before it moves into `serve_server`, binds the
+`RunningService` to a used `running`, and `tokio::select!`s `running.waiting()`
+against `ctrl_c()`. The `waiting()` arm logs one stderr line carrying the
+`QuitReason`, the in-flight run count, and the greppable cause hint, then maps the
+outcome: `Closed` with zero runs in flight → `Ok(())`; `Closed` with runs in
+flight, `JoinError`, or any future variant → an `anyhow` error (the
+`#[non_exhaustive]` catch-all is present); `Cancelled` → `Ok(())`. No
+`std::process::exit`. `JobRegistry::running_count()` added beside `is_running`,
+reusing the same lock + `is_terminal()` predicate.
+
+**Acceptance criteria:** all ticked above.
+
+**Commands:** `cargo build` green; `cargo clippy --all-targets --all-features -- -D
+warnings` clean; `cargo test` **661 bin + 1053 lib passed, 0 failed, 2 ignored**;
+`cargo fmt --all --check` clean (formatted with `rustfmt --edition 2024` on the
+three touched files only, never the writing `cargo fmt --all`).
+
+**End-to-end verification:**
+
+1. *Handshake then EOF exits the process* — the phase's headline check:
+
+```
+$ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize",...}' \
+    | timeout 20 ./target/debug/rexymcp serve --config rexymcp.toml
+rexymcp serve: starting MCP stdio server (version 0.9.1, cwd=/home/matt/src/rexyMCP, config=rexymcp.toml, config_exists=true)
+rexymcp serve: auto-sweep started (interval=60s, transcript_dir=/home/matt/.claude/projects/-home-matt-src-rexyMCP)
+rexymcp serve: MCP service loop exited (Closed); runs still in flight: 0; cause is stdin EOF or a read error on the MCP transport (see M41)
+exit=0
+```
+
+2. *A well-formed request still gets a response* — same run's stdout:
+
+```
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"rmcp","version":"2.2.0"}}}
+```
+
+3. *The bug, reproduced against a pre-fix binary* — identical input to the
+   installed pre-M41 `~/.cargo/bin/rexymcp` (built 15:03:08 from `cbc81ff`'s
+   parent):
+
+```
+exit=124   # still running when the 10s timeout fired — the issue-#5 wedge
+```
+
+   Same input, same config, same machine: pre-fix hangs forever, post-fix logs and
+   exits. This is the contrast the phase exists to produce.
+
+4. *Ctrl-C still shuts down cleanly* — SIGINT to a serve holding an open stdin
+   (FIFO) after a successful handshake:
+
+```
+rexymcp serve: interrupted, shutting down
+```
+
+   Process gone afterwards (`ps -p <pid>` empty).
+
+**Files changed:**
+- `mcp/src/main.rs` — `Serve` arm waits on the service loop instead of `ctrl_c`.
+- `mcp/src/jobs.rs` — `running_count()` + three tests.
+
+**New tests:**
+- `running_count_is_zero_on_empty_registry` in `mcp/src/jobs.rs`
+- `running_count_counts_only_non_terminal_runs` in `mcp/src/jobs.rs`
+- `running_count_drops_to_zero_when_all_publish` in `mcp/src/jobs.rs`
+
+**Notes for review:** One spec fact was **wrong in the phase doc and corrected in
+implementation**: the doc's E2E step 1 (`echo -n "" | rexymcp serve`) predicted the
+new quit line on an immediate EOF. It does not — with no handshake,
+`serve_server(...).await` itself fails during `initialize` ("connection closed:
+initialize request") and returns before `waiting()` is ever reached, exiting 1.
+That path was already non-hanging pre-fix, so it does not discriminate. E2E step 1
+was therefore run as *handshake-then-EOF*, which is both the real client shape and
+the only input that exercises the new code. The architect's original step 1 was an
+untested prediction; the corrected form is above.
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Claude Code (direct) — architect-implemented, so the review is
+  self-review; the pre-fix/post-fix binary contrast in E2E step 3 is the
+  independent evidence standing in for a separate reviewer.
+- **Scope deviations:** none. No watchdog, no persistence, no `bash.rs` edit.
+- **Calibration:** the E2E-step-1 slip above is the same class as M39's
+  `total() == 3017` arithmetic slip — an architect-authored *predicted output*
+  that was never executed before being written into the doc. Two occurrences now,
+  different sub-forms (computed value; predicted CLI behavior). **Watch for a
+  third before folding a rule into WORKFLOW.md** along the lines of "a phase doc's
+  predicted command output must be run, or marked as unverified prediction."

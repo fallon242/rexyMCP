@@ -138,6 +138,15 @@ impl JobRegistry {
             .unwrap_or(false)
     }
 
+    /// How many registered runs are still non-terminal. Read at serve shutdown to
+    /// tell a clean client disconnect from a loop death that stranded live work.
+    pub fn running_count(&self) -> usize {
+        self.lock()
+            .values()
+            .filter(|e| !e.state_tx.borrow().is_terminal())
+            .count()
+    }
+
     /// The reason recorded by a prior `request_stop`, if any. Read by `spawn_run`
     /// when a run finishes so a `cancelled` result can be stamped.
     fn recorded_reason(&self, run_id: &str) -> Option<CancelReason> {
@@ -382,6 +391,43 @@ mod tests {
         let registry = JobRegistry::new();
         let count = registry.request_stop_all(CancelReason::UserStop);
         assert_eq!(count, 0, "empty registry should return 0");
+    }
+
+    #[test]
+    fn running_count_is_zero_on_empty_registry() {
+        let registry = JobRegistry::new();
+        assert_eq!(registry.running_count(), 0);
+    }
+
+    #[test]
+    fn running_count_counts_only_non_terminal_runs() {
+        let registry = JobRegistry::new();
+        for id in ["r1", "r2", "r3"] {
+            let (handle, _signal) = CancelSignal::new();
+            registry.insert(id, handle);
+        }
+        registry.publish("r2", RunState::Complete(json!({"status": "complete"})));
+        assert_eq!(
+            registry.running_count(),
+            2,
+            "only the two still-running entries should count"
+        );
+    }
+
+    #[test]
+    fn running_count_drops_to_zero_when_all_publish() {
+        let registry = JobRegistry::new();
+        for id in ["r1", "r2"] {
+            let (handle, _signal) = CancelSignal::new();
+            registry.insert(id, handle);
+        }
+        registry.publish("r1", RunState::Complete(json!({"status": "complete"})));
+        registry.publish("r2", RunState::Failed("boom".into()));
+        assert_eq!(
+            registry.running_count(),
+            0,
+            "a terminal Failed counts as finished, not in flight"
+        );
     }
 
     #[test]

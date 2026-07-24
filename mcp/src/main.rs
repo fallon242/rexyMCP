@@ -595,14 +595,55 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let server = server::RexyMcpServer::new(config);
+            // Cloned out before the server moves into `serve_server` — read at
+            // shutdown to tell a clean disconnect from a loop death that stranded
+            // live runs.
+            let runs = server.runs.clone();
             let transport = rmcp::transport::stdio();
-            let _running = rmcp::serve_server(server, transport)
+            let running = rmcp::serve_server(server, transport)
                 .await
                 .map_err(|e| anyhow::anyhow!("MCP server failed: {}", e))?;
-            tokio::signal::ctrl_c()
-                .await
-                .map_err(|e| anyhow::anyhow!("failed to wait for signal: {}", e))?;
-            Ok(())
+
+            // Wait on the service loop, not on ctrl_c. `serve_server` runs the loop
+            // in a spawned task; awaiting anything else leaves the process alive and
+            // deaf when that task quits (rexyMCP issue #5 / M41 phase-01).
+            tokio::select! {
+                outcome = running.waiting() => {
+                    let in_flight = runs.running_count();
+                    match outcome {
+                        Ok(reason) => {
+                            eprintln!(
+                                "rexymcp serve: MCP service loop exited ({reason:?}); \
+                                 runs still in flight: {in_flight}; cause is stdin EOF \
+                                 or a read error on the MCP transport (see M41)"
+                            );
+                            match reason {
+                                rmcp::service::QuitReason::Closed if in_flight == 0 => Ok(()),
+                                rmcp::service::QuitReason::Closed => Err(anyhow::anyhow!(
+                                    "MCP transport closed while {in_flight} run(s) were still \
+                                     in flight — their results are unreachable"
+                                )),
+                                rmcp::service::QuitReason::Cancelled => Ok(()),
+                                other => Err(anyhow::anyhow!(
+                                    "MCP service loop quit unexpectedly: {other:?}"
+                                )),
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "rexymcp serve: MCP service task failed to join ({e}); \
+                                 runs still in flight: {in_flight}"
+                            );
+                            Err(anyhow::anyhow!("MCP service task failed to join: {}", e))
+                        }
+                    }
+                }
+                signal = tokio::signal::ctrl_c() => {
+                    signal.map_err(|e| anyhow::anyhow!("failed to wait for signal: {}", e))?;
+                    eprintln!("rexymcp serve: interrupted, shutting down");
+                    Ok(())
+                }
+            }
         }
         Commands::Status {
             repo,
