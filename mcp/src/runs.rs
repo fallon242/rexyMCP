@@ -55,16 +55,6 @@ fn gate_char(v: Option<bool>) -> char {
     if v == Some(true) { '✓' } else { '✗' }
 }
 
-pub(crate) fn fmt_tokens(total: u32) -> String {
-    if total == 0 {
-        "—".to_string()
-    } else if total >= 1024 {
-        format!("{}k", total / 1024)
-    } else {
-        format!("{total}")
-    }
-}
-
 /// Cost cell: `—` when unpriced/zero, else `$` with 4 decimals.
 pub(crate) fn fmt_cost(cost: f64) -> String {
     if cost == 0.0 {
@@ -258,15 +248,9 @@ pub fn format_runs(runs: &[PhaseRun], now_ms: u64, config: &Config) -> String {
         };
 
         let reclaimed_total = metrics::reclaimed_total(eff);
-        let reclaimed = if reclaimed_total == 0 {
-            "—".to_string()
-        } else if reclaimed_total >= 1024 {
-            format!("{}k", reclaimed_total / 1024)
-        } else {
-            format!("{}", reclaimed_total)
-        };
+        let reclaimed = metrics::fmt_tokens(reclaimed_total as u64);
 
-        let tokens_cell = fmt_tokens(run.tokens.total());
+        let tokens_cell = metrics::fmt_tokens(run.tokens.total() as u64);
         let rates = config.model_rates(&run.model);
         let cost_cell = fmt_cost(metrics::token_cost(&run.tokens, &rates));
         let tps_cell = fmt_tok_per_sec(metrics::tokens_per_sec(
@@ -696,8 +680,8 @@ enabled = false
             "expected 68%% peak context in qwen line: {qwen_line}"
         );
         assert!(
-            qwen_line.contains("12k"),
-            "expected 12k reclaimed in qwen line: {qwen_line}"
+            qwen_line.contains("12.3k"),
+            "expected 12.3k reclaimed in qwen line: {qwen_line}"
         );
     }
 

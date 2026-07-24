@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use rexymcp_executor::config::Config;
+use rexymcp_executor::store::metrics;
 use rexymcp_executor::store::telemetry::{self, ArchitectTokens, PhaseRun};
 
 use crate::dashboard::{BudgetRates, ScopeCosts};
@@ -351,7 +352,7 @@ pub fn format_costs_with(report: &CostReport, units: LedgerUnits) -> String {
             } else {
                 0.0
             };
-            let tokens_str = format_tokens(s.tokens);
+            let tokens_str = metrics::fmt_tokens(s.tokens);
             lines.push(format!(
                 "{:<20}{:>10}{:>10}{:>7.1}%",
                 s.skill,
@@ -363,19 +364,6 @@ pub fn format_costs_with(report: &CostReport, units: LedgerUnits) -> String {
     }
 
     lines.join("\n")
-}
-
-/// Format a token count for display: "—", raw, "{:.1}k", or "{:.1}M".
-pub(crate) fn format_tokens(count: u64) -> String {
-    if count == 0 {
-        "—".to_string()
-    } else if count >= 1_000_000 {
-        format!("{:.1}M", count as f64 / 1_000_000.0)
-    } else if count >= 1_000 {
-        format!("{:.1}k", count as f64 / 1_000.0)
-    } else {
-        count.to_string()
-    }
 }
 
 /// Which units the Budget ledger renders.
@@ -451,16 +439,16 @@ pub fn ledger_lines(
             out.push(header);
             out.push(make_row(
                 "Architect:",
-                format_tokens(session.architect_tokens),
-                format_tokens(mile.architect_tokens),
-                format_tokens(project.architect_tokens),
+                metrics::fmt_tokens(session.architect_tokens),
+                metrics::fmt_tokens(mile.architect_tokens),
+                metrics::fmt_tokens(project.architect_tokens),
                 has_milestone,
             ));
             out.push(make_row(
                 "Executor:",
-                format_tokens(session.executor_tokens),
-                format_tokens(mile.executor_tokens),
-                format_tokens(project.executor_tokens),
+                metrics::fmt_tokens(session.executor_tokens),
+                metrics::fmt_tokens(mile.executor_tokens),
+                metrics::fmt_tokens(project.executor_tokens),
                 has_milestone,
             ));
             out.push(make_row(

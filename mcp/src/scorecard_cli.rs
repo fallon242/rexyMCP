@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use rexymcp_executor::config::Config;
+use rexymcp_executor::store::metrics;
 use rexymcp_executor::store::telemetry::PhaseRun;
 
 use crate::scorecard::{ScorecardBucket, ScorecardDimension, ScorecardFilter, aggregate_scorecard};
@@ -85,8 +86,7 @@ pub fn format_scorecard(rows: &[ScorecardBucket], dimension: ScorecardDimension)
 
         let reclaimed = match row.tokens_reclaimed_mean {
             None => "—".to_string(),
-            Some(v) if v >= 1024.0 => format!("{:.0}k", v / 1024.0),
-            Some(v) => format!("{:.0}", v),
+            Some(v) => metrics::fmt_tokens(v.round() as u64),
         };
 
         lines.push(format!(

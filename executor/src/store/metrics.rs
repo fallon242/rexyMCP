@@ -61,6 +61,25 @@ pub fn run_id(run: &PhaseRun) -> String {
     format!("{h:08x}")
 }
 
+/// Compact human token/count rendering: decimal SI with thousands and millions
+/// tiers, one decimal place. Zero renders as the `—` sentinel.
+///
+/// `0 → "—"`, `1..=999 → "123"`, `1_000.. → "12.3k"`, `1_000_000.. → "2.1M"`.
+/// Decimal (1000), not binary (1024): tokens are a decimal quantity. This is the
+/// single formatter for token/reclaimed cells across `costs`, `runs`,
+/// `scorecard`, and `profile`.
+pub fn fmt_tokens(count: u64) -> String {
+    if count == 0 {
+        "—".to_string()
+    } else if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}k", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
+    }
+}
+
 /// Nearest-rank percentile of a **sorted** slice. `p` in `0.0..=1.0`. Empty → 0.
 /// The one definition of percentile, shared by calibrate-governor's stall-signal report.
 pub fn percentile(sorted: &[usize], p: f64) -> usize {
@@ -240,5 +259,32 @@ mod tests {
         assert_eq!(percentile(&eight, 0.5), 5);
         assert_eq!(percentile(&eight, 0.9), 7);
         assert_eq!(percentile(&eight, 0.99), 8);
+    }
+
+    #[test]
+    fn fmt_tokens_zero_is_dash() {
+        assert_eq!(fmt_tokens(0), "—");
+    }
+
+    #[test]
+    fn fmt_tokens_raw_below_thousand() {
+        assert_eq!(fmt_tokens(999), "999");
+    }
+
+    #[test]
+    fn fmt_tokens_thousands_one_decimal() {
+        assert_eq!(fmt_tokens(12_288), "12.3k");
+    }
+
+    #[test]
+    fn fmt_tokens_millions_tier() {
+        assert_eq!(fmt_tokens(2_100_000), "2.1M");
+    }
+
+    #[test]
+    fn fmt_tokens_boundary_at_thousand() {
+        assert_eq!(fmt_tokens(1_000), "1.0k");
+        assert!(fmt_tokens(999_999).ends_with('k'));
+        assert_eq!(fmt_tokens(1_000_000), "1.0M");
     }
 }

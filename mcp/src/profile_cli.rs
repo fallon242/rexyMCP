@@ -3,10 +3,11 @@
 use std::path::Path;
 
 use rexymcp_executor::config::Config;
+use rexymcp_executor::store::metrics;
 use rexymcp_executor::store::telemetry::PhaseRun;
 
 use crate::profile::{self, FailureClassCount, ModelProfile, PhaseCost};
-use crate::runs::{fmt_cost, fmt_tokens};
+use crate::runs::fmt_cost;
 use crate::scorecard::ScorecardFilter;
 
 /// Resolve the telemetry store path from config, read, aggregate into profiles,
@@ -145,7 +146,7 @@ pub fn format_phase_costs(rows: &[PhaseCost], config: &Config) -> String {
             &row.tokens,
             &config.model_rates(&row.model),
         );
-        let tokens = fmt_tokens(row.tokens.total());
+        let tokens = metrics::fmt_tokens(row.tokens.total() as u64);
         let cost_str = fmt_cost(cost);
         let milestone = row.milestone_id.as_deref().unwrap_or("—");
         let phase_label = phase_label_str(row);

@@ -1,7 +1,7 @@
 # Phase 03: Consolidate the token formatters into `metrics::fmt_tokens`
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none (independent of 01/02)
 **Estimated diff:** ~130 lines
 **Tags:** language=rust, kind=refactor, size=m
@@ -246,3 +246,7 @@ No new dependencies. No edits to `docs/architecture.md`.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-07-24 13:55 (progress)
+
+Started phase. Added `fmt_tokens` to `executor/src/store/metrics.rs` with unit tests. Migrated all four callers (`costs.rs`, `runs.rs`, `profile_cli.rs`, `scorecard_cli.rs`) to the shared formatter and deleted the private `format_tokens`/`fmt_tokens` functions. Updated the pinned `runs.rs` test assertion from `"12k"` to `"12.3k"`. All verification commands pass.
