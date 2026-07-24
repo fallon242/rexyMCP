@@ -24,11 +24,18 @@ whichever you drive.
 A bunch of recent change that need to be called out because they change some core mechanics: 
 
 - **Improved cost accounting.** The dashboard's Spend block now prices the *whole*
-  run — Executor / Architect / **Saved** / Net across Session · Milestone ·
-  Project — with per-model `$/Mtok` rates, and architect cost is *harvested* from
-  the actual session transcripts, not estimated. There's a new **`rexymcp costs`** 
-  command to view this information from the CLI. These changes **break** compatibility
-  with the old stats file format. 
+  run — **Architect / Executor / Net** across Session · Milestone · Project — with
+  per-model `$/Mtok` rates, and architect cost is *harvested* from the actual
+  session transcripts, not estimated. The **Executor** row is the *discount*: what
+  the architect model *would* have been billed for the work the local model did, so
+  rexyMCP's "costs" read as savings against a cloud baseline. There's a new
+  **`rexymcp costs`** command to view this from the CLI (`--tokens` for raw counts;
+  the dashboard's `b` toggles the same). The executor's **local prefix-cache tokens
+  are now captured too** — vLLM's `cached_tokens` (read) and `created_cache_tokens`
+  (write), when the endpoint is run with `--enable-prompt-tokens-details` — so cached
+  input is priced at the cheaper cache rate instead of full input, and the ledger's
+  dollar and token columns are decimal-aligned in both views. These changes **break**
+  compatibility with the old stats file format. 
 - **Runs you can interrupt.** Dispatching a phase no longer blocks — `execute_phase`
   hands back a `run_id` you poll, so a runaway can be stopped mid-flight with
   `rexymcp stop` (from any terminal) or `stop_phase` (from the Architect). The
@@ -40,8 +47,15 @@ A bunch of recent change that need to be called out because they change some cor
 - **A tougher governor.** Stall and loop detection got hardened and unified across
   the mutating tools, so it catches wedged runs more reliably without false-tripping
   on normal work — and a new **`rexymcp calibrate-governor`** replays your recorded
-  session logs to help you tune the thresholds to *your* models. This is all still 
-  WIP and needs tuning. Getting lower tier models to work reliably is still a challenge. 
+  session logs to help you tune the thresholds to *your* models. **Read-only
+  diagnosis is no longer mistaken for a loop:** a window of tool calls with no
+  file-mutating edit (re-reading, grepping, `sed -n`-ing to understand a failure) is
+  exempt from the oscillation and identical-call detectors, so it isn't hard-killed
+  on the same threshold as genuine write-thrash — the no-progress-stall backstop
+  becomes the sole terminator for read-only runs, and its threshold is calibrated
+  from your recorded corpus (`calibrate-governor` surfaces the `max_read_only_run`
+  distribution to set it). This is all still WIP and needs tuning. Getting lower
+  tier models to work reliably is still a challenge. 
 - **Under-the-hood upkeep.** The MCP server moved to the rmcp v2 stack, plus the
   usual round of cleanup and reliability fixes. 
 
@@ -866,7 +880,7 @@ output_filter = true                      # false → raw head+tail truncation, 
 identical_call_threshold        = 6       # consecutive identical tool calls → hard-fail (default 6)
 verifier_persistence_threshold  = 6       # consecutive verifier-failing turns → hard-fail (default 6)
 runaway_output_bytes            = 102400  # single tool-output byte cap → hard-fail (default 100 KiB)
-read_only_stall_threshold       = 20      # consecutive tool calls with no file edit → hard-fail (verify-loop; resets on any patch/write_file; default 20, 0 disables)
+read_only_stall_threshold       = 60      # consecutive non-mutating tool calls → hard-fail; the SOLE backstop for read-only runs (the oscillation / identical-call detectors now exempt no-mutation windows). Resets on any patch/write_file; default 60, 0 disables. Tune to your model with `calibrate-governor`'s max_read_only_run distribution — sit above legit completion runs' P99, below genuine stuck loops.
 
 # ── /rexymcp:auto per-phase escalation budget ─────────────────────
 [escalation]
