@@ -22,18 +22,25 @@ architecture.md §41 done.
 
 **M42 — Bookkeeping Format Hygiene is open** (GitHub issue #4), phase-01 **done**:
 the server's completion entry and README row are now well-formed markdown
-(`5ab2d07`, reviewed `8c60836`). **Phase 02 is drafted but blocked on a human
-decision** — running the whole-repo `format_fix` at finalize time carries the same
-hazard as `cargo fmt --all`, so the fork (whole-repo / opt-in config key /
-phase-01-only) is recorded in
-[M42/README.md](milestones/M42-bookkeeping-format-hygiene/README.md) § "Pre-dispatch
-decision required". Architect recommendation: ship phase-01, see whether it
-satisfies Prettier on the reporter's project, and only add config surface if
-something is left over.
+(`5ab2d07`, reviewed `8c60836`). **Phase 02 is not planned** — decision (c) taken
+2026-07-24: ship phase-01 alone, no `format_fix` at finalize time and no new config
+key. Settled; the spec is kept in `phase-02-format-server-writes.md` only so it can
+be implemented without re-derivation if a project's `format` gate still flags the
+bookkeeping *after* phase-01 is live. Reopen with the formatter's actual complaint
+attached, not on suspicion.
 
-⚠️ **Needs a rebuild+restart** — the installed binary predates both M41 phase-03
-and M42 phase-01. The #4 fix cannot be observed until then: the *next* phase's
-bookkeeping tail is its live confirmation, which is M42's remaining exit criterion.
+✅ **Rebuilt, reinstalled and restarted 2026-07-24 16:34/16:35** — the installed
+binary carries both M41 phase-03 and M42 phase-01 (verified: the entry template in
+the binary reads `**Files changed:**\n\n`), and the running `serve` (pid 83443)
+is that binary with no stale-exe marker.
+
+**M42's one outstanding exit criterion is the live tail confirmation**, and it can
+only come from a real completed phase — the server writes that tail, so no
+synthetic check substitutes. The next dispatch, whatever it is, doubles as the
+confirmation: check that the appended `### Update` has a blank line before it, the
+phase doc ends with exactly one newline, and the milestone README keeps its
+trailing newline. **GitHub issue #4 stays open until then** — closing a bug report
+before the reporter's own path is exercised would be premature.
 
 **Carried calibration (2 occurrences, unfolded):** architect-authored *predicted
 command output* never executed before being written into a phase doc (M39's

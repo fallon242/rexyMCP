@@ -5,7 +5,10 @@ entry and the milestone README status row — **well-formed markdown**, so a
 completed phase stops arriving at review with a failing `format` gate the executor
 never caused.
 
-**Status:** planning *(opened 2026-07-24)*
+**Status:** review *(opened 2026-07-24; phase 01 done and approved the same day,
+phase 02 not planned per the decision below — one exit criterion outstanding: the
+live tail confirmation on the next completed phase, which only a real run can
+produce.)*
 
 **Depends on:** M27 phase-03 (the server-authored finalize this fixes), M32 (the
 `flip_readme_row` slice fix this builds on).
@@ -92,6 +95,21 @@ Recommendation: **(c) pending evidence, then (b) if needed.** Phase 01 is the re
 fix; run it against the reporter's project first and see whether anything is left
 over. Do not dispatch phase 02 before this is settled.
 
+### ✅ Decided 2026-07-24: (c) — ship phase 01 only
+
+The human chose **(c)**. Phase 02 is **not planned** and will not be dispatched:
+no `format_fix` runs at finalize time, and no new config key is added. The
+generated markdown is correct on its own, which is the property that holds for
+every project including those with no formatter configured — laundering
+well-formed output through a formatter buys nothing, and buying it would cost
+either a whole-repo write at commit time or a config surface to maintain.
+
+**Settled — do not re-litigate** absent new evidence. The evidence that would
+reopen it is specific: a project whose `format` gate still flags the phase doc or
+milestone README **after** phase 01 is live. If that appears, reopen with the
+formatter's actual complaint attached and implement option (b), whose spec is
+already written in `phase-02-format-server-writes.md`.
+
 ## Exit criteria
 
 - The appended completion entry is separated from prior content by exactly one
@@ -123,7 +141,7 @@ over. Do not dispatch phase 02 before this is settled.
 | #  | Phase | Status |
 |----|-------|--------|
 | 01 | Well-formed bookkeeping output ([phase-01-wellformed-bookkeeping.md](phase-01-wellformed-bookkeeping.md)) — approved_first_try; reviewer hardened 3 weakened assertions | done |
-| 02 | Format the server's own writes ([phase-02-format-server-writes.md](phase-02-format-server-writes.md)) — **blocked on the decision above** | todo |
+| 02 | Format the server's own writes ([phase-02-format-server-writes.md](phase-02-format-server-writes.md)) — **not planned**; decision (c) taken 2026-07-24, spec kept for a possible reopen | not planned |
 
 ## Notes
 

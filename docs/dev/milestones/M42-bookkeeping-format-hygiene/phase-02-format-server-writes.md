@@ -1,13 +1,21 @@
 # Phase 02: Format the server's own bookkeeping writes
 
 **Milestone:** M42 — Bookkeeping Format Hygiene
-**Status:** todo
+**Status:** not planned *(decision (c), 2026-07-24)*
 **Depends on:** phase-01 (well-formed output first; this is the belt to that
 braces)
 **Estimated diff:** ~90 lines
 **Tags:** language=rust, kind=feature, size=s
 
-## ⛔ Do not dispatch yet
+## ⛔ Not planned — do not dispatch
+
+**Resolved 2026-07-24: the human chose option (c), ship phase 01 only.** This phase
+will not run. The spec below is kept deliberately, so that if a project's `format`
+gate still flags the phase doc or milestone README *after* phase 01 is live, option
+(b) can be implemented without re-deriving the design. Reopen only with the
+formatter's actual complaint attached.
+
+## Original gating note
 
 This phase is **blocked on a human decision** recorded in the milestone README
 § "Pre-dispatch decision required for phase 02". `format_fix` is a whole-repo
