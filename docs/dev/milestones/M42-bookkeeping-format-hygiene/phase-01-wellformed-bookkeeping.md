@@ -1,7 +1,7 @@
 # Phase 01: Well-formed bookkeeping output
 
 **Milestone:** M42 — Bookkeeping Format Hygiene
-**Status:** review
+**Status:** done
 **Depends on:** none (first phase of M42)
 **Estimated diff:** ~160 lines (four small production changes plus tests)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -170,19 +170,19 @@ it is blocked on a human decision.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes, with every pre-existing `finalize.rs` test still green
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes, with every pre-existing `finalize.rs` test still green
       (update a pre-existing test **only** where it asserts the old, defective
       output — and say which ones in your Update Log).
-- [ ] `append_entry` puts exactly one blank line between the document and the
+- [x] `append_entry` puts exactly one blank line between the document and the
       entry, and the result ends with exactly one `\n`.
-- [ ] The completion entry has a blank line between `**Files changed:**` and the
+- [x] The completion entry has a blank line between `**Files changed:**` and the
       first `- ` list item.
-- [ ] `flip_readme_row`'s replacement cell has the same char count as the cell it
+- [x] `flip_readme_row`'s replacement cell has the same char count as the cell it
       replaced, whenever `" review "` fits.
-- [ ] `flip_readme_row` returns a string ending in `\n` when its input did.
+- [x] `flip_readme_row` returns a string ending in `\n` when its input did.
 
 ## Test plan
 
@@ -369,3 +369,50 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
 
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try (with a reviewer-applied test hardening — no bounce)
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 — 105 turns
+- **Scope deviations:** none. Only `mcp/src/finalize.rs` was edited for code; all
+  four spec changes landed as written, including `chars().count()` rather than byte
+  `len()` for the cell width.
+- **Independent verification:** all four gates re-run from a forced recompile
+  (fmt/build/clippy clean; `cargo test` 683 bin + 1053 lib). **Reviewer mutation
+  check, one change at a time:** reverting `append_entry`'s blank line fails 4
+  tests (3 `append_entry_*` + the golden round-trip); reverting the width-preserving
+  cell fails 4 (`preserves_cell_width`, `preserves_wide_in_progress_width`,
+  `flips_matching_row_only`, `emits_single_trailing_pipe`); reverting the trailing
+  newline fails `preserves_trailing_newline`; reverting the files-list blank line
+  fails `baseline_entry_blank_line_before_files_list`. Every production change is
+  pinned by at least one test.
+- **Finding (fixed at review, not bounced): three pre-existing assertions were
+  weakened** from `contains("| review |")` to a bare `contains("review")` —
+  `flip_readme_row_flips_bounced_row` (twice) and
+  `finalize_updates_matching_readme_row_only`. One of the three did not need to
+  change at all: it asserts the *sibling* row is untouched, and that row's cell is
+  never rewritten, so the original exact assertion still held. This is precisely
+  the anti-pattern M32 hardened this test family against — a substring check also
+  passes against a malformed row. Fixed in review by adding a `last_cell_of`
+  helper and asserting the trimmed cell equals `"review"` (and the sibling row
+  byte-for-byte), which keeps the assertion strong without pinning padding width.
+  A 3-line test fix did not justify burning a 105-turn dispatch and writing a
+  false `bounced` datapoint into the scorecard — which is the very cost issue #4
+  is about.
+- **Calibration:** the phase doc told the executor to assert exact output and said
+  why ("a substring check passes against the defective form too"). It followed that
+  for its *new* tests — all 10 are exact — but not when *adapting* existing ones.
+  Worth a fold if it recurs: "when an existing assertion no longer matches, tighten
+  it to the new shape; never loosen it." First occurrence; recorded, not folded.
+- **Live M41 verification (the reason this phase was dispatched rather than
+  hand-implemented):** the run reached terminal state and `get_run_status` returned
+  the full `PhaseResult` on the first poll — no hang, the issue-#5 symptom absent.
+  The terminal record landed at
+  `~/.rexymcp/runs/ec7e163b-c2dd-4113-bc08-be774985c789.json` (19,929 bytes,
+  `state: done`, `result.status: complete`), closing M41 phase-03's outstanding
+  live check.
+- **Expected-and-observed #4 defect in this phase's own tail:** the bookkeeping
+  entry above was written by the *pre-fix* running `serve`, so it still shows
+  `**Files changed:**` with no blank line before the list, and the milestone README
+  was left without a trailing newline (restored by hand at approval — the
+  documented reviewer stopgap). Both disappear once `serve` is rebuilt.

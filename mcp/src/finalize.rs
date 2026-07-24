@@ -431,6 +431,13 @@ mod tests {
         assert!(result.is_none());
     }
 
+    /// The trimmed contents of a table row's last cell — the text between the
+    /// final two `|`. Lets a test assert the cell's value without pinning the
+    /// column's padding width, which legitimately varies per table.
+    fn last_cell_of(line: &str) -> &str {
+        line.rsplit('|').nth(1).unwrap_or("").trim()
+    }
+
     #[test]
     fn flip_readme_row_returns_none_when_row_absent() {
         let readme = "| 01 | Phase ([phase-01.md](phase-01.md)) | in-progress |\n";
@@ -446,15 +453,19 @@ mod tests {
         // The bounced row should now be review
         assert!(updated.contains("phase-04.md"));
         let lines: Vec<&str> = updated.lines().collect();
-        assert!(
-            lines[0].contains("review"),
-            "bounced 04 row should be review: {lines:?}"
+        // Assert the cell's structure, not just the presence of the word: a bare
+        // `contains("review")` also passes against a mangled row (M32's lesson).
+        assert_eq!(
+            last_cell_of(lines[0]),
+            "review",
+            "bounced 04 row's status cell should be exactly review: {lines:?}"
         );
         assert!(!lines[0].contains("||"), "no doubled pipe in bounced row");
         // The sibling review row must be untouched
-        assert!(
-            lines[1].contains("review"),
-            "sibling review row unchanged: {lines:?}"
+        // The sibling review row must be untouched — byte-for-byte.
+        assert_eq!(
+            lines[1], "| 05 | Next ([phase-05.md](phase-05.md)) | review |",
+            "sibling review row must be untouched"
         );
     }
 
@@ -687,7 +698,11 @@ mod tests {
 
         let readme_after = std::fs::read_to_string(&readme_path).unwrap();
         let lines: Vec<&str> = readme_after.lines().collect();
-        assert!(lines[0].contains("review"), "03a row should be review");
+        assert_eq!(
+            last_cell_of(lines[0]),
+            "review",
+            "03a row's status cell should be exactly review"
+        );
         assert!(
             lines[1].contains("| in-progress |"),
             "03b row should still be in-progress"
