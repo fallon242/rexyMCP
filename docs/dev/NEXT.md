@@ -19,9 +19,10 @@ assertion value — is at one occurrence, held for recurrence).
 Open follow-ups carried forward (none block the next milestone): the phase-01
 `NoProgressStall` backstop calibration on the post-exemption corpus
 (architecture.md §37); the `missing_spec_test`/broken-fixture failure shape
-(M37 phase-06); the `$`-less `executor_val` debit nit (M38); and the M39 modeling
-caveat (vLLM cache ≠ Claude cache — capture chosen over removal by user decision;
-a future pricing question, not a bug).
+(M37 phase-06); and the `$`-less `executor_val` debit nit (M38). *(The M39 modeling
+caveat — vLLM cache ≠ Claude cache — is **resolved**, not open: keep cache
+accounting; the discount is an estimate and the pattern matches Claude's. Settled
+2026-07-24.)*
 
 The next milestone is a human decision — no auto-advance across the boundary.
 No candidate is currently queued; awaiting direction on what comes after M39.

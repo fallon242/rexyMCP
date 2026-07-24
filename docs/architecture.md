@@ -1268,16 +1268,21 @@ The project plan. Each entry becomes a milestone with its own
     the original note floated are both **moot** — the per-request contract now
     delivers the data.
 
-    **Modeling caveat (recorded, non-blocking).** The discount prices executor
-    tokens at the **architect (Opus) rate** to estimate what Claude would have
-    charged; whether Claude would serve a token from *its* cache depends on
-    Claude's cache state, not on whether the local vLLM prefix-cached it — the
-    two caches are unrelated, so applying Claude's cache-read rate to vLLM hits
-    is an approximation. The human chose to capture the measurement anyway
-    (enabling the flag); the milestone honours that. The error direction today
-    (pricing every cached token at the full input rate) is a systematic
-    *understatement* of savings, so capturing the fields is strictly more
-    accurate than the status quo.
+    **Modeling caveat — resolved 2026-07-24 (user decision, keep as-is).** The
+    discount prices executor tokens at the **architect (Opus) rate** to estimate
+    what Claude would have charged; whether Claude would serve a token from *its*
+    cache depends on Claude's cache state, not on whether the local vLLM
+    prefix-cached it — the two caches are unrelated, so applying Claude's
+    cache-read rate to vLLM hits is an approximation. **The decision is to keep
+    cache accounting**, on the principle that the whole discount is an estimate,
+    and that accounting for cache *matches how Claude itself does cost accounting
+    at the high level* — the internals differ but the pattern is the same; perfect
+    is the enemy of good-enough. This is not a deferred question: it is settled and
+    should not be re-litigated absent a genuinely new reason (e.g. a materially
+    misleading discount traced to the cache-rate treatment). The error direction is
+    conservative anyway — pricing a cached token at the full input rate
+    *understates* savings — so capturing the fields is strictly more accurate than
+    the status quo.
 
     **Close (2026-07-24): one phase, approved_first_try.** `parse_openai_usage`
     now reads `created_cache_tokens` into `cache_write_tokens` and makes the three

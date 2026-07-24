@@ -199,11 +199,13 @@ recorded, not folded. Held for recurrence.
 
 **Deferred / follow-ups leaving M39:**
 
-- **The modeling caveat stands, unactioned by choice.** Pricing vLLM cache-hits at
-  Claude's cache-read rate conflates two unrelated caches (architecture.md §39).
-  The human elected to capture the measurement anyway; revisiting whether the
-  discount should apply a cache rate at all is a future pricing-model question, not
-  a bug. No milestone opened.
+- **The modeling caveat is resolved (2026-07-24), not deferred.** Pricing vLLM
+  cache-hits at Claude's cache-read rate conflates two unrelated caches
+  (architecture.md §39). **Decision: keep cache accounting** — the discount is an
+  estimate to begin with, and accounting for cache matches how Claude does cost
+  accounting at the high level (different internals, same pattern); perfect is the
+  enemy of good-enough. Settled, not to be re-litigated absent a new reason. No
+  milestone opened, and this is off the open-follow-up list.
 - **Carried past M37, still open, none blocking:** the phase-01 `NoProgressStall`
   backstop calibration on the post-exemption corpus (architecture.md §37); the
   `missing_spec_test`/broken-fixture failure shape; the `$`-less `executor_val`
