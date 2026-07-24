@@ -1,7 +1,7 @@
 # Phase 05: Server-authored `Executor:` line from the dispatched model
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~70 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -163,13 +163,13 @@ Per § Test plan.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] The server completion entry contains `**Executor:** <model>` where
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] The server completion entry contains `**Executor:** <model>` where
       `<model>` is the value passed via `FinalizeInput.model`.
-- [ ] The `Executor:` line is sourced from `FinalizeInput.model` and **not** from
+- [x] The `Executor:` line is sourced from `FinalizeInput.model` and **not** from
       `result.completion_summary` — pinned by the negative test below.
 
 ## Test plan
@@ -351,3 +351,44 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
 
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 (101 turns, no oscillation)
+- **Scope deviations:** none. Diff is exactly `finalize.rs` + `runner.rs` + the
+  two doc files — the additive, `mcp/`-only footprint the re-scope promised.
+  `PhaseResult` and the executor loop untouched, as intended.
+- **Calibration:** none.
+
+**Reviewer verification.** Four gates re-run with a forced recompile, zero
+warnings. Tests **647 → 650**: three new (`baseline_entry_includes_executor_line_from_model`,
+`baseline_entry_executor_line_ignores_self_report`, `finalize_complete_writes_executor_line`),
+plus the six existing `FinalizeInput` fixtures updated with the new field.
+
+**The load-bearing negative test bites.** Mutating `baseline_entry` to source the
+`Executor:` line from `{summary}` instead of `{model}` — i.e. letting the
+self-report leak — fails **both** the positive test and
+`baseline_entry_executor_line_ignores_self_report`. Confirmed the negative test
+genuinely guards the leak: with the mutation, the self-reported
+`Claude Sonnet 4.5` appears on the entry's Executor line (outside the Summary
+block) and the test catches it. Reverted; tree clean before approval.
+
+**Wiring verified.** `finalize_complete_writes_executor_line` drives the full
+path with a fake runner and asserts the *written doc* contains
+`**Executor:** Qwen/Qwen3.6-27B-FP8` — the closest to E2E without a live serve.
+
+**Deferred E2E confirmed as designed — and it demonstrates the point.** This
+phase's own server-authored completion entry has **no** `Executor:` line: the
+live `serve` process is still the pre-phase-05 binary (a rebuild does not
+hot-swap a running serve). Live confirmation lands on the **next** dispatch
+after a serve restart, exactly as the phase's § E2E deferred it. Worth noting
+the executor's *self-reported* "started" note on this very phase happened to read
+`Qwen/Qwen3.6-27B-FP8` correctly — but that is luck, not reliability, which is the
+whole reason the authoritative line exists.
+
+**Recursion resolved:** a phase whose job is to make completion bookkeeping
+trustworthy shipped without touching its own trust surface incorrectly — the fix
+is unit-pinned, the negative guard is real, and the live proof is scheduled for
+phase-04's dispatch (see the M37 sequencing note in NEXT.md).
