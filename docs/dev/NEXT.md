@@ -4,7 +4,27 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase: none yet — M39 open, phase-01 not drafted.**
+
+**M39 — Executor Cache Accounting opened 2026-07-24.** Milestone README:
+[M39/README.md](milestones/M39-executor-cache-accounting/README.md);
+architecture.md §39 marked in-progress. **Investigation is already done** (live
+probe against `brain:8000`): the parser was never buggy — the original vLLM
+returned `prompt_tokens_details: null` despite a ~93% cache hit rate. The human
+restarted vLLM with `--enable-prompt-tokens-details`; the field now populates and
+surfaces **both** `cached_tokens` (read — already parsed) and `created_cache_tokens`
+(write — a vLLM extension the parser currently drops at `openai.rs:26`). Scope: a
+single-choke-point capture change in `parse_openai_usage` plus the disjointness
+correction (`input = prompt - cache_read - cache_write`), pinned by cold/warm/
+absent/underflow fixtures, and a live-run E2E showing non-zero cache tokens priced
+through the M38 ledger.
+
+**Next step: `/rexymcp:architect next`** to draft phase-01 (capture
+`created_cache_tokens` + disjoint `input_tokens`). Phase-02 (live E2E) may collapse
+into phase-01's End-to-end section — decide at draft time. Nothing is dispatched
+until phase-01 is drafted and you sign off.
+
+---
 
 **M37 — Governor Read-Only Calibration closed 2026-07-24.** All six phases done
 (01–05 approved_first_try; 06 escalated via architect takeover). Milestone
@@ -14,15 +34,11 @@ architecture.md §37 marked done. No WORKFLOW/STANDARDS folds landed at close (t
 read-only exemption folds predate M37; the phase-06 "a test that promises more
 than it asserts" lesson is at one occurrence, recorded and held for recurrence).
 
-Open follow-ups carried past M37 (none block the next milestone): the phase-01
+Open follow-ups carried past M37 (none block M39): the phase-01
 `NoProgressStall` backstop calibration (re-run `calibrate-governor` on the
 post-exemption corpus — architecture.md §37); the `missing_spec_test`/broken-
-fixture failure shape from phase 06; the `$`-less `executor_val` debit branch
-(pre-existing M38 nit); and **M39 — Executor cache accounting** (candidate,
-logged at the M38 close, not opened).
-
-The next milestone is a human decision — no auto-advance across the boundary.
-Awaiting sign-off on what M38-plus / M39 should be before drafting anything.
+fixture failure shape from phase 06; and the `$`-less `executor_val` debit branch
+(pre-existing M38 nit).
 
 ---
 

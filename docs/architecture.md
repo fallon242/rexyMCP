@@ -1232,25 +1232,52 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-39. **M39 — Executor cache accounting** *(candidate; not opened. Logged
-    2026-07-24 at the M38 close)*. The executor's `cache_read_tokens` and
-    `cache_write_tokens` read **zero across all 41 in-schema `PhaseRun`
-    records** — every run since M35's telemetry version bump. `scope_costs`
-    (`mcp/src/costs.rs`) sums them, `scope_report` prices them against
-    `[models] cache_read_per_mtok` / `cache_creation_per_mtok`, and the M38
-    ledger folds them into the executor token total, so the whole path is wired
-    and receiving nothing. Two candidate causes, not yet distinguished:
-    **(a)** vLLM's OpenAI-compatible `usage` object does not surface
-    prefix-cache hits (it reports `prompt_tokens` whole, with automatic prefix
-    caching invisible to the client), or **(b)** the response is not parsed for
-    them. If (a), the fields are unfillable from this backend and the honest fix
-    is to stop pricing what cannot be measured — or to source it from vLLM's
-    metrics endpoint instead of the chat response. If (b), it is a capture bug.
-    **Impact is understated savings, not wrong arithmetic**: a cached input
-    token still counts in `input_tokens`, so the discount is computed at the
-    full input rate rather than the cheaper cache-read rate. Investigation
-    before scoping — start by dumping a raw `usage` object from a live run
-    rather than reading the parser.
+39. **M39 — Executor cache accounting** *(in-progress; opened 2026-07-24, same
+    day it was logged as a candidate at the M38 close)*. The executor's
+    `cache_read_tokens` and `cache_write_tokens` read **zero across all 41
+    in-schema `PhaseRun` records** — every run since M35's telemetry version
+    bump. `scope_costs` (`mcp/src/costs.rs`) sums them, `scope_report` prices
+    them against `[models] cache_read_per_mtok` / `cache_creation_per_mtok`, and
+    the M38 ledger folds them into the executor token total, so the whole path
+    was wired and receiving nothing.
+
+    **Investigation (2026-07-24, live probe against `brain:8000`) settled the
+    cause.** The candidate hypotheses were (a) the backend doesn't surface
+    prefix-cache hits, or (b) a parser bug. **(b) is ruled out** —
+    `parse_openai_usage` (`executor/src/ai/backends/openai.rs:11-28`) already
+    reads `prompt_tokens_details.cached_tokens` and de-double-counts it. **(a)
+    was the cause, and it is an ops flag, not an unfillable field**: the original
+    vLLM returned `"prompt_tokens_details": null` even on a confirmed cache hit
+    (the Prometheus counter `vllm:prompt_tokens_cached_total` moved 1728 for a
+    request whose `usage` still read `null`; prefix caching ran at ~93% hit rate
+    the whole time). Restarting vLLM with **`--enable-prompt-tokens-details`**
+    (alongside `--enable-prefix-caching`) makes the field populate. vLLM then
+    surfaces **both** halves: `cached_tokens` (the read; OpenAI-standard, already
+    parsed) and **`created_cache_tokens`** (the write/creation; a **vLLM
+    extension**, not OpenAI-spec), the latter currently dropped because the
+    parser hardcodes `cache_write_tokens: 0` (`openai.rs:26`).
+
+    **Scope: a single-choke-point capture change.** Populate `cache_write_tokens`
+    from `created_cache_tokens`, default it to `0` when absent (portability to
+    LM Studio / Ollama / older vLLM), and correct the disjointness so
+    `input_tokens = prompt_tokens - cache_read - cache_write` (the three classes
+    disjoint, summing to `prompt_tokens`, matching the Anthropic billing model
+    the rates assume) with a clamp against a malformed backend over-reporting.
+    Both the streaming and non-streaming paths route through the one parser. The
+    metrics-endpoint integration and the "stop pricing the unmeasurable" cleanup
+    the original note floated are both **moot** — the per-request contract now
+    delivers the data.
+
+    **Modeling caveat (recorded, non-blocking).** The discount prices executor
+    tokens at the **architect (Opus) rate** to estimate what Claude would have
+    charged; whether Claude would serve a token from *its* cache depends on
+    Claude's cache state, not on whether the local vLLM prefix-cached it — the
+    two caches are unrelated, so applying Claude's cache-read rate to vLLM hits
+    is an approximation. The human chose to capture the measurement anyway
+    (enabling the flag); the milestone honours that. The error direction today
+    (pricing every cached token at the full input rate) is a systematic
+    *understatement* of savings, so capturing the fields is strictly more
+    accurate than the status quo.
 38. **M38 — Discount Accounting** *(done 2026-07-24; opened 2026-07-23
     immediately after the M36 close)*. States rexyMCP's premise in the accounting itself:
     work the executor does is work Claude was **not billed for**, so executor
