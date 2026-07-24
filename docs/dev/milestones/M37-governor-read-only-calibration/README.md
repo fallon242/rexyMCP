@@ -63,13 +63,17 @@ Rejected alternatives, recorded so they are not re-litigated:
   every call site migrated.
 - `calibrate-governor`'s output-flood byte columns render k/M-compacted, in line
   with the shared rendering 07c established.
-- The **server-authored completion entry** satisfies STANDARDS §1: it ticks the
-  phase doc's acceptance-criteria checkboxes and emits an
-  `**End-to-end verification:**` block carrying the actual E2E output, so a
-  `done` phase doc is not self-contradictory. Its `Executor:` line names the
-  **dispatched** model (the same value as `PhaseRun.model`), never the model's
-  self-report — pinned by a test that a self-reported name cannot reach the
-  Update Log.
+- The **server-authored completion entry** carries an authoritative
+  `**Executor:**` line naming the **dispatched** model (the same value as
+  `PhaseRun.model`), never the model's self-report — pinned by a test that a
+  self-reported name in `completion_summary` cannot become the entry's
+  `Executor:` line (phase 05). *(Re-scoped 2026-07-24: the original criterion
+  also asked the entry to tick acceptance criteria and emit an E2E block. Ticking
+  is the reviewer's job at approval, not the completion entry's at
+  in-progress→review — a `/rexymcp:review` skill responsibility, already done, no
+  code fix. The E2E block is deferred: the executor's E2E output is unstructured
+  prose in `completion_summary`, so extracting it needs a `PhaseResult` contract
+  change outside this milestone's scope.)*
 - All four gates green.
 
 ## Architecture references
@@ -82,9 +86,24 @@ Rejected alternatives, recorded so they are not re-litigated:
 
 ## Phases
 
-**Phases 01–03 are drafted** (2026-07-24); 04–05 stay sketched, per WORKFLOW.md
-§ Milestones on-demand expansion. 02 and 03 are both independent of 01 and of
-each other and may land in any order.
+**Phases 01–03 done; 05 drafted, 04 sketched** (2026-07-24). Per WORKFLOW.md
+§ Milestones on-demand expansion. All remaining phases are independent and may
+land in any order.
+
+**Phase 05 was re-scoped at draft time (user decision, 2026-07-24).** The
+milestone note bundled three "completion bookkeeping" defects; drafting found
+they are not equally tractable, so 05 is now **only** the authoritative
+`Executor:` line — a clean, `mcp/`-only, additive fix. The other two are
+resolved out of the code path:
+
+- **Ticking acceptance criteria stays the reviewer's job**, not `finalize.rs`.
+  Ticking is verification and belongs at approval (review→done); the completion
+  entry fires at in-progress→review, before verification. The `/rexymcp:review`
+  skill already ticks. Not a code defect.
+- **A structured E2E block is deferred** — the executor's E2E output is free
+  prose in `completion_summary`, not a structured field, so the server can't
+  extract it without a `PhaseResult` contract change outside `mcp/`. A future
+  phase/milestone if it recurs as friction.
 
 | #  | Phase | Status |
 |----|-------|--------|
@@ -92,7 +111,7 @@ each other and may land in any order.
 | 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` ([phase-02-failure-class-vocabulary.md](phase-02-failure-class-vocabulary.md)) — approved_first_try; negative control holds, 2 guards mutation-checked | done |
 | 03 | Consolidate the token formatters into `metrics::fmt_tokens` ([phase-03-token-formatter-consolidation.md](phase-03-token-formatter-consolidation.md)) — **4** divergent formatters, not 3; canonical = decimal-SI-with-M, changes `runs`/`scorecard` output — approved_first_try; decimal decision pinned by mutation, cxt_win correctly excluded | done |
 | 04 | k/M compaction for `calibrate-governor`'s byte columns **+ deterministic row order** (found at the phase-01 review: HashMap iteration makes before/after diffing unreadable) | todo |
-| 05 | Server-authored completion entry: tick acceptance criteria, emit an E2E block, write `Executor:` from the dispatched model | todo |
+| 05 | Server completion entry: authoritative `**Executor:**` line from the dispatched model ([phase-05-completion-executor-line.md](phase-05-completion-executor-line.md)) — **re-scoped to defect 3 only** (tick=reviewer's job; E2E block deferred) | todo |
 
 Phase 01 is the milestone; 02–05 are carried debt and can run in any order after
 it. Phase 01 changes governor termination behavior, so it needs negative tests

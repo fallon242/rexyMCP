@@ -5,10 +5,32 @@ Single source of truth for which phase is active. The principal engineer
 § "Read these first") to know which phase to work next.
 
 **Active phase:
-[M37 phase-03 — consolidate the token formatters into `metrics::fmt_tokens`](milestones/M37-governor-read-only-calibration/phase-03-token-formatter-consolidation.md)
+[M37 phase-05 — server completion entry's authoritative `Executor:` line](milestones/M37-governor-read-only-calibration/phase-05-completion-executor-line.md)
 (status: todo — drafted 2026-07-24).**
 
-**phase-03 carries a decision, not just a refactor.** There are **four**
+**phase-05 was re-scoped at draft time (user decision).** The milestone note
+bundled three "completion bookkeeping" defects; drafting found they are not
+equally tractable. **05 is now only defect 3** — an authoritative `**Executor:**`
+line in the server completion entry, sourced from the resolved dispatch model
+(`runner.rs:111` `model: &str`, threaded via a new `FinalizeInput.model`), never
+the model's self-report. Clean, `mcp/`-only, ~70 lines. The load-bearing test is
+the negative: a wrong self-reported model in `completion_summary` must not become
+the entry's `Executor:` line. **Ticking acceptance criteria stays the reviewer's
+job** (verification belongs at approval, not the completion entry — no code fix);
+**a structured E2E block is deferred** (executor's E2E output is unstructured
+prose; extracting it needs a `PhaseResult` contract change outside `mcp/`). Only
+**phase-04** remains sketched after this.
+
+**phase-03 — done (2026-07-24, approved_first_try; 107 turns).** Four divergent
+token formatters collapsed into `metrics::fmt_tokens`, canonical decimal-SI-with-M.
+Deliberate output change to `runs`/`scorecard` (`12288 → "12.3k"`); the executor
+updated the tests rather than reverting the formatter, pinned by a binary-revert
+mutation that fails both unit and table tests. The executor also correctly
+excluded `cxt_win` (context-window sizes are genuinely binary) — a sharper scope
+read than the spec gave. `profile` now shows `oscillation_stall` in WEAKNESSES,
+phase-02's class flowing through.
+
+**phase-03 (archived detail below).** There were **four**
 divergent k-formatters (not the three the M35 note claimed): `costs::format_tokens`
 (decimal-1000, +M tier), `runs::fmt_tokens` (binary-1024, no M), and two inline
 reclaimed blocks in `scorecard_cli`/`runs` (binary-1024). The spec pins the
