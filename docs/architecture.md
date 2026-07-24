@@ -1403,16 +1403,28 @@ The project plan. Each entry becomes a milestone with its own
     genuine write-thrash cases (`write_file`, `patch`) still firing. That is a
     materially wider blast radius than the four M35 anecdotes implied.
 
-    **Follow-up, needs post-landing data:** does the 60-call `NoProgressStall`
-    backstop actually catch `bash` thrash that the tight detectors used to kill
-    at 6–8? The pre-dispatch corpus is suggestive — hard-failed runs have a
-    median `max_read_only_run` of **12** against a threshold of **60**, meaning
-    they were dying to the tight detectors long before the backstop was in
-    range — but that is the *old* behavior by construction. Re-run
-    `calibrate-governor` after a few post-exemption dispatches and compare the
-    `max_read_only_run` distribution for `hard_fail`; if it does not shift
-    upward toward 60, the backstop is not engaging and the threshold wants
-    revisiting. Do not tune it on the pre-exemption corpus.
+    **Follow-up — resolved 2026-07-24 (post-M39 calibration pass).** The original
+    question was whether the 60-call `NoProgressStall` backstop engages
+    post-exemption. The pass found the question rested on a **false premise**: the
+    live `rexymcp.toml` had `read_only_stall_threshold = 500`, not the code default
+    of 60 — so 60 was never in effect, and no run could shift toward it. With
+    `max_turns = 600` and no wall-clock ceiling, a stuck read-only loop at
+    threshold 500 effectively runs to `max_turns` or a human cancel; that is exactly
+    what happened to the M37 phase-06 loop, whose session log shows a **trailing run
+    of 85 consecutive non-mutating calls** (83 `search` + 26 `read_file`, 7 `patch`)
+    ended by a human `stop`, not by the governor. So the M37 exemption correctly
+    removed the *premature* oscillation kills but, with the backstop parked at 500,
+    left **no effective early terminator** for genuine read-only loops.
+
+    The current-model (`Qwen/Qwen3.6-27B-FP8`) `max_read_only_run` distribution
+    endorses the 60 default: `complete` and `hard_fail` runs both peak at **P99=39**,
+    while the phase-06 loop hit **85** — 60 sits cleanly in the gap (spares legit
+    diagnosis, catches genuine loops). **Action taken:** `read_only_stall_threshold`
+    lowered 500 → **60** in `rexymcp.toml` (takes effect on the next `serve`
+    restart). The AEON/PrismaAURA corpus rows (P99 139–460) are cross-model /
+    cross-era with unknown live thresholds and were **not** used to tune, per the
+    original warning. If a future model's completion-run `max_read_only_run` P99
+    climbs toward 60, revisit — but do not tune on mixed-era corpus.
 
     **Close (2026-07-24): six phases done.** 01 (read-only exemption in both
     detectors) — the milestone proper — plus five carried-debt phases: 02

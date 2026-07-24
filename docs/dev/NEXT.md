@@ -16,13 +16,15 @@ when the human rebuilt+restarted `serve` post-approval. No WORKFLOW/STANDARDS fo
 landed (the one calibration note — an architect arithmetic slip in a spec'd
 assertion value — is at one occurrence, held for recurrence).
 
-Open follow-ups carried forward (none block the next milestone): the phase-01
-`NoProgressStall` backstop calibration on the post-exemption corpus
-(architecture.md §37); the `missing_spec_test`/broken-fixture failure shape
-(M37 phase-06); and the `$`-less `executor_val` debit nit (M38). *(The M39 modeling
-caveat — vLLM cache ≠ Claude cache — is **resolved**, not open: keep cache
-accounting; the discount is an estimate and the pattern matches Claude's. Settled
-2026-07-24.)*
+Open follow-ups carried forward (none block the next milestone): the
+`missing_spec_test`/broken-fixture failure shape (M37 phase-06); and the `$`-less
+`executor_val` debit nit (M38). *(Two items resolved 2026-07-24: the M39 modeling
+caveat — keep cache accounting, the discount is an estimate matching Claude's
+pattern; and the M37 `NoProgressStall` backstop calibration — the live threshold
+was 500 not 60, so it was inert; lowered to 60 in `rexymcp.toml` after the
+post-M39 calibration pass showed current-model runs peak at P99=39 read-only calls
+while the phase-06 loop hit 85. Takes effect on the next `serve` restart. See
+architecture.md §37.)*
 
 The next milestone is a human decision — no auto-advance across the boundary.
 No candidate is currently queued; awaiting direction on what comes after M39.
