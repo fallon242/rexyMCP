@@ -1,7 +1,7 @@
 # Phase 02: Add `oscillation_stall` and `missing_spec_test` to `FAILURE_CLASSES`
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** review
+**Status:** done
 **Depends on:** none (independent of phase-01; both may land in either order)
 **Estimated diff:** ~50 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -119,16 +119,16 @@ Per § Test plan below.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] `is_known_failure_class("oscillation_stall")` and
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] `is_known_failure_class("oscillation_stall")` and
       `is_known_failure_class("missing_spec_test")` both return `true`.
-- [ ] `rexymcp review … --failure-class oscillation_stall` records **without**
+- [x] `rexymcp review … --failure-class oscillation_stall` records **without**
       the `warning: unknown failure class` line.
-- [ ] The nine pre-existing entries are unchanged, in their original order.
-- [ ] `mcp/src/review.rs` and `mcp/src/main.rs` are **unmodified** — the warning
+- [x] The nine pre-existing entries are unchanged, in their original order.
+- [x] `mcp/src/review.rs` and `mcp/src/main.rs` are **unmodified** — the warning
       path needs no change.
 
 ## Test plan
@@ -303,3 +303,54 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
 
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 (32 turns, no oscillation)
+- **Scope deviations:** none. Diff is `telemetry.rs` + the two doc files;
+  `review.rs` and `main.rs` untouched across both executor commits, exactly as
+  the spec scoped and as the executor confirmed in Notes.
+- **Calibration:** none.
+
+**Reviewer verification.** Four gates re-run independently with a forced
+recompile of both crates, zero warnings. Tests **1039 → 1040** — one net new
+(`failure_classes_preserves_existing_vocabulary`); the vocabulary test was
+*extended* rather than duplicated, as the spec required.
+
+**The two guards are mutation-sensitive, each against a distinct failure:**
+
+| mutation | fails | catches |
+|---|---|---|
+| remove the two new entries | `is_known_failure_class_validates_vocabulary` | the feature not landing |
+| rename `parse_format` → `parse_fmt` | `failure_classes_preserves_existing_vocabulary` | the realistic decay — a fold that drops/renames an old entry while adding new ones |
+
+The nine originals are present, in their original order, with the two new
+entries appended.
+
+**E2E — the negative control is the one that matters, and it holds:**
+
+```
+$ rexymcp review … --failure-class oscillation_stall --failure-class missing_spec_test
+recorded review for e2e-vocab -> …          # no warning ✓
+
+$ rexymcp review … --failure-class definitely_not_a_class
+warning: unknown failure class "definitely_not_a_class" (recorded anyway);
+  known classes: [… "oscillation_stall", "missing_spec_test"]   # still warns ✓
+```
+
+Both new classes record silently; a genuinely unknown class still warns, and its
+known-classes list now shows all 11. A change that had silenced the warning
+wholesale would have passed the positive check and failed here — it didn't.
+
+**The doc comment — the phase's actual deliverable — is correct and complete.**
+All three specified boundaries are drawn: `oscillation_stall` vs `parse_format`
+(governor terminator vs parser churn), `missing_spec_test` vs `false_completion`
+(green gates vs red), and `missing_spec_test` vs `scope_deviation` (doing less
+vs more). It also correctly states `missing_spec_test` is charged to the model,
+unlike `spec_bug` — the `PhaseReview` distinction that motivated the class.
+
+**Closes two open-vocab taxonomy gaps** carried since M35 (`oscillation_stall`,
+2×) and M38 phase-01 (`missing_spec_test`, 2×). Both are now recognised
+retroactively at read time on the records that first used them.
