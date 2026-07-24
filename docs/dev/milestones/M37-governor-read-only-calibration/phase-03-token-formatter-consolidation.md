@@ -1,7 +1,7 @@
 # Phase 03: Consolidate the token formatters into `metrics::fmt_tokens`
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** review
+**Status:** done
 **Depends on:** none (independent of 01/02)
 **Estimated diff:** ~130 lines
 **Tags:** language=rust, kind=refactor, size=m
@@ -172,19 +172,19 @@ other `"…k"`/`"…M"` token-cell assertions the grep in § Test plan surfaces.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] `grep -rn "fn format_tokens\|fn fmt_tokens" mcp/src` returns **no**
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] `grep -rn "fn format_tokens\|fn fmt_tokens" mcp/src` returns **no**
       matches — both private fns are gone.
-- [ ] `metrics::fmt_tokens` is the only token k/M formatter: `grep -rn
+- [x] `metrics::fmt_tokens` is the only token k/M formatter: `grep -rn
       '/ 1024\|/ 1_000\|1_000_000\|>= 1024' mcp/src` shows no k/M formatting
       logic left in `runs.rs`/`scorecard_cli.rs`/`costs.rs` (matches inside
       `store/metrics.rs` and unrelated arithmetic are fine — inspect, don't just
       count).
-- [ ] `rexymcp costs` output is **unchanged** from before this phase.
-- [ ] `rexymcp runs` and `rexymcp scorecard` render reclaimed/token cells in the
+- [x] `rexymcp costs` output is **unchanged** from before this phase.
+- [x] `rexymcp runs` and `rexymcp scorecard` render reclaimed/token cells in the
       new decimal format (`12.3k`, `2.1M`), columns still aligned.
 
 ## Test plan
@@ -348,3 +348,60 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
 
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 (107 turns, no oscillation)
+- **Scope deviations:** none. Diff is exactly the five source files + the two
+  doc files. The one *judgment* call — see below — was a correct scope read
+  sharper than the spec, and declared.
+- **Calibration:** none.
+
+**Reviewer verification.** Four gates re-run with a forced recompile of both
+crates, zero warnings. Tests **1039 → 1045**: five new unit tests for
+`metrics::fmt_tokens`, one existing assertion updated (`"12k"` → `"12.3k"`),
+net across the migration.
+
+**The decision held — the executor updated the test, did not revert the
+formatter.** This was the phase's one real risk (a deliberate output change
+whose old-behavior tests must be updated, not obeyed). Confirmed by mutation:
+reverting `fmt_tokens` to binary-1024 fails **both** the unit tests *and* the
+`runs` table test —
+
+```
+expected 12.3k reclaimed in qwen line:  … 68%  12k  …   ← binary output, test rejects it
+```
+
+so the decimal behavior is pinned end-to-end, not just in isolation. Reverted.
+
+**E2E — the three surfaces behave exactly as the decision intended:**
+
+```
+costs      Executor $13.76 … $1414.70   (shape unchanged — costs was the reference)
+runs       RECLAIMED 19.8k  TOKENS 2.7M  (was binary 19k / 2m-with-no-M)
+scorecard  RECLAIMED 22.5k               (was 22k)
+profile    migrated; compiles + renders
+```
+
+`costs` is byte-identical in shape (it already used this format); `runs` and
+`scorecard` now render decimal-SI-with-M; **all columns stay aligned** — the
+extra decimal digit is absorbed by the right-aligned padding, no wrapping.
+
+**Both private formatters are gone** (`grep 'fn format_tokens\|fn fmt_tokens'
+mcp/src` → empty) and no k/M token logic survives outside `store::metrics`.
+
+**The judgment call, and it was right.** The spec said "token/reclaimed cells";
+the executor found `runs.rs:231` `cxt_win` — a *context-window* size formatter
+(`262144 → 256k`) that is also `>= 1024` binary — and **left it untouched**,
+declaring it in Notes as "a different domain, window sizes." Correct: context
+windows are genuinely powers of two, so binary is right there, and it is neither
+a token nor a reclaimed cell. That is a sharper scope read than my spec gave (I
+named `runs.rs:151` as the only out-of-scope counter and missed `cxt_win`
+entirely) — the executor caught the gap and made the right call. Recorded as a
+positive, not a deviation.
+
+**Cross-confirmation of phase-02:** `rexymcp profile` now renders
+`oscillation_stall×1` in a WEAKNESSES column — the failure class phase-02 added,
+flowing through the aggregation. Two M37 phases visibly composing.
