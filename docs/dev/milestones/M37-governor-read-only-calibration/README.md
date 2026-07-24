@@ -88,10 +88,10 @@ terminator whose outcome may inform how the rest are scoped.
 
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | Read-only exemption in the oscillation + identical-repetition detectors ([phase-01-read-only-exemption.md](phase-01-read-only-exemption.md)) | review |
+| 01 | Read-only exemption in the oscillation + identical-repetition detectors ([phase-01-read-only-exemption.md](phase-01-read-only-exemption.md)) — approved_first_try; 3 reviewer mutations, calibration distributions unmoved | done |
 | 02 | `oscillation_stall` + `missing_spec_test` in `FAILURE_CLASSES` | todo |
 | 03 | Consolidate the three token formatters into `metrics` | todo |
-| 04 | k/M compaction for `calibrate-governor`'s byte columns | todo |
+| 04 | k/M compaction for `calibrate-governor`'s byte columns **+ deterministic row order** (found at the phase-01 review: HashMap iteration makes before/after diffing unreadable) | todo |
 | 05 | Server-authored completion entry: tick acceptance criteria, emit an E2E block, write `Executor:` from the dispatched model | todo |
 
 Phase 01 is the milestone; 02–05 are carried debt and can run in any order after

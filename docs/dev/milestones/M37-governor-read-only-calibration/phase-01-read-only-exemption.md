@@ -1,7 +1,7 @@
 # Phase 01: Exempt read-only windows from the oscillation detectors
 
 **Milestone:** M37 — Governor Read-Only Calibration
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~180 lines
 **Tags:** language=rust, kind=feature, size=m
@@ -16,8 +16,17 @@ arc**, every one recovering on a resume or refined re-dispatch carrying one
 specific hint.
 
 M34 already shipped `check_read_only_stall` for exactly this case. Make it the
-**only** terminator for read-only loops: exempt a window containing no
-file-mutating call from both oscillation detectors.
+**only** terminator for such loops: exempt a window containing no file-mutating
+call from both oscillation detectors.
+
+**Precision note (added 2026-07-24 mid-run, user-confirmed).** "Read-only" is
+shorthand and is *imprecise*. The predicate is `!mutates_files`, i.e.
+`!= Category::Write`, so `bash` (`Run`), `search`/`find_files` (`Search`) and
+`update_task` (`Meta`) are exempted too — a `cargo build` loop as well as a
+`sed -n` loop. That is intended: `check_read_only_stall` uses the identical
+predicate, so those already count as no-progress there. See
+`docs/architecture.md` § Status #37 for the full scoping note and the
+post-landing follow-up.
 
 ## Architecture references
 
@@ -186,15 +195,15 @@ Write the tests named in § Test plan.
 
 ## Acceptance criteria
 
-- [ ] `cargo build` is green.
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt --all --check` reports no diff in the files this phase touched.
-- [ ] `cargo test` passes.
-- [ ] A window of purely read-only calls fires **neither** `Oscillation` nor
+- [x] `cargo build` is green.
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [x] `cargo fmt --all --check` reports no diff in the files this phase touched.
+- [x] `cargo test` passes.
+- [x] A window of purely read-only calls fires **neither** `Oscillation` nor
       `IdenticalToolCallRepetition`.
-- [ ] A window containing **at least one** mutating call fires exactly as it does
+- [x] A window containing **at least one** mutating call fires exactly as it does
       today — verified by the pre-existing tests still passing **unchanged**.
-- [ ] `check_read_only_stall` still terminates a purely read-only run at its
+- [x] `check_read_only_stall` still terminates a purely read-only run at its
       configured threshold; its existing tests pass unchanged.
 
 ## Test plan
@@ -389,3 +398,89 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
 
+
+### Review verdict — 2026-07-24
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 (89 turns, no oscillation)
+- **Scope deviations:** one, necessary and declared — three pre-existing tests
+  were **modified**, not left unchanged (see below). The executor named all
+  three in Notes for review.
+- **Calibration:** the acceptance criterion requiring pre-existing tests to pass
+  *unchanged* was unsatisfiable by construction — 12th instance of the architect
+  spec-fact family, and the first since the fold landed.
+
+**Reviewer verification.** Four gates re-run independently with a forced
+recompile of both crates, zero warnings. Tests **1032 → 1039**, matching the
+seven specified.
+
+**Three mutations run by the reviewer — all bite, and the coverage is
+asymmetric in exactly the right way:**
+
+| mutation | fails | reads as |
+|---|---:|---|
+| `window_has_mutation` → always `false` (blanket disable) | **9 tests** | the failure mode most feared, caught comprehensively |
+| → always `true` (exemption never applies) | 3 tests | the feature itself is pinned |
+| → scan whole deque instead of the window | **1 test** | `identical_repetition_window_is_threshold_not_deque_length`, and *nothing else* |
+
+That third one is the phase's most valuable test. The whole-deque
+implementation is the plausible wrong one — it looks more thorough — and a
+single test stands between it and merge. Worth remembering when specifying
+window-scoped predicates.
+
+All mutations reverted; `git status` clean before approval.
+
+**E2E — the calibration corpus, verified against a baseline captured *before*
+dispatch** rather than a pasted claim:
+
+```
+$ diff <(sort calib-before.txt) <(sort calib-after.txt)
+```
+
+24 rows differ, and every one is a `complete` row whose `N` rose by exactly
+**1** — this phase's own run joining the session-log corpus between the two
+captures. **Every `hard_fail` row is byte-identical**, which is the one that
+matters: this phase changes hard-fail behavior on *future* runs, not how past
+ones are scored. Two `complete` P90s shifted (`22035 → 24219`, `6 → 7`), the
+expected effect of one added sample on a percentile.
+
+**Incidental finding — `calibrate-governor` row order is nondeterministic.** The
+raw diff was 100+ lines of pure reordering (HashMap iteration) around 24 real
+changes; it only became readable after sorting both sides. M37's own README asks
+reviewers to compare this output before and after a terminator change, so the
+instability actively obstructs the workflow it is meant to serve. **Folded into
+phase-04**, which already touches `calibrate-governor` rendering.
+
+**The declared scope deviation, and why it is correct.** Three pre-existing
+tests used *read-only* fixtures to exercise the detectors:
+
+- `agent::tests::identical_tool_call_repetition_trips_hard_fail` — `read_file` → `write_file`
+- `agent::tests::oscillation_across_alternating_reads_trips_hard_fail` — one leg `read_file` → `write_file`
+- `hard_fail::tests::oscillation_fires_on_two_call_cycle` — both legs → `patch`/`write_file`
+
+After the exemption those tests could not pass unmodified: they asserted that a
+read-only loop trips a detector, which is precisely the behavior this phase
+removes. Swapping the fixture to a mutating tool preserves each test's *intent*
+(the detector fires on repetition/oscillation) under the new semantics. That the
+modified tests are among the **nine** that fail under the blanket-disable
+mutation confirms they still guard what they were written to guard.
+
+**The acceptance criterion was mine and was wrong.** It read "verified by the
+pre-existing tests still passing **unchanged**" — asserted without checking what
+fixtures those tests used. The guarantee it wanted (mutating windows still fire)
+is verified, by mutation rather than by the mechanism the criterion named. Left
+in place above, ticked, with this note rather than silently reworded.
+
+**Minor, not bounced:** `oscillation_across_alternating_reads_trips_hard_fail`
+now uses a write on one leg, so "alternating_reads" is stale. Same class as
+M38's stale names and again traceable to my spec not anticipating the fixture
+change. Rename opportunistically in a later M37 phase; not worth a dispatch.
+
+**Deferred as the spec directed:** confirmation on a real run — that the next
+dispatch does not hard-fail on a read-only inspection loop — cannot be forced
+synthetically. Not claimed here. The architecture.md §37 follow-up gives the
+method: re-run `calibrate-governor` after several post-exemption dispatches and
+check whether `hard_fail`'s `max_read_only_run` distribution shifts upward
+toward the 60 backstop. It currently sits at a median of **12**, i.e. runs were
+dying to the tight detectors long before the backstop came into range.
