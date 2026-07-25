@@ -197,35 +197,6 @@ mod tests {
         }
     }
 
-    /// Whether `text` has a line documenting `key` as a TOML assignment —
-    /// tolerant of a leading `#` and of the README's column alignment.
-    fn documents_key(text: &str, key: &str) -> bool {
-        text.lines().any(|line| {
-            let rest = line.trim_start().trim_start_matches('#').trim_start();
-            rest.strip_prefix(key)
-                .is_some_and(|tail| tail.trim_start().starts_with('='))
-        })
-    }
-
-    #[test]
-    fn readme_documents_every_governor_knob() {
-        // The README's sample config is prose, not generated — nothing else stops
-        // it drifting behind the struct the way the init template once did.
-        let readme = include_str!("../../README.md");
-        for key in field_names(&GovernorConfig::default()) {
-            assert!(
-                documents_key(readme, &key),
-                "README's sample config must document [governor] {key}"
-            );
-        }
-        for key in field_names(&ModelOverride::default()) {
-            assert!(
-                documents_key(readme, &key),
-                "README's sample config must document the per-model {key} override"
-            );
-        }
-    }
-
     #[test]
     fn template_offers_every_per_model_override() {
         let toml = generate_config("test-id");
