@@ -142,6 +142,17 @@ one integration test); 05 approved_first_try (direct); 06a approved_after_1
 of three dispatched phases bounced once each — both caught at review, both clean on
 re-dispatch.
 
+**Post-close fixes** (filed after 2026-07-19; deliberately *not* rolled into the
+verdicts above, which label the dispatched work as it was reviewed):
+- **bug-01-1** (minor, verified 2026-07-24) — phase-01's `read_only_stall_threshold`
+  never reached the `rexymcp init` config template, so a generated `rexymcp.toml`
+  gave no sign of the knob the README tells you to tune per-model. Fixing it
+  surfaced that four more governor fields and five per-model overrides were missing
+  too, and that the README's sample config had the same drift; both surfaces are
+  now complete and guarded by tests written against the structs' own field lists
+  (`mcp/src/init.rs`, `mcp/tests/readme_config_reference.rs`). Architect-implemented,
+  no dispatch — commits `85a2e6c`, `6f8f5c6`, `cbcb81d`, `49aab47`.
+
 **Calibration data (fold candidates — NOT folded; hold for user sign-off):**
 1. **Runs-vs-samples in aggregation specs** (bug-06a-1, `spec_bug`, 1st occurrence).
    The 06a spec said "cell with `count < min_runs`" without defining count-as-runs
