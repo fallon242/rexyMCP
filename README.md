@@ -937,10 +937,12 @@ temperature                    = 0.2      # any of these override the global val
 | `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, every governor threshold, and the four M35 `$/Mtok` executor rates. Any key omitted inherits the global value. |
 
 **Known-model rate table** (recognized by `[architect] model`, in USD/Mtok
-input/output): `claude-opus-4-8`/`-4-7`/`-4-6` → 5/25 ·
+input/output): `claude-opus-5`/`claude-opus-4-8`/`-4-7`/`-4-6` → 5/25 ·
+`claude-sonnet-5` → 2/10 (introductory, through 2026-08-31; 3/15 after) ·
 `claude-sonnet-4-6` → 3/15 · `claude-haiku-4-5` → 1/5 ·
 `claude-fable-5`/`claude-mythos-5` → 10/50. Anything else falls back to the
-explicit rate fields.
+explicit rate fields — a model in neither this table nor `[architect.rates]`
+contributes its tokens but **$0.00** to the cost totals, silently.
 
 ---
 

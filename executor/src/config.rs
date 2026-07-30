@@ -11,7 +11,9 @@ use crate::error::{Error, Result};
 pub fn known_model_rates(model: &str) -> Option<(f64, f64)> {
     match model {
         "claude-fable-5" | "claude-mythos-5" => Some((10.0, 50.0)),
-        "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6" => Some((5.0, 25.0)),
+        "claude-opus-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6" => {
+            Some((5.0, 25.0))
+        }
         "claude-sonnet-4-6" => Some((3.0, 15.0)),
         // Introductory pricing through 2026-08-31; standard (3.0, 15.0) from
         // 2026-09-01 — override via [architect.rates] after the switch.
@@ -2285,6 +2287,15 @@ model = "claude-opus-4-8"
         assert_eq!(known_model_rates("claude-sonnet-5"), Some((2.0, 10.0)));
         // Spot-check an existing entry is unchanged.
         assert_eq!(known_model_rates("claude-opus-4-8"), Some((5.0, 25.0)));
+    }
+
+    #[test]
+    fn known_model_rates_prices_opus_5() {
+        assert_eq!(known_model_rates("claude-opus-5"), Some((5.0, 25.0)));
+        // Shares the Opus arm with the 4.x IDs, which stay unchanged.
+        assert_eq!(known_model_rates("claude-opus-4-8"), Some((5.0, 25.0)));
+        assert_eq!(known_model_rates("claude-opus-4-7"), Some((5.0, 25.0)));
+        assert_eq!(known_model_rates("claude-opus-4-6"), Some((5.0, 25.0)));
     }
 
     #[test]
