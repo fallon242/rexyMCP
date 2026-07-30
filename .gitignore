@@ -2,3 +2,6 @@
 /.rexymcp
 /.claude
 rexymcp.toml
+
+# PhaseRun telemetry store — local run records, not source
+/telemetry
