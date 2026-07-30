@@ -846,3 +846,110 @@ language, inform the user with a resolution plan before shipping a feature that
 would only degrade; (4) pin the missing-binary runtime behavior in the phase doc
 as a named advisory, per the rule above. Record the feature's toolchain
 dependencies in the phase doc (Pre-flight or a "Toolchain dependencies" line).
+
+### Verify a moved block mechanically — pin a diff, not an instruction
+
+When a phase's job is to **move** code (an extraction, a module split, a
+relocation), "extract with `sed`, do not retype" is not sufficient. Executors
+retype anyway, and a retyped block can pass every gate: the formatter accepts it,
+the linter accepts it, and content-shaped assertions (`"@page" in css`,
+`hasattr(mod, "f")`) accept it too.
+
+**Two real instances, both caught only by an explicit numeric check:**
+
+- A 2757-character CSS literal was retyped from memory and came out as a
+  *different stylesheet* — A4 page rule, 1652 characters — while still containing
+  every structural marker the tests looked for. A pinned character count in the
+  spec's verification step caught it mid-phase and forced a re-extract.
+- A later move produced `"→"` / `"•"` / `"—"` escapes where the
+  source had literal `→` / `•` / `—`. Runtime-identical, so harmless in itself —
+  but it is the **fingerprint of hand-transcription**, and it went undetected
+  until the architect diffed the moved region at review.
+
+**The fold: every move phase's Spec gets a diff step, not a prose instruction.**
+Put it immediately after the extraction and *before* any deletion, so a mismatch
+stops the phase instead of surviving into review:
+
+```bash
+# Spec §N — verify the move is byte-exact BEFORE deleting the source
+git show HEAD:<SOURCE> | sed -n '<A>,<B>p' > /tmp/orig.txt
+tail -n +<FIRST_MOVED_LINE> <DEST> > /tmp/moved.txt
+diff /tmp/orig.txt /tmp/moved.txt && echo "MOVE IS BYTE-EXACT"
+```
+
+Require the literal `MOVE IS BYTE-EXACT` in the Update Log. A non-empty diff is a
+**blocker**, and the spec must say so explicitly — otherwise the executor will
+"fix" the diff by editing the destination.
+
+For a block whose output is easier to check than its source (templates, generated
+strings, stylesheets), pin **output lengths** as well, one per input case, each
+with a per-assertion message so a failure names which one drifted:
+
+```python
+for label, got, want in cases:
+    assert len(got) == want, f"{label}: expected {want} chars, got {len(got)}"
+```
+
+This deliberately pins rendering, which § "Specs pin behavior, not rendering"
+otherwise discourages. The exception is narrow and load-bearing: for a
+behavior-preserving move of a large literal, the rendering **is** the behavior
+being preserved. Pair it with content assertions so a same-length corruption still
+fails.
+
+*(Folded after M1/DevOps: two hand-transcription incidents across ten extraction
+phases, both invisible to the gate set.)*
+
+### A re-export shim needs a mechanical guard, not a drafting habit
+
+When one module exists partly to re-export names for downstream consumers — a
+compatibility shim, a package `__init__`, a facade — every extraction phase can
+silently narrow it. The mechanism is always the same and always looks correct:
+
+1. A phase moves code out, so some import loses its last *in-module* call site.
+2. The linter flags the now-unused import.
+3. Deleting it is the locally correct fix.
+4. But a consumer — a GUI, a downstream package, **a test** — referenced that name
+   through the shim, and the shim just got smaller.
+
+**This recurred three times in one milestone**, each time caught only after the
+fact: once breaking two previously-green tests from an earlier phase, once as a
+stale must-stay assertion, and once as a deleted assertion the executor removed to
+get the suite green again. A written convention was folded into the project's
+milestone README after the second occurrence — **and it still happened a third
+time.** That is the lesson: for this class, a rule the architect must remember at
+draft time is not enough.
+
+**The fold, in two parts.**
+
+**(a) At draft time, grep both surfaces — code *and* consumers:**
+
+```bash
+grep -rn "<SHIM_MODULE>\.<name>" <consumer files> <test dir>
+```
+
+A name referenced that way is public surface even with zero in-module callers.
+Keep the import and declare it deliberate (in Python, add it to `__all__`; the
+equivalent in other languages is whatever marks an intentional re-export). Never
+delete it, and never edit the consumer or test to match a narrowed surface.
+
+**(b) Land a test that enforces it, so the next phase cannot regress it:**
+
+```python
+def test_shim_exports_all_resolve():
+    for name in shim.__all__:
+        assert hasattr(shim, name), f"__all__ names {name!r} but it does not resolve"
+```
+
+That is the minimum. The stronger version — worth writing once the shim matters —
+walks every `<SHIM>.<name>` reference in the consumers and test suite and asserts
+each resolves, which catches the deletion case the `__all__` check alone misses.
+
+**And when a later phase's authorized move *does* falsify a prior phase's
+assertion**, the phase doc must say so up front: name the file and line, give the
+replacement, and authorize the edit in Authorizations. Otherwise the executor is
+stuck choosing between a red suite and an unauthorized edit — and it will pick one
+without asking.
+
+*(Folded after M1/DevOps: three occurrences of shim narrowing; the third happened
+after the convention was already written down, which is why the guard is now a
+test rather than a habit.)*
