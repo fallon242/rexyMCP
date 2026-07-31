@@ -23,7 +23,7 @@ rexyMCP does not implement". M43 is the fix, not a competitor — but phase-01's
 `deny_unknown_fields` will start rejecting configs written for that branch, so
 sequence the merge deliberately.
 
-**Baseline:** 1741 tests (685 + 2 + 1054) at `659d321`.
+**Baseline:** 1761 tests (685 + 2 + 1074) at `a2fdbe2`.
 
 **M41 — Serve Liveness & Run Durability closed 2026-07-24.** Three phases, all
 architect-implemented (no dispatch, no `PhaseRun`) — commits `87c6c15`, `c7234cf`,

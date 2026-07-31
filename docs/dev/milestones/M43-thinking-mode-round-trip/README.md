@@ -19,8 +19,8 @@ Three defects sit behind that, and they chain:
 
 | # | Defect | Where (on `master`) |
 |---|---|---|
-| 1 | `[models."…"]` overrides silently accept unknown keys | `executor/src/config.rs:293` |
-| 2 | a reasoning block is *opened* with `</think>` | `executor/src/ai/backends/openai.rs:270` |
+| 1 | `[models."…"]` overrides silently accept unknown keys | `executor/src/config.rs:292-294` |
+| 2 | a reasoning block is *opened* with `</think>` | `executor/src/ai/backends/openai.rs:285` |
 | 3 | `reasoning_content` is dropped when an assistant turn is replayed | `executor/src/ai/backends/openai.rs` `convert_messages` |
 
 **Defect 3 is the failure.** `convert_messages` rebuilds an assistant turn as
@@ -85,12 +85,12 @@ keys are rejected, a config typo can masquerade as a round-trip bug.
 
 ## Notes
 
-- **Baseline is 1741 tests** (685 + 2 + 1054) on `master` at `659d321`.
+- **Baseline is 1761 tests** (685 + 2 + 1074) on `master` at `a2fdbe2`.
 - **Phase-01 was prototyped and verified; phase-02 was not.** Phase-02 needs a
   live thinking-mode endpoint to confirm end to end, which the architect did not
   have. Its spec is derived from the API error and the code, and says so.
 - **Neither phase-01 fix is covered by any existing test.** The architect applied
-  both and the suite stayed at 1741 passing. Treat "green" as evidence of
+  both and the suite stayed at 1761 passing. Treat "green" as evidence of
   nothing here; the tests are the deliverable.
 - **This numbering had a false start.** An earlier draft of this milestone was
   written as "M35" against a clone that was 238 commits behind and had a stale

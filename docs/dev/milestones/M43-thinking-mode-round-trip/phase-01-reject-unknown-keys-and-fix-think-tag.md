@@ -30,12 +30,12 @@ the same failure story, and together they make phase-02 diagnosable.
 
 ## ⚠️ Both fixes were prototyped and verified before this doc was written
 
-The architect applied both against `master` at `659d321` and got **1741 tests
-passing** (685 + 2 + 1054), then reverted. Do **not** redesign them.
+The architect applied both against `master` at `a2fdbe2` and got **1761 tests
+passing** (685 + 2 + 1074), then reverted. Do **not** redesign them.
 
 ## ⚠️ Neither fix is covered by an existing test — that is the actual work
 
-The prototype changed both production lines and the suite **stayed at 1741
+The prototype changed both production lines and the suite **stayed at 1761
 passing**. Nothing asserted either behaviour. So the two-line diff is the easy
 part; the tests are the deliverable.
 
@@ -73,7 +73,7 @@ Note `config.rs` already carries a comment acknowledging the same gap on the
 top-level `Config` struct ("because `Config` derives `#[serde(default)]` without
 `deny_unknown_fields`"). This phase fixes `ModelOverride` **only**.
 
-**Defect B — `executor/src/ai/backends/openai.rs:270`:**
+**Defect B — `executor/src/ai/backends/openai.rs:285`:**
 
 ```rust
 if let Some(chunk) = reasoning_chunk {
@@ -84,7 +84,7 @@ if let Some(chunk) = reasoning_chunk {
 ```
 
 `grep -n 'push_str("</think>")' executor/src/ai/backends/openai.rs` finds the
-opener at 270 alongside the genuine closers; `grep -c 'push_str("<think>")'`
+opener at 285 alongside the genuine closers; `grep -c 'push_str("<think>")'`
 returns `0`.
 
 ## Spec
@@ -98,7 +98,7 @@ cargo test 2>&1 | grep -E "^test result"
 ```
 
 Expected: the struct is at ~294 and the two lines above it are the derive and a
-bare `#[serde(default)]`; the second returns `0`; the third totals **1741**
+bare `#[serde(default)]`; the second returns `0`; the third totals **1761**
 passing. If any differs, **stop and file a blocker.**
 
 ### 1. Apply this diff
@@ -165,7 +165,7 @@ cargo test
 - [ ] `cargo fmt --all --check` reports no diff.
 - [ ] `cargo build` succeeds with zero new warnings.
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes.
-- [ ] `cargo test` passes with **at least 2 more tests than the 1741 baseline**.
+- [ ] `cargo test` passes with **at least 2 more tests than the 1761 baseline**.
 - [ ] `grep -c 'push_str("<think>")' executor/src/ai/backends/openai.rs` is `1`.
 - [ ] `deny_unknown_fields` is added to `ModelOverride` **only** — not to
       `Config`, `ExecutorConfig`, or any other struct.
