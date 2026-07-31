@@ -4,7 +4,26 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase: M43 phase-01 — reject unknown model-override keys; fix the
+`<think>` open tag.** **Status:** todo (drafted, awaiting dispatch).
+**Doc:** `docs/dev/milestones/M43-thinking-mode-round-trip/phase-01-reject-unknown-keys-and-fix-think-tag.md`
+
+Opened after a DeepSeek dispatch hard-failed on turn one with *"The
+`reasoning_content` in the thinking mode must be passed back to the API."*
+Three defects chain into it: `ModelOverride` silently accepts unknown keys,
+the streaming state machine opens a reasoning block with `</think>`, and
+`convert_messages` drops `reasoning_content` when replaying an assistant turn.
+Phase-01 is the two verified one-line fixes plus the tests neither had;
+phase-02 is the round-trip itself.
+
+⚠️ **Read `feat/executor-thinking-and-autocomplete` before landing phase-01.**
+That branch adds a real `thinking` config key and disables thinking as a
+*workaround*, its own doc comment noting the round-trip is "a requirement
+rexyMCP does not implement". M43 is the fix, not a competitor — but phase-01's
+`deny_unknown_fields` will start rejecting configs written for that branch, so
+sequence the merge deliberately.
+
+**Baseline:** 1741 tests (685 + 2 + 1054) at `659d321`.
 
 **M41 — Serve Liveness & Run Durability closed 2026-07-24.** Three phases, all
 architect-implemented (no dispatch, no `PhaseRun`) — commits `87c6c15`, `c7234cf`,
