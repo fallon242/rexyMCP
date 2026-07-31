@@ -302,6 +302,7 @@ pub struct ModelOverride {
     pub runaway_output_bytes: Option<usize>,
     pub empty_completion_threshold: Option<usize>,
     pub gate_feedback_repeat_threshold: Option<usize>,
+    pub thinking: Option<String>,
     pub oscillation_window: Option<usize>,
     pub oscillation_distinct_max: Option<usize>,
     pub output_window: Option<usize>,
@@ -428,6 +429,16 @@ pub struct ExecutorConfig {
     /// from pre-M20). Set via `rexymcp calibrate`.
     #[serde(default)]
     pub tier: Option<Tier>,
+    /// Reasoning/thinking-mode toggle sent verbatim as `"thinking": {"type": <value>}`
+    /// on every chat request (e.g. DeepSeek V4's `"enabled"`/`"disabled"`). `None`
+    /// omits the key, letting the endpoint apply its own default. Needed for
+    /// DeepSeek-style APIs where thinking-mode tool-call turns require
+    /// `reasoning_content` to be echoed back on every subsequent request — a
+    /// requirement rexyMCP does not implement, so leaving thinking enabled on
+    /// those models 400s on the second tool-calling turn. Set to `"disabled"`
+    /// to use the non-thinking path instead, which has no such requirement.
+    #[serde(default)]
+    pub thinking: Option<String>,
 }
 
 fn default_first_token_timeout_secs() -> u64 {
@@ -465,6 +476,7 @@ impl Default for ExecutorConfig {
             enable_thinking: default_enable_thinking(),
             task_tracking: default_task_tracking(),
             tier: None,
+            thinking: None,
         }
     }
 }
@@ -666,6 +678,9 @@ impl Config {
         }
         if let Some(v) = over.gate_feedback_repeat_threshold {
             self.governor.gate_feedback_repeat_threshold = v;
+        }
+        if let Some(v) = over.thinking {
+            self.executor.thinking = Some(v);
         }
         if let Some(v) = over.oscillation_window {
             self.governor.oscillation_window = v;
@@ -1792,6 +1807,100 @@ max_tokens = 2048
         let mut cfg = Config::load(&path).unwrap();
         cfg.resolve_for_model("m");
         assert_eq!(cfg.executor.max_tokens, 2048);
+    }
+
+    #[test]
+    fn config_defaults_thinking_to_none() {
+        let cfg = ExecutorConfig::default();
+        assert_eq!(cfg.thinking, None);
+    }
+
+    #[test]
+    fn config_loads_thinking_from_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[executor]
+provider = "openai"
+model = "deepseek-v4-flash"
+base_url = "https://api.deepseek.com"
+thinking = "disabled"
+
+[commands]
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 40
+escalation_slots = 1
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.executor.thinking.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn resolve_for_model_applies_thinking_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[executor]
+provider = "openai"
+model = "deepseek-v4-flash"
+base_url = "https://api.deepseek.com"
+
+[commands]
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 40
+escalation_slots = 1
+
+[models."deepseek-v4-flash"]
+thinking = "disabled"
+"#,
+        )
+        .unwrap();
+
+        let mut cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.executor.thinking, None);
+        cfg.resolve_for_model("deepseek-v4-flash");
+        assert_eq!(cfg.executor.thinking.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn resolve_for_model_leaves_thinking_none_when_override_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[executor]
+provider = "openai"
+model = "m"
+base_url = "http://localhost:1234/v1"
+
+[commands]
+
+[budget]
+context_length = 32768
+max_context_pct = 70
+max_turns = 40
+escalation_slots = 1
+
+[models."m"]
+temperature = 0.1
+"#,
+        )
+        .unwrap();
+
+        let mut cfg = Config::load(&path).unwrap();
+        cfg.resolve_for_model("m");
+        assert_eq!(cfg.executor.thinking, None);
     }
 
     #[test]

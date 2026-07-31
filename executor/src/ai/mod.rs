@@ -185,12 +185,15 @@ pub async fn stream_next_with_timeout<B>(
 }
 
 /// Sampling knobs forwarded verbatim to every chat request.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SamplingParams {
     pub temperature: Option<f64>,
     pub seed: Option<u64>,
     pub max_tokens: u32,
     pub enable_thinking: bool,
+    /// Forwarded as `"thinking": {"type": <value>}` when set. See
+    /// `ExecutorConfig::thinking` for why this exists.
+    pub thinking: Option<String>,
 }
 
 impl Default for SamplingParams {
@@ -200,6 +203,7 @@ impl Default for SamplingParams {
             seed: None,
             max_tokens: 8192,
             enable_thinking: false,
+            thinking: None,
         }
     }
 }
@@ -216,6 +220,7 @@ pub fn make_client(cfg: &ExecutorConfig) -> Box<dyn AiClient> {
             seed: cfg.seed,
             max_tokens: cfg.max_tokens,
             enable_thinking: cfg.enable_thinking,
+            thinking: cfg.thinking.clone(),
         },
     ))
 }
@@ -276,6 +281,7 @@ mod tests {
             enable_thinking: false,
             task_tracking: true,
             tier: None,
+            thinking: None,
         };
         let _c = make_client(&cfg);
     }
@@ -295,6 +301,7 @@ mod tests {
             enable_thinking: false,
             task_tracking: true,
             tier: None,
+            thinking: None,
         };
         let _c = make_client(&cfg);
     }
@@ -314,6 +321,7 @@ mod tests {
             enable_thinking: false,
             task_tracking: true,
             tier: None,
+            thinking: None,
         };
         let _c = make_client(&cfg);
     }

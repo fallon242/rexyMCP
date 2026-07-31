@@ -57,6 +57,7 @@ novelty_action = "advisory"       # "advisory" (default): log low-novelty churn 
 # seed = 7                           # override [executor] seed
 # max_tokens = 8192                  # override [executor] max_tokens
 # enable_thinking = false            # override [executor] enable_thinking
+# thinking = "disabled"              # override [executor] thinking (sent verbatim as the type)
 # identical_call_threshold = 8       # override [governor] identical_call_threshold
 # verifier_persistence_threshold = 8 # override [governor] verifier_persistence_threshold
 # runaway_output_bytes = 204800      # override [governor] runaway_output_bytes

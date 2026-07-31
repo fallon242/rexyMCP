@@ -208,6 +208,78 @@ fn restore_path_tokens(command: &str) -> Vec<&str> {
     out
 }
 
+/// Whether `command` is a single, unchained `git commit` invocation. Deliberately
+/// only matches when there is no `&&` / `;` / `|` segment separator — the exit code
+/// of a chained command reflects `&&`'s last-evaluated segment or `;`'s literal last
+/// command, not reliably the commit specifically, so a chained form is never treated
+/// as a completion signal here (the caller still dispatches it normally; it just
+/// isn't trusted for this detector). Excludes `--dry-run` / `-n`, which report
+/// success without actually committing anything.
+pub(super) fn is_git_commit_command(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.contains(['&', ';', '|']) {
+        return false;
+    }
+    let mut toks = trimmed.split_whitespace();
+    if toks.next() != Some("git") || toks.next() != Some("commit") {
+        return false;
+    }
+    !trimmed
+        .split_whitespace()
+        .any(|t| t == "--dry-run" || t == "-n")
+}
+
+/// Whether `command` is a single, unchained `git status` invocation requesting
+/// porcelain/short output (`--porcelain`, `--porcelain=v1`, `--short`, `-s`) — the
+/// only forms whose body is reliably "empty means clean" without further parsing.
+/// Same chaining caveat as [`is_git_commit_command`].
+pub(super) fn is_git_clean_status_command(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.contains(['&', ';', '|']) {
+        return false;
+    }
+    let mut toks = trimmed.split_whitespace();
+    if toks.next() != Some("git") || toks.next() != Some("status") {
+        return false;
+    }
+    trimmed
+        .split_whitespace()
+        .any(|t| t == "--short" || t == "-s" || t == "--porcelain" || t.starts_with("--porcelain="))
+}
+
+/// True when a `git status --porcelain`/`--short` result's body — everything
+/// after the `✓ exit N (...)` / `✗ exit N (...)` status line `bash.rs` prepends —
+/// is empty once lines under `.rexymcp/` are discounted. Those are this tool's own
+/// session-log/recovery-file bookkeeping (`open_session_log`, `write_recovery`),
+/// never a phase deliverable — a target repo's `.gitignore` may cover
+/// `.rexymcp/sessions/*` without covering every other path this tool writes under
+/// `.rexymcp/` (e.g. output recovery dumps), so this detector must not depend on
+/// that being configured exhaustively correctly everywhere.
+pub(super) fn bash_status_output_is_clean(content: &str) -> bool {
+    let body = match content.split_once('\n') {
+        Some((_status_line, rest)) => rest,
+        None => content,
+    };
+    body.lines().all(|line| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return true;
+        }
+        // Porcelain v1: 2 status chars + 1 space + path. `get` degrades to "" (not
+        // ignored) on a line shorter than that, rather than panicking.
+        trimmed
+            .get(2..)
+            .is_some_and(|rest| rest.trim_start().starts_with(".rexymcp/"))
+    })
+}
+
+/// The shell exit code recorded in a bash tool call's metadata (`bash.rs` always
+/// sets `"exit_code"` on a completed process; `None` if the process was killed by a
+/// signal or the tool call carries no metadata at all).
+pub(super) fn bash_exit_code(tool_meta: &Option<serde_json::Value>) -> Option<i64> {
+    tool_meta.as_ref()?.get("exit_code")?.as_i64()
+}
+
 /// Stable marker prefix for an evicted (superseded) read result. Used both to
 /// build the breadcrumb and to detect an already-evicted result (idempotence).
 const SUPERSEDED_PREFIX: &str = "[superseded:";
@@ -1208,6 +1280,94 @@ mod tests {
             result.is_some(),
             "compound command should find the restore segment"
         );
+    }
+
+    // ── is_git_commit_command / is_git_clean_status_command tests ─────────
+
+    #[test]
+    fn recognizes_a_plain_git_commit() {
+        assert!(is_git_commit_command("git commit -m \"feat: thing\""));
+    }
+
+    #[test]
+    fn rejects_dry_run_commit() {
+        assert!(!is_git_commit_command("git commit --dry-run -m \"x\""));
+        assert!(!is_git_commit_command("git commit -n -m \"x\""));
+    }
+
+    #[test]
+    fn rejects_chained_commit() {
+        assert!(!is_git_commit_command("git add -A && git commit -m \"x\""));
+        assert!(!is_git_commit_command("git commit -m \"x\"; git status"));
+    }
+
+    #[test]
+    fn rejects_non_commit_git_subcommand() {
+        assert!(!is_git_commit_command("git commit-graph write"));
+        assert!(!is_git_commit_command("git status"));
+    }
+
+    #[test]
+    fn recognizes_porcelain_and_short_status_forms() {
+        assert!(is_git_clean_status_command("git status --porcelain"));
+        assert!(is_git_clean_status_command("git status --porcelain=v1"));
+        assert!(is_git_clean_status_command("git status --short"));
+        assert!(is_git_clean_status_command("git status -s"));
+    }
+
+    #[test]
+    fn rejects_plain_git_status_without_porcelain_or_short() {
+        assert!(!is_git_clean_status_command("git status"));
+    }
+
+    #[test]
+    fn rejects_chained_status() {
+        assert!(!is_git_clean_status_command(
+            "git commit -m \"x\" && git status --porcelain"
+        ));
+    }
+
+    // ── bash_status_output_is_clean / bash_exit_code tests ─────────────────
+
+    #[test]
+    fn empty_porcelain_body_is_clean() {
+        assert!(bash_status_output_is_clean("✓ exit 0 (0.0s)\n\n"));
+        assert!(bash_status_output_is_clean("✓ exit 0 (0.0s)\n\n   \n"));
+    }
+
+    #[test]
+    fn nonempty_porcelain_body_is_not_clean() {
+        assert!(!bash_status_output_is_clean(
+            "✓ exit 0 (0.0s)\n\n?? backend/src/Foo.cs\n"
+        ));
+    }
+
+    #[test]
+    fn rexymcp_own_bookkeeping_noise_is_still_clean() {
+        assert!(bash_status_output_is_clean(
+            "✓ exit 0 (0.0s)\n\n?? .rexymcp/\n"
+        ));
+        assert!(bash_status_output_is_clean(
+            "✓ exit 0 (0.0s)\n\n?? .rexymcp/output/cmd-output-3.log\n"
+        ));
+    }
+
+    #[test]
+    fn rexymcp_noise_alongside_a_real_change_is_not_clean() {
+        assert!(!bash_status_output_is_clean(
+            "✓ exit 0 (0.0s)\n\n?? .rexymcp/\n?? backend/src/Foo.cs\n"
+        ));
+    }
+
+    #[test]
+    fn bash_exit_code_reads_metadata() {
+        let meta = Some(json!({"exit_code": 0}));
+        assert_eq!(bash_exit_code(&meta), Some(0));
+
+        let nonzero = Some(json!({"exit_code": 1}));
+        assert_eq!(bash_exit_code(&nonzero), Some(1));
+
+        assert_eq!(bash_exit_code(&None), None);
     }
 
     // ── read_before_edit_refusal: write_file gate tests ───────────────────

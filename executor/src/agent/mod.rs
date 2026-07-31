@@ -52,9 +52,10 @@ use outcome::{
 };
 use progress::{EmitCtx, ProgressCallback, emit_progress};
 use tools::{
-    append_tool_exchange, assistant_text, destructive_restore_refusal, dispatch, edit_target,
-    evict_superseded_reads, output_preview, read_before_edit_refusal, record_mtime,
-    redundant_read_reference, render_diagnostics, resolve_path, user_text,
+    append_tool_exchange, assistant_text, bash_exit_code, bash_status_output_is_clean,
+    destructive_restore_refusal, dispatch, edit_target, evict_superseded_reads,
+    is_git_clean_status_command, is_git_commit_command, output_preview, read_before_edit_refusal,
+    record_mtime, redundant_read_reference, render_diagnostics, resolve_path, user_text,
 };
 use verify::FileVerifier;
 
@@ -201,6 +202,12 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
     // Stuck gate-feedback stall counters (M22 phase-02).
     let mut last_gate_feedback: Option<String> = None;
     let mut consecutive_gate_repeats: usize = 0;
+
+    // Commit-then-clean-status completion detector (M23 phase-01): a successful
+    // `git commit` followed later by a clean `git status --porcelain`/`--short` is
+    // a strong completion signal on its own — some models keep calling tools past
+    // this point instead of naturally stopping, so this does not wait for that.
+    let mut committed_this_session = false;
 
     // M19 gate-retry rounds consumed (M26 phase-06: bounded by deps.gate_retries).
     let mut gate_retry_count: u32 = 0;
@@ -1118,6 +1125,56 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
         });
         recent_output_bytes.push_back(content.len());
         append_tool_exchange(&mut messages, &tool_call, &content, turns);
+
+        // Structural completion detector (M23 phase-01): a successful `git commit`
+        // followed later by a confirmed-clean `git status --porcelain`/`--short` is
+        // a strong completion signal on its own — some models keep calling tools
+        // well past this point (extra re-verification, redundant re-reads) instead
+        // of naturally stopping, so this does not wait for that. Reuses the exact
+        // gate check the natural-stop path (`ParseResult::NoToolCall`, above) uses;
+        // if any gate still fails, this does nothing extra and the loop continues
+        // as it already would have.
+        if tool_call.name == "bash"
+            && let Some(command) = tool_call.arguments.get("command").and_then(|v| v.as_str())
+        {
+            if succeeded && is_git_commit_command(command) && bash_exit_code(&tool_meta) == Some(0)
+            {
+                committed_this_session = true;
+            } else if committed_this_session
+                && succeeded
+                && is_git_clean_status_command(command)
+                && bash_exit_code(&tool_meta) == Some(0)
+                && bash_status_output_is_clean(&content)
+            {
+                let emit = EmitCtx {
+                    progress: deps.progress,
+                    log_handle: &log_handle,
+                    redactor: &redactor,
+                    clock: deps.clock,
+                    pre_edit_content: &pre_edit_content,
+                    project_root: deps.project_root,
+                    turn: turns,
+                };
+                let (command_outputs, gates) =
+                    run_command_set(deps.runner, deps.commands, deps.project_root, &emit).await;
+                let pending_gate_feedback =
+                    command::gate_failure_feedback(&gates, &command_outputs)
+                        .or_else(|| command::task_coverage_feedback(&seeded, &task_states));
+                if pending_gate_feedback.is_none() {
+                    log_session_end(&log_handle, &redactor, deps.clock, "complete", turns);
+                    emit_phase_run(&deps, input, "complete", gates, &metrics, &scorer, turns);
+                    let artifacts = build_artifacts(
+                        &pre_edit_content,
+                        deps.project_root,
+                        log_path.clone(),
+                        "complete",
+                        turns,
+                        command_outputs,
+                    );
+                    return Ok(PhaseResult::complete(artifacts));
+                }
+            }
+        }
 
         // Per-lever reclaim event (M10 Arc A): record how much the boundary
         // filter shrank this bash call's output. Emit only on a real reduction.
