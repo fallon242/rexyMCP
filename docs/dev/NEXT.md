@@ -4,7 +4,18 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase: `M43-dashboard-idle-cpu/phase-01-mtime-gated-reload` (todo).**
+
+**M43 — Dashboard Idle CPU opened 2026-08-04** from a user report that `rexymcp
+dashboard --repo .` pins a core while `rexymcp serve` is idle, on long-lived
+projects only. Measured at **59 % of one core** idle on this repo, and **0 %**
+with telemetry pointed at an empty dir — the whole cost is the 103 MB
+`phase_runs.jsonl`, read unconditionally every 500 ms, three times per read, by a
+parser that walks every line twice. Three phases: 01 mtime-gated reload (drafted,
+awaiting dispatch), 02 single-pass telemetry read, 03 bound the file's growth.
+Phase 01 is dashboard-local, adds no dependency, and is independent of 02/03.
+Details and the measurement table in
+[M43/README.md](milestones/M43-dashboard-idle-cpu/README.md); architecture.md §43.
 
 **M41 — Serve Liveness & Run Durability closed 2026-07-24.** Three phases, all
 architect-implemented (no dispatch, no `PhaseRun`) — commits `87c6c15`, `c7234cf`,

@@ -1232,6 +1232,35 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+43. **M43 — Dashboard idle CPU** *(planning; opened 2026-08-04 from a user report)*.
+    `rexymcp dashboard --repo .` pins a core even while `rexymcp serve` is idle,
+    and only on long-lived projects. Measured on this repo: **59 % of one core**
+    sustained with the dashboard untouched, and **0 %** with `[telemetry] dir`
+    pointed at an empty directory — so the entire cost is `phase_runs.jsonl`, and
+    nothing in the render path is implicated. Three factors multiply. (1) The
+    refresh is **unconditional**: `event_loop::run_loop`
+    (`mcp/src/dashboard/event_loop.rs:29`) calls `load_data` at the top of every
+    500 ms tick with no change detection, so idle and busy cost the same. (2) Each
+    `load_data` reads the store **three times** (`mcp/src/dashboard/mod.rs:53`,
+    `:59`, `:66`), and two of those — `read_architect_activities` /
+    `read_architect_ledger` (`executor/src/store/telemetry.rs:576`, `:712`) —
+    parse every line **twice**, once into an owned `serde_json::Value` and once out
+    of it, to read a `schema_version` they could match on the raw line; measured
+    ~200 ms per pass against the real 103 MB file, so ≥ 600 ms of work scheduled
+    every 500 ms, which the loop can never outrun. (3) The store is **99.95 %
+    redundant**: 278,226 of its 278,836 lines are `architect_ledger` records, because
+    the M40 sweep (`mcp/src/sweep.rs`) re-appends the entire ledger every 60 s while
+    any transcript changes, and `fold_ledger`
+    (`executor/src/store/telemetry.rs:666`) then collapses them back to ~143 by
+    last-write-wins. Three phases: **01** gates the reload on a stat-only
+    fingerprint of the files `load_data` reads (removes the idle cost outright, and
+    is independent of the rest); **02** collapses the three reads and five parse
+    passes into one read dispatched on the `record` discriminator; **03** bounds the
+    file's growth at the write side. The `resolve_milestone` double directory walk
+    and the per-frame session-log re-highlight were both **measured out** of scope
+    rather than assumed in. The defect class — a reader whose cost scales with total
+    history over a store designed to be appended to forever — is held as one
+    occurrence for calibration, not folded.
 42. **M42 — Bookkeeping format hygiene** *(done 2026-07-24; opened and closed the
     same day from GitHub issue #4)*. The server-authored bookkeeping tail — the
     completion Update Log entry and the milestone README status row — is written
