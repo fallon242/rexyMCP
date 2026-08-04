@@ -1,7 +1,7 @@
 # Phase 04: memoize the transcript build + wrap
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** in-progress
 **Depends on:** phase-01 (the reload gate, which supplies the "did the data
 change?" signal this phase keys its cache on)
 **Estimated diff:** ~200 lines
@@ -162,20 +162,26 @@ as much as rebuilding.
 Add a `cache: &mut TranscriptCache` parameter to `render_dashboard`
 (`render.rs:172`) and a `generation: u64` field to `ViewState` (`render.rs:18`).
 
-Replace `render.rs:307–309` with:
+Replace `render.rs:307–309` with (**corrected** — the original version of this
+block ended in `.to_vec()` on the whole vector, which is bug-04-1):
 
 ```rust
-        let wrapped = cache
-            .get(
-                state.generation,
-                &data.records,
-                &filter_state.filter,
-                wrap_width,
-                INDENT,
-            )
-            .to_vec();
-        total_wrapped = wrapped.len();
+        let all = cache.get(
+            state.generation,
+            &data.records,
+            &filter_state.filter,
+            wrap_width,
+            INDENT,
+        );
+        total_wrapped = all.len();
+        let viewport = activity_area.height.saturating_sub(2);
+        let scroll = visible_offset(state.follow, state.offset, total_wrapped, viewport);
+        let start = (scroll as usize).min(total_wrapped);
+        let end = start.saturating_add(viewport as usize).min(total_wrapped);
+        let visible: Vec<Line<'static>> = all[start..end].to_vec();
 ```
+
+…then render `Paragraph::new(visible)` **without** `.scroll(...)`.
 
 and `render.rs:300–305` (the filter-open branch) with the same `cache.get(…)`
 call, taking only `.len()`. **Both** branches must go through the cache — the
@@ -183,10 +189,30 @@ filter-open branch does the identical work today just to produce a count, so
 leaving it uncached means opening the filter panel re-introduces the full cost
 every tick.
 
-The `.to_vec()` is a deliberate clone: `Paragraph::new` wants owned lines and the
-cache must keep its copy. Cloning the wrapped `Vec` is far cheaper than rebuilding
-it — but do **not** clone in the filter-open branch, where only the length is
-needed.
+> **CORRECTED 2026-08-04 after bug-04-1 — this paragraph was wrong.** It
+> originally read: *"The `.to_vec()` is a deliberate clone: `Paragraph::new` wants
+> owned lines and the cache must keep its copy. Cloning the wrapped `Vec` is far
+> cheaper than rebuilding it."* It is **not** far cheaper. Each `Line` owns
+> `Span`s which own `String`s, so cloning the whole vector deep-copies every
+> styled fragment of every record — work proportional to the entire transcript,
+> every tick. Implemented as written, the phase measured **zero** improvement
+> (200 vs 198 ticks against the phase-03 binary). See `bugs/bug-04-1.md`.
+
+`Paragraph::new` needs owned lines and the cache must keep its copy, so a clone is
+unavoidable — but clone **only the visible window**, not the whole transcript.
+This pane's `Paragraph` has no `.wrap(...)`, so wrapped lines map 1:1 onto
+terminal rows and slicing to the viewport renders identically:
+
+```rust
+        let start = (scroll as usize).min(total_wrapped);
+        let end = start.saturating_add(viewport as usize).min(total_wrapped);
+        let visible: Vec<Line<'static>> = all[start..end].to_vec();
+```
+
+`.scroll((scroll, 0))` is then **dropped** — the slice already positioned the
+window. `total_wrapped` stays the full count: the scrollbar and the event loop's
+`clamp_scroll` both depend on it. Do **not** clone at all in the filter-open
+branch, where only the length is needed.
 
 ### 3. Drive `generation` from the reload in `event_loop.rs`
 
@@ -457,3 +483,21 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** e1649ecd41a225e7e8a2a95d3c9255a0a54c12eb
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-08-04 (review: bounced)
+
+**Bug filed:** [bugs/bug-04-1.md](bugs/bug-04-1.md) — blocker.
+
+**Notes for executor.** The `TranscriptCache` you built is correct and stays.
+The problem is the last step: the spec told you to `.to_vec()` the whole cached
+vector every tick, which deep-copies every `Span`'s `String` for every record and
+costs about what rebuilding cost. Measured A/B against the phase-03 binary in one
+session: 200 vs 198 ticks — no improvement at all. The spec's claim that the clone
+was "far cheaper than rebuilding" was wrong, and § Spec 2 above is now corrected
+with the fix inline: slice to the viewport first, clone only those rows, drop
+`.scroll(...)`.
+
+Two smaller items in the bug doc: `transcript_cache_rebuilds_when_width_changes`
+uses `>=`, which passes even when the cache ignores width — make it strict; and
+the end-to-end verification (with its positive control) was not run, which is why
+a phase that achieved nothing reported complete.
