@@ -113,7 +113,7 @@ the same code costs ~2 ms per refresh.
 | #   | Phase                                                                              | Status |
 | --- | ---------------------------------------------------------------------------------- | ------ |
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
-| 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | in-progress |
+| 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | review      |
 | 03  | bound `phase_runs.jsonl` growth                                                     | todo   |
 | 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
 | 05  | reconcile the `schema_version` gate divergence                                       | todo   |

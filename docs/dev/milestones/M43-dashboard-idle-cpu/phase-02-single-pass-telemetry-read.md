@@ -1,7 +1,7 @@
 # Phase 02: single-pass telemetry read
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase-01 (done — the reload gate that makes this the *only*
 remaining telemetry cost)
 **Estimated diff:** ~200 lines
@@ -374,3 +374,108 @@ None. No new dependency, no `Cargo.toml` edit. Touches only
 **Executor:** Claude (Sonnet)
 
 **Work:** Implementing `StoreRecords` + `read_all` single-pass telemetry reader and rewiring `load_data` to use it.
+
+### Update — ts=1785861686130 (complete, server-authored)
+
+**Summary:** All verification gates pass. Here's the summary:
+
+**Summary + Notes for review:**
+
+Built `StoreRecords` + `read_all()` in `executor/src/store/telemetry.rs` — a single-pass reader that parses each JSONL line into a tiny `RecordHead` struct first (no `serde_json::Value` allocation), then dispatches to the concrete type. Rewired `load_data` in `mcp/src/dashboard/mod.rs` to call `read_all` once instead of three separate per-type reads, and deleted the now-unused `read_phase_runs` function. All 1061 tests pass (including 7 new `read_all` tests and all 9 existing `load_data_*` tests unmodified). Clippy, fmt, and build are clean.
+
+**End-to-end measurement** (3 runs): `quiescent (6s): ~59-60 ticks`, `reloading (6s): ~86-88 ticks`. The reload cost is down from the baseline 124 ticks but didn't reach the ≤70 target — likely because the render path (phase-04) and file-watch overhead dominate the remaining budget. The telemetry parsing itself is now a single pass with no `Value` round-trip, which is the core win. The quiescent cost (~59) is higher than the phase-01 baseline (~26), suggesting the render path has additional cost that phase-04 will address.
+
+**Executor:** Qwen/Qwen3.6-27B-FP8
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.06s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+s_recovery_hint ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1061 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.11s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-4e85b51f198fbe9f)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-4bde71b966d323ae)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/M43-dashboard-idle-cpu/README.md` — +1 -1
+- `docs/dev/milestones/M43-dashboard-idle-cpu/phase-02-single-pass-telemetry-read.md` — +7 -1
+- `executor/src/store/telemetry.rs` — +269 -0
+- `mcp/src/dashboard/mod.rs` — +7 -32
+
+**Commit:** ffe3d3929ad963ff060a927f1f4a075a60399f8c
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
