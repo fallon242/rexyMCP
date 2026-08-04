@@ -728,6 +728,83 @@ pub fn read_architect_ledger(path: &Path) -> std::io::Result<Vec<ArchitectLedger
         .collect())
 }
 
+/// Every record type in one pass over the store. Filtering is **identical** to
+/// the per-type readers, including one deliberate inconsistency between them —
+/// see the field docs.
+#[derive(Debug, Default)]
+pub struct StoreRecords {
+    /// Every line that deserializes as a `PhaseRun`, with **no**
+    /// `schema_version` gate. This matches the dashboard's `read_phase_runs`
+    /// and deliberately does **not** match `read` (`:214`), which gates.
+    /// The divergence is real and pre-existing (it makes the dashboard and
+    /// `rexymcp costs` disagree); reconciling it is M43 phase-05, NOT this phase.
+    pub runs: Vec<PhaseRun>,
+    /// `schema_version == TELEMETRY_SCHEMA_VERSION` AND
+    /// `record == ARCHITECT_ACTIVITY_RECORD_TAG` — identical to
+    /// `read_architect_activities`.
+    pub activities: Vec<ArchitectActivity>,
+    /// `schema_version == TELEMETRY_SCHEMA_VERSION` AND
+    /// `record == ARCHITECT_LEDGER_RECORD_TAG` — identical to
+    /// `read_architect_ledger`.
+    pub ledgers: Vec<ArchitectLedger>,
+}
+
+/// Tiny header parsed from each JSONL line to dispatch on record type.
+/// Serde walks the line and discards unknown fields without allocating them,
+/// making this cheaper than a full `serde_json::Value`.
+#[derive(Deserialize)]
+struct RecordHead {
+    /// Absent on `PhaseRun` lines, which carry no discriminator.
+    #[serde(default)]
+    record: String,
+    /// Absent on pre-M35 lines.
+    #[serde(default)]
+    schema_version: u32,
+}
+
+/// Read the store once, dispatching each line on its `record` discriminator.
+/// A missing file yields `StoreRecords::default()`, matching the per-type
+/// readers' `NotFound` behavior. Malformed lines are skipped silently.
+pub fn read_all(path: &Path) -> std::io::Result<StoreRecords> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(StoreRecords::default()),
+        Err(e) => return Err(e),
+    };
+
+    let mut records = StoreRecords::default();
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        let head = match serde_json::from_str::<RecordHead>(line) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+
+        match head.record.as_str() {
+            ARCHITECT_LEDGER_RECORD_TAG => {
+                if head.schema_version == TELEMETRY_SCHEMA_VERSION
+                    && let Ok(l) = serde_json::from_str::<ArchitectLedger>(line)
+                {
+                    records.ledgers.push(l);
+                }
+            }
+            ARCHITECT_ACTIVITY_RECORD_TAG => {
+                if head.schema_version == TELEMETRY_SCHEMA_VERSION
+                    && let Ok(a) = serde_json::from_str::<ArchitectActivity>(line)
+                {
+                    records.activities.push(a);
+                }
+            }
+            "" => {
+                if let Ok(r) = serde_json::from_str::<PhaseRun>(line) {
+                    records.runs.push(r);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1899,5 +1976,197 @@ mod tests {
             (cost - expected).abs() < 1e-9,
             "got {cost}, expected {expected}"
         );
+    }
+
+    // ---- read_all tests ----
+
+    fn write_phase_run_line(dir: &Path) {
+        let path = dir.join("phase_runs.jsonl");
+        let line = serde_json::to_string(&sample()).unwrap();
+        std::fs::write(path, line + "\n").unwrap();
+    }
+    fn write_activity_line(dir: &Path, schema_version: u32) {
+        let path = dir.join("phase_runs.jsonl");
+        let json = serde_json::json!({
+            "record": "architect_activity",
+            "schema_version": schema_version,
+            "ts": 1_717_000_000_000u64,
+            "activity": "review",
+            "phase_id": "phase-01",
+            "project_id": "proj-1"
+        });
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(
+            path,
+            content + &serde_json::to_string(&json).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    fn write_ledger_line(dir: &Path, schema_version: u32) {
+        let path = dir.join("phase_runs.jsonl");
+        let json = serde_json::json!({
+            "record": "architect_ledger",
+            "schema_version": schema_version,
+            "session_id": "sess-ledger",
+            "model": "test-model",
+            "skill": "test-skill",
+            "tokens": {
+                "input": 100u64,
+                "cache_creation": 0u64,
+                "cache_read": 0u64,
+                "output": 50u64
+            },
+            "messages": 1u64,
+            "last_ts": 1_717_000_000_000u64
+        });
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(
+            path,
+            content + &serde_json::to_string(&json).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    fn write_review_line(dir: &Path) {
+        let path = dir.join("phase_runs.jsonl");
+        let json = serde_json::json!({
+            "record": "review",
+            "schema_version": TELEMETRY_SCHEMA_VERSION,
+            "ts": 1_717_000_000_000u64,
+            "phase_id": "phase-01",
+            "verdict": "pass"
+        });
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(
+            path,
+            content + &serde_json::to_string(&json).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn read_all_collects_each_record_type_in_one_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phase_runs.jsonl");
+        // Write one of each: PhaseRun, activity, ledger, review
+        write_phase_run_line(dir.path());
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let records = read_all(&path).unwrap();
+        assert_eq!(records.runs.len(), 1);
+        assert_eq!(records.activities.len(), 1);
+        assert_eq!(records.ledgers.len(), 1);
+    }
+
+    #[test]
+    fn read_all_runs_are_not_schema_version_gated() {
+        let dir = tempfile::tempdir().unwrap();
+        // PhaseRun::sample() does not carry schema_version in the struct,
+        // so the serialized line has no schema_version field.
+        write_phase_run_line(dir.path());
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+        assert_eq!(
+            records.runs.len(),
+            1,
+            "PhaseRun without schema_version must be collected"
+        );
+    }
+
+    #[test]
+    fn read_all_activities_and_ledgers_are_schema_version_gated() {
+        let dir = tempfile::tempdir().unwrap();
+        write_activity_line(dir.path(), 0);
+        write_ledger_line(dir.path(), 0);
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+        assert!(
+            records.activities.is_empty(),
+            "activity with schema_version 0 must be filtered"
+        );
+        assert!(
+            records.ledgers.is_empty(),
+            "ledger with schema_version 0 must be filtered"
+        );
+    }
+
+    #[test]
+    fn read_all_does_not_parse_tagged_records_as_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+        assert!(
+            records.runs.is_empty(),
+            "tagged records must not deserialize as PhaseRun"
+        );
+    }
+
+    #[test]
+    fn read_all_matches_per_type_readers_on_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_phase_run_line(dir.path());
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+
+        let activities = read_architect_activities(&path).unwrap();
+        let ledgers = read_architect_ledger(&path).unwrap();
+
+        assert_eq!(
+            records.activities.len(),
+            activities.len(),
+            "activity count mismatch"
+        );
+        assert_eq!(
+            records.ledgers.len(),
+            ledgers.len(),
+            "ledger count mismatch"
+        );
+
+        // Compare identifying fields
+        for (r, a) in records.activities.iter().zip(activities.iter()) {
+            assert_eq!(r.activity, a.activity, "activity field mismatch");
+        }
+        for (r, l) in records.ledgers.iter().zip(ledgers.iter()) {
+            assert_eq!(r.session_id, l.session_id, "ledger session_id mismatch");
+        }
+    }
+
+    #[test]
+    fn read_all_missing_file_returns_empty() {
+        let path = std::path::Path::new("/tmp/does-not-exist-phase-02-read-all.jsonl");
+        let records = read_all(path).unwrap();
+        assert!(records.runs.is_empty());
+        assert!(records.activities.is_empty());
+        assert!(records.ledgers.is_empty());
+    }
+
+    #[test]
+    fn read_all_skips_malformed_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phase_runs.jsonl");
+        std::fs::write(&path, "\nnot json at all\n").unwrap();
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+
+        let records = read_all(&path).unwrap();
+        assert_eq!(
+            records.ledgers.len(),
+            1,
+            "only the valid ledger should be present"
+        );
+        assert!(records.runs.is_empty());
+        assert!(records.activities.is_empty());
     }
 }

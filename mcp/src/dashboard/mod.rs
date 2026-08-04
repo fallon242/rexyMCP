@@ -91,24 +91,15 @@ pub fn load_data(
     project_id: Option<&str>,
     architect: &rexymcp_executor::config::ArchitectConfig,
 ) -> DashboardData {
-    let phase_runs: Vec<PhaseRun> = telemetry_dir.map(read_phase_runs).unwrap_or_default();
+    let store = telemetry_dir
+        .map(|dir| telemetry::read_all(&dir.join("phase_runs.jsonl")).unwrap_or_default())
+        .unwrap_or_default();
+    let phase_runs: Vec<PhaseRun> = store.runs;
 
     match project_id {
         Some(pid) => {
-            let folded_activities = match telemetry_dir {
-                Some(dir) => telemetry::fold_activities(
-                    telemetry::read_architect_activities(&dir.join("phase_runs.jsonl"))
-                        .unwrap_or_default(),
-                ),
-                _ => Vec::new(),
-            };
-            let ledgers = match telemetry_dir {
-                Some(dir) => telemetry::fold_ledger(
-                    telemetry::read_architect_ledger(&dir.join("phase_runs.jsonl"))
-                        .unwrap_or_default(),
-                ),
-                _ => Vec::new(),
-            };
+            let folded_activities = telemetry::fold_activities(store.activities);
+            let ledgers = telemetry::fold_ledger(store.ledgers);
             let project_costs = costs::scope_costs(&phase_runs, &ledgers, architect, pid, None);
             let project_escalation_count = folded_activities
                 .iter()
@@ -154,8 +145,6 @@ pub fn load_data(
             }
         }
         None => {
-            let _folded_activities: Vec<rexymcp_executor::store::telemetry::ArchitectActivity> =
-                Vec::new();
             let project_costs = ScopeCosts::default();
             let project_escalation_count = 0;
             match status::load_records(repo, session) {
@@ -210,21 +199,7 @@ pub fn run_dashboard(
     ratatui::restore();
     result
 }
-
-/// Parse `<telemetry_dir>/phase_runs.jsonl`, returning one `PhaseRun` per
-/// valid line; silently skips empty lines and malformed JSON.
-fn read_phase_runs(telemetry_dir: &Path) -> Vec<PhaseRun> {
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
-}
-
+/// Returns the milestone **directory name** (e.g. `"M17-dashboard-polish-3"`)
 /// Returns the milestone **directory name** (e.g. `"M17-dashboard-polish-3"`)
 /// for the running phase, using the same candidate-selection rules as
 /// `resolve_milestone`. `None` when no matching milestone directory is found.

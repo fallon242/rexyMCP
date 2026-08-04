@@ -1,7 +1,7 @@
 # Phase 02: single-pass telemetry read
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-01 (done — the reload gate that makes this the *only*
 remaining telemetry cost)
 **Estimated diff:** ~200 lines
@@ -368,3 +368,9 @@ None. No new dependency, no `Cargo.toml` edit. Touches only
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-04 16:23 (started)
+
+**Executor:** Claude (Sonnet)
+
+**Work:** Implementing `StoreRecords` + `read_all` single-pass telemetry reader and rewiring `load_data` to use it.
