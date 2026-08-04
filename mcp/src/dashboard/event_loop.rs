@@ -27,6 +27,7 @@ pub(crate) fn run_loop(
     let mut prev_record_count: usize = 0;
 
     let mut fp = crate::dashboard::fingerprint(repo, session, telemetry_dir);
+    let mut generation: u64 = 0;
     let mut data = load_data(
         repo,
         session,
@@ -34,6 +35,7 @@ pub(crate) fn run_loop(
         project_id.as_deref(),
         architect,
     );
+    let mut cache = crate::dashboard::render::TranscriptCache::default();
 
     loop {
         spinner_tick = spinner_tick.wrapping_add(1);
@@ -53,6 +55,7 @@ pub(crate) fn run_loop(
                 project_id.as_deref(),
                 architect,
             );
+            generation = generation.wrapping_add(1);
         }
         // New records arrived — snap back to the bottom so the live feed is always
         // visible. This re-engages autoscroll even if the user previously scrolled up.
@@ -72,10 +75,19 @@ pub(crate) fn run_loop(
             spinner,
             filter: filter_state.clone(),
             budget_display,
+            generation,
         };
         let mut total_wrapped = 0usize;
         terminal.draw(|frame| {
-            total_wrapped = render_dashboard(frame, frame.area(), &data, now_ms, &state, rates);
+            total_wrapped = render_dashboard(
+                frame,
+                frame.area(),
+                &data,
+                now_ms,
+                &state,
+                rates,
+                &mut cache,
+            );
         })?;
         offset = clamp_scroll(offset, total_wrapped);
 

@@ -1,7 +1,7 @@
 # Phase 04: memoize the transcript build + wrap
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-01 (the reload gate, which supplies the "did the data
 change?" signal this phase keys its cache on)
 **Estimated diff:** ~200 lines
@@ -342,3 +342,8 @@ None. No new dependency, no `Cargo.toml` edit. Touches
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-04 21:23 (started)
+
+**Executor:** Claude (Sonnet 4.5)
+**Action:** Started phase 04 — memoize the transcript build + wrap.
