@@ -126,7 +126,7 @@ the same code costs ~2 ms per refresh.
 | 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
 | 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
 | 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | done |
-| 05  | reconcile the `schema_version` gate divergence                                       | todo   |
+| 05  | reconcile the `schema_version` gate divergence ([phase-05-reconcile-schema-version-gate.md](phase-05-reconcile-schema-version-gate.md)) | todo   |
 | 06  | compact the existing store (data-migration surface)                                  | todo   |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when
@@ -150,10 +150,13 @@ telemetry store inside the same review as a small, safe write-side guard. So:
   Stops the ~53 KB/minute of pure amplification. No migration surface — it only
   ever writes *fewer* records than today.
 - **06** is compaction: reclaiming the existing 103 MB. It rewrites the store, so
-  it gets its own phase, its own backup story, and its own review. It also has a
-  trap worth naming now — compaction must **not** silently drop the 566
-  unversioned legacy `PhaseRun` lines, because that would decide phase 05's open
-  question by deletion rather than by argument.
+  it gets its own phase, its own backup story, and its own review. The trap named
+  here at milestone open — that compaction must not silently drop the unversioned
+  legacy `PhaseRun` lines, because it would decide phase 05's open question by
+  deletion rather than by argument — is now **discharged**: 05 decided it by
+  argument, and the answer is that those 357 lines are dark to every reader. 06
+  may therefore drop them, but must do so *deliberately and with a backup*, not
+  as an unremarked side effect of compaction.
 
 03 deliberately accepts one new cost: a full store read per harvest (~150 ms once
 per 60 s sweep tick against today's file), in exchange for stopping the appends.
@@ -170,12 +173,23 @@ own runs the two disagree by 2.4×:
 | dashboard (`read_phase_runs`, ungated)| 279  | 675,472,883           |
 | `rexymcp costs` (`read`, gated)       | 55   | 287,266,673           |
 
-566 of the 745 `PhaseRun` lines in the store predate M35 and carry no
-`schema_version`. Phase 02 **preserves both behaviors exactly** — per an explicit
-decision that a visible numbers change should be reviewed on its own merits rather
-than folded into a performance refactor. Phase 05 picks the winner. Note
-`architecture.md` §35 already states pre-M35 records go dark, which argues the
-dashboard is the outlier; that is phase 05's argument to make, not phase 02's.
+357 of the store's 540 `PhaseRun` lines predate M35 and carry no
+`schema_version`. (The "566" figure quoted at milestone open counted 209 blank
+lines that every reader already skips; recounted 2026-08-04 while drafting 05.)
+Phase 02 **preserves both behaviors exactly** — per an explicit decision that a
+visible numbers change should be reviewed on its own merits rather than folded
+into a performance refactor.
+
+**Phase 05 picked the winner on 2026-08-04: the gate stays, the dashboard moves.**
+`architecture.md` §35 already states pre-M35 records go dark, and the user
+affirmed it rather than amend §35. One finding argued the other way and was
+weighed and rejected: the legacy records are **field-complete** — a key-by-key
+comparison of all 357 against the 183 stamped ones found they carry every field
+the current schema has except `gen_time_s` and `schema_version`, including full
+`tokens` objects, so gating them discards readable data (388M executor input
+tokens on this project), not corrupt data. The waiver was upheld anyway; a
+backfill-the-stamp option was explicitly declined. The visible effect is the
+dashboard Budget panel's Project column dropping to match `rexymcp costs`.
 
 **04** was added at phase-01 review, when correcting the measurement showed the
 render path is not free after all: it is the entire residual 4 %, re-wrapping and

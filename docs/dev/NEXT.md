@@ -4,7 +4,31 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M43-dashboard-idle-cpu/phase-04-memoize-transcript-render` (todo).**
+**Active phase: `M43-dashboard-idle-cpu/phase-05-reconcile-schema-version-gate` (todo).**
+
+**Phase 05 drafted 2026-08-04**, after a design fork the user resolved. The
+dashboard and `rexymcp costs` disagree 2.4× because the `PhaseRun` arm of
+`read_all` has no `schema_version` gate; 05 adds it, and the dashboard Budget
+panel's Project column drops to match `costs`. One finding argued the other way
+and was weighed and rejected: the 357 pre-M35 records are **field-complete** (a
+key-by-key comparison against the 183 stamped ones found only `gen_time_s` and
+`schema_version` missing — full `tokens` objects included), so the gate discards
+readable data, not corrupt data. **The user affirmed `architecture.md` §35's
+"pre-M35 records go dark" waiver rather than amend it**, and declined a
+backfill-the-stamp alternative. No architecture.md edit is authorized. Diff is
+small (~10 production lines); most of the phase is test-fixture churn, because
+several `load_data_*` and `read_all_*` fixtures write unstamped run lines that
+the gate will now filter.
+
+**Phase 04 done and approved 2026-08-04** (`e1649ec` + `f022729`, approval
+`688d81e`, verdict `approved_after_1`, bug-04-1). The transcript build+wrap is
+memoized on a cheap fingerprint. Verified by an alternating A/B in one session:
+91 → 1 quiescent ticks against a large session log (**~91×**, criterion was
+≥ 2×), with the phase-03 row's own 91-vs-0 large/trivial gap as the positive
+control, plus a tmux `capture-pane` liveness check proving the cache actually
+invalidates. The bounce was an architect spec defect (memoizing a value that was
+already cheap), not an implementation fault — **third spec defect of this
+milestone**, and the one that carried the measurement-discipline fold.
 
 **Phase 03 done and approved 2026-08-04** (`acae94e`, approval `ba4127c`,
 verdict `approved_first_try`). Harvest reads the folded ledger once and appends
