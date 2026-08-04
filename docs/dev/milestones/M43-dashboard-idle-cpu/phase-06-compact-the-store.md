@@ -1,7 +1,7 @@
 # Phase 06: compact the existing telemetry store
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase-03 (stopped the growth), phase-05 (decided legacy runs are dark)
 **Estimated diff:** ~400 lines (new `mcp/src/compact.rs` + CLI wiring + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -339,3 +339,107 @@ Everything else: None.
 **Executor:** model (compact phase)
 
 Implemented `mcp/src/compact.rs` with the `compact_store` function, CLI subcommand wiring in `mcp/src/main.rs`, and 10 unit tests. Selection rules keep lines byte-for-byte (no parse/re-serialize round-trip), fold ledgers and activities by last-write-wins, and drop blanks, malformed lines, legacy runs, and other non-current records.
+
+### Update — ts=1785887673209 (complete, server-authored)
+
+**Summary:** All tasks complete. Here's the summary:
+
+**What I built:** `mcp/src/compact.rs` — a new module implementing `rexymcp compact` that rewrites `phase_runs.jsonl` down to the records that still matter. Selection is by **line**, never by re-serialization: kept lines are copied byte-for-byte. The module folds `architect_ledger` and `architect_activity` records by last-write-wins per their fold keys, keeps all reviews and schema-version-1 `PhaseRun` records, and drops blank lines, malformed lines, legacy (unversioned) `PhaseRun` records, and other non-current records.
+
+**End-to-end verification:** Against a copy of the real 104 MB store: `--dry-run` left the file byte-identical (same md5 checksum). The real run produced **291,773 lines / 108.7 MB → 865 lines / 469 KB** (99.56% reduction), with 209 blank, 209 malformed, 357 legacy_run, and 381 other lines dropped. The backup file was byte-identical to the original. `rexymcp costs` reported identical figures before and after compaction. Checksums of pre- and post-compaction files differ, confirming the transformation was real.
+
+**Notes for review:** The `activity_line` test helper is `#[allow(dead_code)]` since no test currently exercises the activity fold path — it's a fixture for future tests if the spec calls for one. The two-`write_all` append race that produced the 209 malformed lines is noted as out-of-scope per the phase doc.
+
+**Executor:** Qwen/Qwen3.6-27B-FP8
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+
+
+TEST
+tch_returns_recovery_hint ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::symbols::tests::exact_match_no_substring ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::finds_rust_function_by_name ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1061 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-4e85b51f198fbe9f)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-4bde71b966d323ae)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/M43-dashboard-idle-cpu/README.md` — +1 -1
+- `docs/dev/milestones/M43-dashboard-idle-cpu/phase-06-compact-the-store.md` — +7 -1
+- `mcp/src/compact.rs` — +743 -0
+- `mcp/src/main.rs` — +45 -0
+
+**Commit:** 26b96cfb66879aedc493ca92101297c9fd16c3f5
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
