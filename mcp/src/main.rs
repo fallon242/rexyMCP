@@ -6,6 +6,7 @@ use std::path::PathBuf;
 mod calibrate;
 mod calibrate_governor;
 mod cap;
+mod compact;
 mod costs;
 mod dashboard;
 mod doctor;
@@ -417,6 +418,24 @@ enum Commands {
         #[arg(long)]
         telemetry_path: Option<PathBuf>,
     },
+    /// Compact the telemetry store — rewrite `phase_runs.jsonl` to keep only
+    /// the records that still matter.
+    ///
+    /// See also: runs, scorecard, profile, costs.
+    Compact {
+        /// Path to the config file
+        #[arg(long)]
+        config: PathBuf,
+
+        /// Override the telemetry phase_runs.jsonl path
+        #[arg(long)]
+        telemetry_path: Option<PathBuf>,
+
+        /// Preview the compaction without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Calibrate governor thresholds by replaying the session-log corpus
     ///
     /// See also: runs, scorecard, profile, costs.
@@ -1002,6 +1021,32 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     eprintln!("costs error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Compact {
+            config,
+            telemetry_path,
+            dry_run,
+        } => {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let args = compact::CompactArgs {
+                config_path: &config,
+                telemetry_path: telemetry_path.as_deref(),
+                ts: now_ms,
+                dry_run,
+            };
+            match compact::compact_store(&args) {
+                Ok(outcome) => {
+                    println!("{}", compact::format_compact_report(&outcome));
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("compact error: {e}");
                     std::process::exit(1);
                 }
             }

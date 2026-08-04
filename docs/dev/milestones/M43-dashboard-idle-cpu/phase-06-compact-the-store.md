@@ -1,7 +1,7 @@
 # Phase 06: compact the existing telemetry store
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-03 (stopped the growth), phase-05 (decided legacy runs are dark)
 **Estimated diff:** ~400 lines (new `mcp/src/compact.rs` + CLI wiring + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -333,3 +333,9 @@ Everything else: None.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-04 23:22 (started)
+
+**Executor:** model (compact phase)
+
+Implemented `mcp/src/compact.rs` with the `compact_store` function, CLI subcommand wiring in `mcp/src/main.rs`, and 10 unit tests. Selection rules keep lines byte-for-byte (no parse/re-serialize round-trip), fold ledgers and activities by last-write-wins, and drop blanks, malformed lines, legacy runs, and other non-current records.
