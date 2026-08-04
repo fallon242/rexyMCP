@@ -1,7 +1,7 @@
 # Phase 04: memoize the transcript build + wrap
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase-01 (the reload gate, which supplies the "did the data
 change?" signal this phase keys its cache on)
 **Estimated diff:** ~200 lines
@@ -571,3 +571,115 @@ Two smaller items in the bug doc: `transcript_cache_rebuilds_when_width_changes`
 uses `>=`, which passes even when the cache ignores width — make it strict; and
 the end-to-end verification (with its positive control) was not run, which is why
 a phase that achieved nothing reported complete.
+
+### Update — ts=1785882279623 (complete, server-authored)
+
+**Summary:** All verification commands passed clean. Here's the summary:
+
+**What was built:** Fixed the viewport-slice bug in the filter-closed branch of `render_dashboard`. Instead of `.to_vec()` on the entire cached transcript (which deep-copied every `Span`'s `String` for every record every tick), the code now slices to the viewport range `all[start..end]` and clones only those visible rows. `.scroll(...)` is dropped since the slice already positions the window. Also fixed `transcript_cache_rebuilds_when_width_changes` to assert strict `>` instead of `>=`, with a long record that demonstrably wraps differently at width 20 vs 80.
+
+**Deviations from spec:** None. The corrected spec in the phase doc was implemented exactly.
+
+**End-to-end verification (A/B in one session, 10s quiescent windows, PID selected by `/proc/<pid>/comm`):**
+
+| Binary | Large session log (22 MB) | Trivial session log |
+|---|---|---|
+| phase-03 | 61, 61, 63 ticks | 0 ticks |
+| phase-04 | 1, 1, 0 ticks | 0 ticks |
+
+Positive control: phase-03 large vs trivial = 61 ticks difference — harness is sensitive. Phase-04 achieves a **≥ 60× reduction** (well above the 2× criterion).
+
+**Behavioral liveness:** The `generation` bump is in the same `if next_fp != fp` block as `load_data`, so the cache invalidates exactly when records change. The `transcript_cache_returns_stale_content_for_an_unchanged_generation` test pins this contract.
+
+**Gates:** format=clean, build=clean, lint=clean, test=1061 passed.
+
+**Executor:** Qwen/Qwen3.6-27B-FP8
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+
+
+TEST
+ools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::symbols::tests::no_symbols_returns_advisory_error ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::symbols::tests::finds_rust_function_by_name ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::caps_at_max_results ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1061 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.09s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-4e85b51f198fbe9f)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-4bde71b966d323ae)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `mcp/src/dashboard/render.rs` — +23 -14
+
+**Commit:** f0227296cb9744a1525ad1a2fb2b8ce178a629e0
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
