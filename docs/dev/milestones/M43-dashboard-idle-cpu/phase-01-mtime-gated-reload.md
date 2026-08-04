@@ -1,7 +1,7 @@
 # Phase 01: mtime-gated dashboard reload
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~140 lines
 **Tags:** language=rust, kind=bugfix, size=s
@@ -11,7 +11,10 @@
 Stop `rexymcp dashboard` from re-reading and re-parsing its input files on every
 500 ms tick when nothing has changed. Compute a cheap fingerprint of the files
 `load_data` reads, and only call `load_data` when that fingerprint moves. On this
-repo this takes sustained idle CPU from 59 % of a core to ~0 %.
+repo this takes sustained idle CPU from **62 % of a core to 4 %**, and makes idle
+cost independent of telemetry-store size. *(The figures originally written here,
+59 % → ~0 %, came from a mis-measurement corrected at review — see § End-to-end
+verification.)*
 
 ## Architecture references
 
@@ -185,8 +188,11 @@ call) stays **byte-for-byte unchanged** — `data` is still an owned
 `DashboardData` in scope, it is simply not rebuilt every tick.
 
 Do **not** also gate `terminal.draw`. The frame must still be drawn every tick so
-the spinner animates and terminal resizes are honored. Rendering is measured free
-(README § "Scope explicitly rejected on evidence"); the load is not.
+the spinner animates and terminal resizes are honored. ~~Rendering is measured
+free (README § "Scope explicitly rejected on evidence"); the load is not.~~
+*(Corrected at review: rendering is **not** free — it is the entire residual 4 %.
+The instruction to leave `terminal.draw` alone in **this** phase still stands;
+gating or memoizing the render is phase 04.)*
 
 Note on `prev_record_count`: it is initialized to `0` before the loop and stays
 there. With the priming load above, the first iteration sees
@@ -219,8 +225,15 @@ dependency (not authorized).
 - [ ] `cargo test` passes, including the six new tests below.
 - [ ] `load_data` is called from exactly two places in `event_loop.rs`: the
       priming call before the loop and the gated call inside the `if`.
-- [ ] The idle-CPU measurement under § End-to-end verification reports **≤ 2 %**,
-      and its actual output is quoted in the completion Update Log.
+- [x] ~~The idle-CPU measurement under § End-to-end verification reports **≤ 2 %**~~
+      — **superseded at review**; the original threshold came from a
+      mis-measurement and was unreachable within this phase's scope. Replaced by
+      the two-part revised criterion in § End-to-end verification: telemetry-store
+      size must not affect idle cost (4 % with the 103 MB store == 4 % with an
+      empty one), and idle CPU ≤ 5 % (met at 4 %, from 62 %).
+- [x] The dashboard still reloads when its watched files change — verified at
+      review: 26 ticks / 6 s quiescent vs 124 ticks / 6 s while appending to the
+      watched `phase_runs.jsonl`. The gate does not freeze a live dashboard.
 
 ## Test plan
 
@@ -253,24 +266,69 @@ the fingerprint cannot observe it. Measure the real thing.
 Build release, run the dashboard against this repo (whose telemetry store is the
 103 MB file), leave it untouched, and sample `/proc/<pid>/stat`:
 
+> **Architect correction, 2026-08-04 (post-review).** The command originally
+> given here selected the wrong process and this phase was executed against it.
+> `script`'s own cmdline contains the string `rexymcp dashboard`, and it is
+> spawned *before* its child, so `pgrep -f "rexymcp dashboard" | head -1` returns
+> the **`script` wrapper**, which is idle by construction and always measures
+> ~0 %. The corrected command below selects the real process by
+> `/proc/<pid>/comm` and asserts liveness across the sample window. The defect
+> was the architect's, not the executor's — see the Review verdict.
+
 ```bash
 cargo build --release
 script -qec "target/release/rexymcp dashboard --repo ." /dev/null >/dev/null 2>&1 &
 sleep 3
-PID=$(pgrep -f "rexymcp dashboard" | head -1)
+# Select by comm, NOT by `pgrep -f | head -1` — the `script` wrapper's cmdline
+# also matches "rexymcp dashboard" and has a lower pid.
+PID=""
+for p in $(pgrep -f "rexymcp dashboard"); do
+  [ -r "/proc/$p/comm" ] || continue
+  if [ "$(cat /proc/$p/comm)" = "rexymcp" ]; then PID=$p; break; fi
+done
+[ -n "$PID" ] || { echo "FAIL: dashboard process not found"; exit 1; }
 read -r _ _ _ _ _ _ _ _ _ _ _ _ _ U1 S1 _ < /proc/$PID/stat
 sleep 10
+[ -d "/proc/$PID" ] || { echo "FAIL: process died during sample"; exit 1; }
 read -r _ _ _ _ _ _ _ _ _ _ _ _ _ U2 S2 _ < /proc/$PID/stat
 echo "idle CPU: $(( (U2-U1+S2-S1)/10 ))%"
-kill $PID
+kill "$PID"
 ```
 
 Fields 14/15 of `/proc/<pid>/stat` are `utime`/`stime` in clock ticks (100/s), so
-the sum over a 10 s window divided by 10 is the percentage of one core.
+the sum over a 10 s window divided by 10 is the percentage of one core. A
+measurement that does not confirm the sampled pid is the `rexymcp` process, and
+that it is still alive at the end of the window, is not a measurement — a dead or
+wrong process reads 0 % and looks like success.
 
-The same command on the unmodified tree reports `idle CPU: 59%`. It must report
-**≤ 2 %** after this phase. Quote the literal output line in the completion
-Update Log.
+**Measured at review** (pre-change binary built from `73817b3` in a clean
+worktree; post-change binary at `a2e9b43`):
+
+| Binary     | Telemetry store | Session log   | Idle CPU |
+| ---------- | --------------- | ------------- | -------- |
+| pre-change | 103 MB          | real (1.5 MB) | **62 %** |
+| fixed      | 103 MB          | real (1.5 MB) | **4 %**  |
+| fixed      | empty dir       | real (1.5 MB) | **4 %**  |
+| fixed      | 103 MB          | trivial       | **0 %**  |
+
+Rows 2 and 3 being equal is this phase's actual acceptance evidence: **the size
+of the telemetry store no longer affects idle cost at all**, which is precisely
+what the fingerprint gate was for. Row 4 attributes the residual 4 % to the
+per-tick render of the session log — out of scope here, and now phase 04.
+
+**Revised criterion (supersedes the original ≤ 2 %).** The original threshold was
+set from the same mis-measurement and was **unreachable inside this phase's
+scope**: the residual is entirely in the render path, which this phase's "Out of
+scope" section explicitly forbids touching. The criterion this phase is held to
+is therefore:
+
+- Idle CPU with the 103 MB store must equal idle CPU with an empty store
+  (telemetry contributes nothing), **and**
+- idle CPU must be ≤ 5 % — met at 4 %, down from 62 %.
+
+Then confirm the TUI still works: with the dashboard open, append to the watched
+`phase_runs.jsonl` and confirm the panels update — the gate must not freeze a live
+dashboard.
 
 Then confirm the TUI still works: with the dashboard open, run a command that
 appends to the session log or wait for the sweep to append to
@@ -426,3 +484,20 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** a2e9b43f6a680f36a513eb0585ca46d6327f95ae
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-04
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none — the gate, the tests, and the out-of-scope
+  boundaries were implemented exactly as specced.
+- **Calibration:** architect-side defect, filed in the milestone README § Notes.
+  The phase doc's end-to-end command selected the `script` wrapper instead of the
+  dashboard (`pgrep -f | head -1`), so the executor reported `idle CPU: 0%` in
+  good faith against a process that does no work. True figures, re-measured at
+  review by pid identity with a liveness check: **62 % → 4 %**, with telemetry
+  store size no longer affecting idle cost at all (103 MB and empty both measure
+  4 %). The residual 4 % is the per-tick session-log render, which this phase was
+  explicitly forbidden to touch — so the original ≤ 2 % criterion was unreachable
+  in scope and has been superseded rather than bounced. Follow-up is phase 04.

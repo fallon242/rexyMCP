@@ -12,9 +12,13 @@ growing without bound.
 
 **Exit criteria:**
 
-- [ ] An idle `rexymcp dashboard --repo .` against this repo's 103 MB telemetry
-      store consumes **≤ 2 % of one core** sustained (measured from
-      `/proc/<pid>/stat`; baseline today is 59 %).
+- [x] Idle cost is **independent of telemetry-store size** — the 103 MB store and
+      an empty one measure identically (both 4 %, from a 62 % baseline). Met by
+      phase 01. *(Supersedes the original "≤ 2 % of one core", which was set from
+      a mis-measurement — see § Measured, not inferred.)*
+- [ ] An idle `rexymcp dashboard --repo .` consumes **≤ 2 % of one core**
+      sustained, measured by pid identity with a liveness assertion. Requires
+      phase 04.
 - [ ] A refresh that *does* have new data costs **one** read + parse of
       `phase_runs.jsonl`, not three.
 - [ ] `phase_runs.jsonl` stops growing monotonically while `rexymcp serve` idles.
@@ -34,19 +38,30 @@ serve` is idle, and only on long-lived projects (`~/src/rexyMCP`,
 
 ### Measured, not inferred
 
-Against this repo at `659d321`, release build, dashboard left completely idle
-with no keystrokes:
+Against this repo, release build, dashboard left completely idle with no
+keystrokes. **These figures were re-measured at phase-01 review** and supersede
+the ones this milestone opened with — the original selector,
+`pgrep -f "rexymcp dashboard" | head -1`, returns the `script` wrapper rather than
+the dashboard (the wrapper's cmdline matches the same pattern and it holds the
+lower pid), so every "0 %" it produced was the idle wrapper. Corrected figures
+select by `/proc/<pid>/comm` and assert liveness across the window:
 
-| Configuration                              | Idle CPU (10 s sample) |
-| ------------------------------------------ | ---------------------- |
-| `--repo .` (telemetry dir = 103 MB store)  | **59 %** of one core   |
-| `--repo .` with `[telemetry] dir` empty    | **0 %**                |
+| Binary                | Telemetry store | Session log   | Idle CPU |
+| --------------------- | --------------- | ------------- | -------- |
+| pre-change (`73817b3`)| 103 MB          | real (1.5 MB) | **62 %** |
+| phase-01 (`a2e9b43`)  | 103 MB          | real (1.5 MB) | **4 %**  |
+| phase-01              | empty dir       | real (1.5 MB) | **4 %**  |
+| phase-01              | 103 MB          | trivial       | **0 %**  |
 
-The second row is the load-bearing one: with the telemetry store removed from the
-picture the dashboard is free. **All** of the cost is `phase_runs.jsonl`. Nothing
-else in the refresh path — rendering, wrapping, syntax highlighting, the session
-log re-read, the milestone directory walk — is worth a phase of work, and this
-milestone deliberately does not spend one on them.
+Rows 2 and 3 are the load-bearing pair: after phase 01, the size of the telemetry
+store no longer affects idle cost **at all**. Row 4 attributes the entire residual
+4 % to the per-tick render of the session log.
+
+**One conclusion this milestone opened with was wrong.** The original table's "0 %
+with telemetry removed" was read off the wrapper, and it was used to justify
+declaring the render path free and refusing it a phase. It is not free — it is
+100 % of what remains. That refusal is withdrawn below and the work is now
+phase 04.
 
 ### The three multiplied factors
 
@@ -97,9 +112,10 @@ the same code costs ~2 ms per refresh.
 
 | #   | Phase                                                                              | Status |
 | --- | ---------------------------------------------------------------------------------- | ------ |
-| 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | review        |
+| 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
 | 02  | single-pass telemetry read                                                          | todo   |
 | 03  | bound `phase_runs.jsonl` growth                                                     | todo   |
+| 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when
 there is no new work to do. It is deliberately first because it is the smallest
@@ -117,19 +133,49 @@ the store, or splitting the ledger into its own last-write-wins file. Sequenced
 last because it is the only one with a data-migration surface, and because 01 + 02
 already make the store's size a non-problem for readers.
 
+**04** was added at phase-01 review, when correcting the measurement showed the
+render path is not free after all: it is the entire residual 4 %, re-wrapping and
+re-highlighting a 1.5 MB session log on every 500 ms tick regardless of whether
+anything changed. The likely shape mirrors phase 01 — the render inputs change far
+less often than the tick — but the phase must **measure before choosing**, since
+that is exactly the step this milestone got wrong the first time.
+
+**Exit criterion revision.** The milestone's ≤ 2 % target was set from the bad
+measurement. Phases 01–03 cannot reach it; the honest split is: 01–03 drive
+*telemetry* cost to zero (done at 01, confirmed by rows 2–3 of the evidence table),
+and 04 owns whatever idle cost remains.
+
 ## Notes
 
-**Scope explicitly rejected on evidence.** Two things looked like contributors and
-were measured out:
+**Scope rejected on evidence — one rejection withdrawn.** Two things were
+originally measured out of scope on the strength of the "0 %" row:
 
+- The session log (up to 1.5 MB) is re-read and re-highlighted every frame.
+  **Rejection withdrawn.** It is the whole of the residual 4 % (evidence table row
+  4: the same binary against a trivial session log costs 0 %). This is now
+  **phase 04**.
 - `resolve_milestone` walks `docs/dev/milestones` (335 phase docs) and is
-  effectively invoked twice per refresh (`mod.rs:80` and `mod.rs:81`). Real, but
-  inside the 0 % row above.
-- The session log (up to 1.5 MB) is re-read and re-highlighted every frame. Also
-  inside the 0 % row.
+  effectively invoked twice per refresh (`mod.rs:80`, `mod.rs:81`). **Rejection
+  stands** — it now runs only on the reload path, which the phase-01 gate makes
+  rare, and row 4 shows the per-tick floor is 0 % with it still present.
 
-Neither gets a phase. If a future measurement promotes them, they come back as
-their own milestone with their own numbers.
+**Calibration — the measurement lesson, filed at phase-01 review.** The
+architect's own end-to-end command was wrong, and the phase doc handed it to the
+executor verbatim, so the executor faithfully produced and reported a false green
+(`idle CPU: 0%`) while the true figure was 4 %. Two folds follow, both about
+*process measurement* specifically:
+
+1. A measurement command that selects a process must select it by identity
+   (`/proc/<pid>/comm`, a pidfile, `$!`), never by a substring of a command line
+   that a wrapper (`script`, `sh -c`, `timeout`, `env`) also matches.
+2. A measurement whose failure mode is indistinguishable from its success value —
+   here, a dead or wrong process reading 0 % on a "lower is better" metric — must
+   carry a liveness assertion, or it is not a measurement.
+
+This is **one occurrence**; per WORKFLOW § Calibration it is held, not folded into
+`STANDARDS.md`. If a second phase ships a self-verifying measurement that can read
+success by accident, the fold is a standing rule that end-to-end criteria state
+both the expected value *and* the check that the thing being measured exists.
 
 **Calibration note (one occurrence — hold, do not fold).** The defect class here
 is "a reader whose cost scales with total history, on a store designed to be
