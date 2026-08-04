@@ -397,10 +397,10 @@ mod tests {
         std::fs::create_dir_all(&sessions).unwrap();
         let pid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
         let run1 = format!(
-            r#"{{"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
+            r#"{{"schema_version":1,"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
         );
         let run2 = format!(
-            r#"{{"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":2000,"output_tokens":800}}}}"#
+            r#"{{"schema_version":1,"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":2000,"output_tokens":800}}}}"#
         );
         let telemetry_dir = dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();
@@ -437,13 +437,15 @@ mod tests {
         let this_pid = "11111111-1111-1111-1111-111111111111";
         let other_pid = "22222222-2222-2222-2222-222222222222";
         let this_run = format!(
-            r#"{{"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{this_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
+            r#"{{"schema_version":1,"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{this_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
         );
         let other_run = format!(
-            r#"{{"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{other_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":9000,"output_tokens":4000}}}}"#
+            r#"{{"schema_version":1,"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{other_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":9000,"output_tokens":4000}}}}"#
         );
-        // Legacy record without project_id must be excluded.
-        let legacy_run = r#"{"ts":3,"model":"t","generation_params":{},"phase_id":"p3","tags":[],"status":"complete","escalated":false,"gates":{},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{"input_tokens":500,"output_tokens":200}}"#;
+        // Legacy record without schema_version must be excluded by the gate.
+        let legacy_run = format!(
+            r#"{{"ts":3,"model":"t","generation_params":{{}},"phase_id":"p3","project_id":"{this_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":500,"output_tokens":200}}}}"#
+        );
         let telemetry_dir = dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();
         std::fs::write(
@@ -461,11 +463,11 @@ mod tests {
         );
         assert_eq!(
             data.project_costs.executor_in, 1000,
-            "project costs must exclude runs from other project UUIDs and legacy records"
+            "project costs must exclude runs from other project UUIDs and records excluded by the schema_version gate"
         );
         assert_eq!(
             data.project_costs.executor_out, 500,
-            "project costs must exclude runs from other project UUIDs and legacy records"
+            "project costs must exclude runs from other project UUIDs and records excluded by the schema_version gate"
         );
     }
 

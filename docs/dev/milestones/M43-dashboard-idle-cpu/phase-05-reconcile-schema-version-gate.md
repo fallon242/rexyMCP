@@ -1,7 +1,7 @@
 # Phase 05: reconcile the `schema_version` gate divergence
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-02 (introduced `read_all`), phase-04 (done)
 **Estimated diff:** ~90 lines (≈10 production, the rest test fixtures)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -274,3 +274,9 @@ Everything else: None.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-04 22:50 (started)
+
+**Executor:** Claude (Sonnet 4.5)
+
+Implementing schema_version gate on the `PhaseRun` arm of `read_all` to reconcile the dashboard and `rexymcp costs` divergence.

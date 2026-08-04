@@ -733,11 +733,10 @@ pub fn read_architect_ledger(path: &Path) -> std::io::Result<Vec<ArchitectLedger
 /// see the field docs.
 #[derive(Debug, Default)]
 pub struct StoreRecords {
-    /// Every line that deserializes as a `PhaseRun`, with **no**
-    /// `schema_version` gate. This matches the dashboard's `read_phase_runs`
-    /// and deliberately does **not** match `read` (`:214`), which gates.
-    /// The divergence is real and pre-existing (it makes the dashboard and
-    /// `rexymcp costs` disagree); reconciling it is M43 phase-05, NOT this phase.
+    /// `PhaseRun` records read from the store, gated on
+    /// `schema_version == TELEMETRY_SCHEMA_VERSION`. Identical to what `read`
+    /// (`:214`) returns. Pre-M35 records (no `schema_version` field) are
+    /// excluded per the M35 telemetry retirement decision (§35).
     pub runs: Vec<PhaseRun>,
     /// `schema_version == TELEMETRY_SCHEMA_VERSION` AND
     /// `record == ARCHITECT_ACTIVITY_RECORD_TAG` — identical to
@@ -795,7 +794,9 @@ pub fn read_all(path: &Path) -> std::io::Result<StoreRecords> {
                 }
             }
             "" => {
-                if let Ok(r) = serde_json::from_str::<PhaseRun>(line) {
+                if head.schema_version == TELEMETRY_SCHEMA_VERSION
+                    && let Ok(r) = serde_json::from_str::<PhaseRun>(line)
+                {
                     records.runs.push(r);
                 }
             }
@@ -1982,8 +1983,17 @@ mod tests {
 
     fn write_phase_run_line(dir: &Path) {
         let path = dir.join("phase_runs.jsonl");
+        // Truncate first so this helper is safe to call before append-style helpers.
+        std::fs::write(&path, "").unwrap();
+        append(dir, &sample()).unwrap();
+    }
+
+    fn write_legacy_phase_run_line(dir: &Path) {
+        // Writes an unstamped (pre-M35) PhaseRun line — no schema_version field.
+        let path = dir.join("phase_runs.jsonl");
         let line = serde_json::to_string(&sample()).unwrap();
-        std::fs::write(path, line + "\n").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(path, content + &line + "\n").unwrap();
     }
     fn write_activity_line(dir: &Path, schema_version: u32) {
         let path = dir.join("phase_runs.jsonl");
@@ -2062,18 +2072,16 @@ mod tests {
     }
 
     #[test]
-    fn read_all_runs_are_not_schema_version_gated() {
+    fn read_all_runs_are_schema_version_gated() {
         let dir = tempfile::tempdir().unwrap();
-        // PhaseRun::sample() does not carry schema_version in the struct,
-        // so the serialized line has no schema_version field.
-        write_phase_run_line(dir.path());
+        // Write an unstamped (pre-M35) PhaseRun line.
+        write_legacy_phase_run_line(dir.path());
 
         let path = dir.path().join("phase_runs.jsonl");
         let records = read_all(&path).unwrap();
-        assert_eq!(
-            records.runs.len(),
-            1,
-            "PhaseRun without schema_version must be collected"
+        assert!(
+            records.runs.is_empty(),
+            "PhaseRun without schema_version must be filtered out"
         );
     }
 
@@ -2114,6 +2122,7 @@ mod tests {
     fn read_all_matches_per_type_readers_on_the_same_file() {
         let dir = tempfile::tempdir().unwrap();
         write_phase_run_line(dir.path());
+        write_legacy_phase_run_line(dir.path());
         write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
         write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
         write_review_line(dir.path());
@@ -2123,6 +2132,7 @@ mod tests {
 
         let activities = read_architect_activities(&path).unwrap();
         let ledgers = read_architect_ledger(&path).unwrap();
+        let runs = read(&path).unwrap();
 
         assert_eq!(
             records.activities.len(),
@@ -2133,6 +2143,12 @@ mod tests {
             records.ledgers.len(),
             ledgers.len(),
             "ledger count mismatch"
+        );
+        assert_eq!(records.runs.len(), runs.len(), "runs count mismatch");
+        assert_eq!(
+            records.runs.len(),
+            1,
+            "only the stamped run should be counted, not the legacy one"
         );
 
         // Compare identifying fields
