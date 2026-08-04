@@ -344,20 +344,22 @@ pub(crate) fn render_dashboard(
             .len();
         total_wrapped = total_len;
     } else {
-        let wrapped = cache
-            .get(
-                state.generation,
-                &data.records,
-                &filter_state.filter,
-                wrap_width,
-                INDENT,
-            )
-            .to_vec();
-        total_wrapped = wrapped.len();
+        let all = cache.get(
+            state.generation,
+            &data.records,
+            &filter_state.filter,
+            wrap_width,
+            INDENT,
+        );
+        total_wrapped = all.len();
         let viewport = activity_area.height.saturating_sub(2);
         let scroll = visible_offset(state.follow, state.offset, total_wrapped, viewport);
+        let start = (scroll as usize).min(total_wrapped);
+        let end = start.saturating_add(viewport as usize).min(total_wrapped);
+        let visible: Vec<Line<'static>> = all[start..end].to_vec();
+
         frame.render_widget(
-            Paragraph::new(wrapped).scroll((scroll, 0)).block(
+            Paragraph::new(visible).block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Activity [f=filter] "),
@@ -651,14 +653,21 @@ mod tests {
 
     #[test]
     fn transcript_cache_rebuilds_when_width_changes() {
-        let records = vec![rec(100, 0, start_event())];
+        let records = vec![rec(
+            100,
+            0,
+            progress_event(
+                0,
+                "a-very-long-stage-name-that-will-definitely-need-to-wrap-when-the-width-is-narrow",
+            ),
+        )];
         let filter = ActivityFilter::default();
         let mut cache = TranscriptCache::default();
         let r_wide_len = cache.get(0, &records, &filter, 80, 4).len();
         let r_narrow_len = cache.get(0, &records, &filter, 20, 4).len();
         assert!(
-            r_narrow_len >= r_wide_len,
-            "narrower width must wrap to at least as many lines"
+            r_narrow_len > r_wide_len,
+            "narrower width must wrap to strictly more lines"
         );
     }
 
