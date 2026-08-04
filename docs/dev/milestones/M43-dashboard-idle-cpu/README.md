@@ -16,9 +16,11 @@ growing without bound.
       an empty one measure identically (both 4 %, from a 62 % baseline). Met by
       phase 01. *(Supersedes the original "≤ 2 % of one core", which was set from
       a mis-measurement — see § Measured, not inferred.)*
-- [ ] An idle `rexymcp dashboard --repo .` consumes **≤ 2 % of one core**
-      sustained, measured by pid identity with a liveness assertion. Requires
-      phase 04.
+- [x] An idle `rexymcp dashboard --repo .` consumes **≤ 2 % of one core**
+      sustained, measured by pid identity with a liveness assertion. Met by
+      phase 04 — **1 tick per 10 s window (0.1 %)**, down from 91 on the phase-03
+      binary in the same session, with the positive control (large vs trivial
+      session log) reading 91 vs 0.
 - [x] A refresh that *does* have new data costs **one** read + parse of
       `phase_runs.jsonl`, not three. Met by phase 02 — reload work fell 3.2×
       (~77 → ~24 ticks) in an alternating A/B against the phase-01 binary.
@@ -28,8 +30,10 @@ growing without bound.
       re-harvest, and exactly **1 appended / 144 unchanged** after one message was
       added to one transcript. *(Requires restarting a running `serve` to pick up
       the new binary.)*
-- [ ] No behavior change visible in the TUI: the same panels, the same numbers,
-      the same follow/scroll semantics.
+- [x] No behavior change visible in the TUI: the same panels, the same numbers,
+      the same follow/scroll semantics. Verified at phase-04 review in a real pty
+      (tmux): the Activity pane updates when the session log grows, `PageUp`
+      scrolls, and `End` returns to a byte-identical bottom view.
 
 ## Architecture references
 
@@ -121,7 +125,7 @@ the same code costs ~2 ms per refresh.
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
 | 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
 | 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
-| 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | review      |
+| 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | done |
 | 05  | reconcile the `schema_version` gate divergence                                       | todo   |
 | 06  | compact the existing store (data-migration surface)                                  | todo   |
 

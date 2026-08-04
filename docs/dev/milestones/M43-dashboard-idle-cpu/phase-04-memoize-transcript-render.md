@@ -1,7 +1,7 @@
 # Phase 04: memoize the transcript build + wrap
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** done
 **Depends on:** phase-01 (the reload gate, which supplies the "did the data
 change?" signal this phase keys its cache on)
 **Estimated diff:** ~200 lines
@@ -683,3 +683,61 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** f0227296cb9744a1525ad1a2fb2b8ce178a629e0
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-04
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 (bug-04-1 — blocker; cause was a spec defect, not the
+  implementation)
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none. The refined re-dispatch implemented the corrected
+  §Spec 2 exactly: viewport slice, `.scroll(...)` dropped, `total_wrapped` kept as
+  the full count, filter-open branch untouched. The width test now asserts a
+  strict `>` against a record long enough to wrap differently at 20 vs 80.
+- **Calibration:** the refined re-dispatch was the right lever. The tree was
+  green at bounce time (1061 tests passing), which is the shape that makes a plain
+  re-dispatch self-report "complete"; the loud bounce-fix header naming what to
+  keep, quoting the offending line, and setting the bar at the measurement rather
+  than the gates produced a clean fix in 55 turns. The executor also ran the
+  end-to-end verification with its positive control this time — the omission that
+  made the first attempt a `false_completion`.
+
+**Verified at review (architect), all numbers measured independently:**
+
+Quiescent CPU, alternating A/B in one session, pid selected by `/proc/<pid>/comm`,
+three reps:
+
+| Binary            | large session log | trivial session log |
+| ----------------- | ----------------- | ------------------- |
+| phase-03 (acae94e)| 92, 91, 91 ticks  | 0, 1, 1 ticks       |
+| phase-04          | 1, 1, 1 ticks     | 0, 0, 0 ticks       |
+
+**~91× reduction**, far past the ≥ 2× criterion. Positive control (STANDARDS
+§ 1.1): the phase-03 row's own large-vs-trivial gap is 91 vs 0, so the harness is
+demonstrably sensitive to exactly the work this phase removes — which is what
+makes the phase-04 row meaningful rather than a suspiciously small number.
+
+**Behavioral liveness** — the check that separates a working cache from one that
+never invalidates, since both report ~1 tick. Rendered in a detached 200×50 tmux
+pane, appended a `tool_result` record carrying a unique marker, and read the pane
+back with `capture-pane`:
+
+```
+p03 pane renders (Activity panel present): OK
+p03 marker absent before append: OK
+p03 PASS: marker rendered in the Activity pane after append
+p04 pane renders (Activity panel present): OK
+p04 marker absent before append: OK
+p04 PASS: marker rendered in the Activity pane after append
+```
+
+The phase-03 (no-cache) run is the harness's own positive control: it *must*
+render the marker, and it does. Two earlier harness attempts were discarded for
+failing that control — one appended a `progress` event, which
+`ActivityFilter::default()` hides as "too noisy" (`filter.rs:33`), and one used
+`script`, which gives no terminal size so ratatui drew nothing and every grep
+failed including the no-cache binary's.
+
+**Scrolling** (behavior change: `.scroll(...)` removed in favor of slicing):
+`PageUp` changes the pane, `End` returns it to a byte-identical bottom view, so
+follow re-engages correctly.
