@@ -3,7 +3,8 @@
 //! Continuously refreshes a `ratatui` terminal with a header band (Session ·
 //! Budget · Compactions) above a body (Activity · Files).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use rexymcp_executor::store::sessions::event::SessionRecord;
 use rexymcp_executor::store::telemetry::{self, PhaseRun};
@@ -38,6 +39,46 @@ pub struct DashboardData {
     /// Top (most expensive) architect skill for the project. `None` when there
     /// is no architect ledger data.
     pub top_skill: Option<crate::costs::SkillCost>,
+}
+
+/// Cheap change-detection stamp for the files `load_data` reads. Comparing two
+/// stamps costs a `read_dir` plus a handful of `stat` calls; reloading costs a
+/// full read + parse of a telemetry store that reaches hundreds of megabytes on
+/// long-lived projects.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct DataFingerprint {
+    /// Resolved session log: path, byte length, mtime. `None` when no log
+    /// resolves (no sessions dir, or no log matching the `session` needle).
+    session: Option<(PathBuf, u64, SystemTime)>,
+    /// `<telemetry_dir>/phase_runs.jsonl`: byte length, mtime. `None` when
+    /// telemetry is unconfigured or the file does not exist yet.
+    telemetry: Option<(u64, SystemTime)>,
+}
+
+/// Stamp the current state of `load_data`'s inputs. Stats only — never reads
+/// or parses file contents.
+pub(crate) fn fingerprint(
+    repo: &Path,
+    session: Option<&str>,
+    telemetry_dir: Option<&Path>,
+) -> DataFingerprint {
+    let session = status::resolve_session_log(repo, session)
+        .ok()
+        .and_then(|path| {
+            let meta = std::fs::metadata(&path).ok()?;
+            let mtime = meta.modified().ok()?;
+            Some((path, meta.len(), mtime))
+        });
+
+    let telemetry = telemetry_dir
+        .map(|d| d.join("phase_runs.jsonl"))
+        .and_then(|path| {
+            let meta = std::fs::metadata(&path).ok()?;
+            let mtime = meta.modified().ok()?;
+            Some((meta.len(), mtime))
+        });
+
+    DataFingerprint { session, telemetry }
 }
 
 /// Load the latest session data. Pure, testable.
@@ -692,5 +733,132 @@ mod tests {
         // Coarse id does NOT match (prefix "phase-06-" matches no file)
         let coarse = resolve_milestone(dir.path(), Some("phase-06"));
         assert_eq!(coarse, None);
+    }
+
+    // --- fingerprint tests ---
+
+    #[test]
+    fn fingerprint_is_stable_across_calls_when_nothing_changes() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log = sessions.join("session-phase-01-test.jsonl");
+        std::fs::write(
+            &log,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "test line\n").unwrap();
+
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_telemetry_grows() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log = sessions.join("session-phase-01-test.jsonl");
+        std::fs::write(
+            &log,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "line1\n").unwrap();
+
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+
+        // Append a line — length changes
+        use std::io::Write;
+        let path = telemetry_dir.join("phase_runs.jsonl");
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(f, "line2").unwrap();
+
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_session_log_grows() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log = sessions.join("session-phase-01-test.jsonl");
+        std::fs::write(
+            &log,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "line1\n").unwrap();
+
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+
+        // Append a record — length changes
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        writeln!(f, "{{}}").unwrap();
+
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_session_needle_selects_a_different_log() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log_a = sessions.join("session-phase-01-aaa.jsonl");
+        let log_b = sessions.join("session-phase-02-bbb.jsonl");
+        std::fs::write(
+            &log_a,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &log_b,
+            serde_json::to_string(&rec(200, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let fp_a = fingerprint(dir.path(), Some("aaa"), None);
+        let fp_b = fingerprint(dir.path(), Some("bbb"), None);
+        assert_ne!(fp_a, fp_b);
+    }
+
+    #[test]
+    fn fingerprint_session_is_none_without_sessions_dir() {
+        let dir = TempDir::new().unwrap();
+        // No sessions dir created at all
+        let fp = fingerprint(dir.path(), None, None);
+        assert!(fp.session.is_none());
+    }
+
+    #[test]
+    fn fingerprint_telemetry_is_none_when_file_absent() {
+        let dir = TempDir::new().unwrap();
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        // No phase_runs.jsonl yet
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert!(fp1.telemetry.is_none());
+
+        // Write the file — None → Some is itself an invalidation
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "data\n").unwrap();
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert!(fp2.telemetry.is_some());
     }
 }

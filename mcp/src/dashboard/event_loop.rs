@@ -26,6 +26,15 @@ pub(crate) fn run_loop(
     // regardless of whether the user previously scrolled away from the bottom.
     let mut prev_record_count: usize = 0;
 
+    let mut fp = crate::dashboard::fingerprint(repo, session, telemetry_dir);
+    let mut data = load_data(
+        repo,
+        session,
+        telemetry_dir,
+        project_id.as_deref(),
+        architect,
+    );
+
     loop {
         spinner_tick = spinner_tick.wrapping_add(1);
 
@@ -34,13 +43,17 @@ pub(crate) fn run_loop(
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
-        let data = load_data(
-            repo,
-            session,
-            telemetry_dir,
-            project_id.as_deref(),
-            architect,
-        );
+        let next_fp = crate::dashboard::fingerprint(repo, session, telemetry_dir);
+        if next_fp != fp {
+            fp = next_fp;
+            data = load_data(
+                repo,
+                session,
+                telemetry_dir,
+                project_id.as_deref(),
+                architect,
+            );
+        }
         // New records arrived — snap back to the bottom so the live feed is always
         // visible. This re-engages autoscroll even if the user previously scrolled up.
         if data.records.len() > prev_record_count {

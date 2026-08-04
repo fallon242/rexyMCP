@@ -1,7 +1,7 @@
 # Phase 01: mtime-gated dashboard reload
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~140 lines
 **Tags:** language=rust, kind=bugfix, size=s
@@ -312,3 +312,9 @@ Note adjacent issues in "Notes for review" rather than fixing them.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-04 14:52 (started)
+
+**Executor:** Claude (Sonnet 4.5)
+
+Added `DataFingerprint` struct and `fingerprint()` function to `mcp/src/dashboard/mod.rs`, gated `load_data` calls in `event_loop.rs` to only reload when the fingerprint changes, and added 6 unit tests.

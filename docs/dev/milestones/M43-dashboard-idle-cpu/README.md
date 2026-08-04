@@ -97,7 +97,7 @@ the same code costs ~2 ms per refresh.
 
 | #   | Phase                                                                              | Status |
 | --- | ---------------------------------------------------------------------------------- | ------ |
-| 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | todo   |
+| 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | in-progress   |
 | 02  | single-pass telemetry read                                                          | todo   |
 | 03  | bound `phase_runs.jsonl` growth                                                     | todo   |
 
