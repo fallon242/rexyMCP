@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use rexymcp_executor::config::Config;
 use rexymcp_executor::store::telemetry::{
     ARCHITECT_LEDGER_RECORD_TAG, ArchitectLedger, ArchitectTokens, append_architect_ledger,
+    fold_ledger, read_all,
 };
 
 /// Borrowed harvest inputs from the CLI flags.
@@ -30,6 +31,9 @@ pub struct HarvestOutcome {
     pub duplicates: usize,
     pub sessions: usize,
     pub records: usize,
+    /// Buckets whose record was byte-identical to the store's folded state and
+    /// therefore not appended.
+    pub unchanged: usize,
 }
 
 /// Days from 1970-01-01 to civil date (y, m[1..12], d[1..31]). Howard Hinnant's
@@ -306,6 +310,29 @@ pub fn harvest(
     // Build ledger records from accumulators, sorted for deterministic output
     let mut total_messages = 0usize;
     let mut total_records = 0usize;
+    let mut total_unchanged = 0usize;
+
+    // What the store already holds, folded to one record per key. Appending a
+    // record identical to the folded state is pure write amplification: the
+    // reader would discard it immediately.
+    let existing: std::collections::HashMap<
+        (Option<String>, String, String, String),
+        ArchitectLedger,
+    > = fold_ledger(read_all(&store_path).map(|s| s.ledgers).unwrap_or_default())
+        .into_iter()
+        .map(|l| {
+            (
+                (
+                    l.project_id.clone(),
+                    l.session_id.clone(),
+                    l.model.clone(),
+                    l.skill.clone(),
+                ),
+                l,
+            )
+        })
+        .collect();
+
     for (key, acc) in accum {
         let ledger = ArchitectLedger {
             record: ARCHITECT_LEDGER_RECORD_TAG.to_string(),
@@ -324,6 +351,17 @@ pub fn harvest(
             messages: acc.messages,
             last_ts: acc.last_ts,
         };
+        let ledger_key = (
+            ledger.project_id.clone(),
+            ledger.session_id.clone(),
+            ledger.model.clone(),
+            ledger.skill.clone(),
+        );
+        if existing.get(&ledger_key) == Some(&ledger) {
+            total_messages += acc.messages as usize;
+            total_unchanged += 1;
+            continue;
+        }
         if let Err(e) = append_architect_ledger(&telemetry_dir, &ledger) {
             eprintln!("warning: failed to append ledger record: {}", e);
         }
@@ -337,6 +375,7 @@ pub fn harvest(
         duplicates,
         sessions: sessions.len(),
         records: total_records,
+        unchanged: total_unchanged,
     })
 }
 
@@ -873,5 +912,170 @@ dir = "{}"
             total_messages, 2,
             "folded message count matches single harvest"
         );
+    }
+
+    #[test]
+    fn harvest_skips_appending_unchanged_records() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        write_fixture(
+            &tx_dir,
+            "session.jsonl",
+            &[
+                r#"{"type":"assistant","timestamp":"2026-07-09T16:00:00.000Z","attributionSkill":"rexymcp:dispatch","message":{"id":"msg_1","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":1000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":3000,"output_tokens":400}}}"#,
+            ],
+        );
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+
+        // First harvest: appends 1 record
+        let outcome1 = harvest(&config, None, &args).unwrap();
+        assert_eq!(outcome1.records, 1);
+        assert_eq!(outcome1.unchanged, 0);
+
+        // Record line count before second harvest
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let content_before = fs::read_to_string(&store_path).unwrap();
+        let lines_before = content_before
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count();
+
+        // Second harvest: nothing changed, should skip all
+        let outcome2 = harvest(&config, None, &args).unwrap();
+        assert_eq!(outcome2.records, 0, "second harvest appended no records");
+        assert_eq!(
+            outcome2.unchanged, 1,
+            "second harvest skipped 1 unchanged bucket"
+        );
+        assert_eq!(outcome2.messages, 1, "messages still counted");
+
+        // Store line count is identical — the comparison actually matched
+        let content_after = fs::read_to_string(&store_path).unwrap();
+        let lines_after = content_after
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count();
+        assert_eq!(
+            lines_after, lines_before,
+            "store line count unchanged after second harvest (before={}, after={})",
+            lines_before, lines_after
+        );
+    }
+
+    #[test]
+    fn harvest_appends_when_a_bucket_changes() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        // First fixture: one message
+        write_fixture(
+            &tx_dir,
+            "session.jsonl",
+            &[
+                r#"{"type":"assistant","timestamp":"2026-07-09T16:00:00.000Z","attributionSkill":"rexymcp:dispatch","message":{"id":"msg_1","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":1000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":3000,"output_tokens":400}}}"#,
+            ],
+        );
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+
+        // First harvest
+        let outcome1 = harvest(&config, None, &args).unwrap();
+        assert_eq!(outcome1.records, 1);
+
+        // Append a second message to the same session (same key, different totals)
+        let session_path = tx_dir.join("session.jsonl");
+        let mut content = fs::read_to_string(&session_path).unwrap();
+        content.push('\n');
+        content.push_str(r#"{"type":"assistant","timestamp":"2026-07-09T16:01:00.000Z","attributionSkill":"rexymcp:dispatch","message":{"id":"msg_2","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":500,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":100}}}"#);
+        fs::write(&session_path, content).unwrap();
+
+        // Second harvest: totals changed, should append
+        let outcome2 = harvest(&config, None, &args).unwrap();
+        assert_eq!(outcome2.records, 1, "changed bucket was appended");
+        assert_eq!(outcome2.unchanged, 0, "no unchanged buckets");
+
+        // Fold the store: totals should be summed (both messages)
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let all_ledgers = read_architect_ledger(&store_path).unwrap();
+        let folded = fold_ledger(all_ledgers);
+        assert_eq!(folded.len(), 1);
+        let ledger = &folded[0];
+        assert_eq!(
+            ledger.tokens.input, 1500,
+            "input tokens summed across both messages"
+        );
+        assert_eq!(ledger.messages, 2, "message count summed");
+    }
+
+    #[test]
+    fn harvest_appends_everything_into_an_empty_store() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        write_fixture(
+            &tx_dir,
+            "session.jsonl",
+            &[
+                r#"{"type":"assistant","timestamp":"2026-07-09T16:00:00.000Z","attributionSkill":"rexymcp:dispatch","message":{"id":"msg_1","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":1000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":3000,"output_tokens":400}}}"#,
+            ],
+        );
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+
+        let outcome = harvest(&config, None, &args).unwrap();
+        assert_eq!(outcome.records, 1, "appended into empty store");
+        assert_eq!(
+            outcome.unchanged, 0,
+            "nothing to match against in empty store"
+        );
+    }
+
+    #[test]
+    fn harvest_candidate_carries_the_record_tag() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        write_fixture(
+            &tx_dir,
+            "session.jsonl",
+            &[
+                r#"{"type":"assistant","timestamp":"2026-07-09T16:00:00.000Z","attributionSkill":"rexymcp:dispatch","message":{"id":"msg_1","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":1000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":3000,"output_tokens":400}}}"#,
+            ],
+        );
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+        harvest(&config, None, &args).unwrap();
+
+        // Read back and verify every ledger record carries the tag
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let ledgers = read_architect_ledger(&store_path).unwrap();
+        for ledger in &ledgers {
+            assert_eq!(
+                ledger.record, ARCHITECT_LEDGER_RECORD_TAG,
+                "ledger record must carry the record tag"
+            );
+        }
     }
 }

@@ -1082,10 +1082,11 @@ async fn main() -> anyhow::Result<()> {
             match harvest::harvest(&config, telemetry_path.as_deref(), &args) {
                 Ok(o) => {
                     println!(
-                        "harvested {} messages across {} sessions -> {} ledger records ({} duplicates skipped) -> {}",
+                        "harvested {} messages across {} sessions -> {} ledger records ({} unchanged, {} duplicates skipped) -> {}",
                         o.messages,
                         o.sessions,
                         o.records,
+                        o.unchanged,
                         o.duplicates,
                         o.path.display()
                     );

@@ -1,7 +1,7 @@
 # Phase 03: skip unchanged ledger appends
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-02 (done — `telemetry::read_all`, which this phase uses to
 read the current ledger state in one pass)
 **Estimated diff:** ~180 lines
@@ -315,3 +315,9 @@ None. No new dependency, no `Cargo.toml` edit. Touches `mcp/src/harvest.rs`,
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-04 19:59 (started)
+
+**Executor:** Claude (executor)
+
+Implemented skip-unchanged-ledger-appends: `harvest()` now reads the current store via `telemetry::read_all`, folds it, and compares each candidate ledger against the folded state before appending. Added `unchanged` field to `HarvestOutcome`, updated sweep and CLI printouts, and added 4 new tests.

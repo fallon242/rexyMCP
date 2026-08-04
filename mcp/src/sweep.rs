@@ -141,7 +141,10 @@ pub fn sweep_once(config_path: &Path, transcript_dir: &Path, telemetry_dir: &Pat
     };
     match harvest::harvest(config_path, None, &args) {
         Ok(o) => {
-            let outcome = format!("{} records / {} msgs", o.records, o.messages);
+            let outcome = format!(
+                "{} new / {} unchanged / {} msgs",
+                o.records, o.unchanged, o.messages
+            );
             let watermark = current.unwrap_or(0);
             let state = SweepState {
                 last_swept_ms: now_ms,
