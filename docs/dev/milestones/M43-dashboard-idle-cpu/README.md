@@ -126,7 +126,7 @@ the same code costs ~2 ms per refresh.
 | 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
 | 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
 | 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | done |
-| 05  | reconcile the `schema_version` gate divergence ([phase-05-reconcile-schema-version-gate.md](phase-05-reconcile-schema-version-gate.md)) | in-progress   |
+| 05  | reconcile the `schema_version` gate divergence ([phase-05-reconcile-schema-version-gate.md](phase-05-reconcile-schema-version-gate.md)) | review        |
 | 06  | compact the existing store (data-migration surface)                                  | todo   |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when
