@@ -115,9 +115,10 @@ the same code costs ~2 ms per refresh.
 | --- | ---------------------------------------------------------------------------------- | ------ |
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
 | 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
-| 03  | bound `phase_runs.jsonl` growth                                                     | todo   |
+| 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | todo |
 | 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
 | 05  | reconcile the `schema_version` gate divergence                                       | todo   |
+| 06  | compact the existing store (data-migration surface)                                  | todo   |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when
 there is no new work to do. It is deliberately first because it is the smallest
@@ -129,11 +130,25 @@ reads and five parse passes. This is a change in
 `executor/src/store/telemetry.rs`, so it is scoped and sequenced separately from
 the dashboard-local phase 01.
 
-**03** attacks the root enabler — the write amplification. Options to be settled
-when the phase is drafted: fold-before-append in the sweep, a compaction pass over
-the store, or splitting the ledger into its own last-write-wins file. Sequenced
-last because it is the only one with a data-migration surface, and because 01 + 02
-already make the store's size a non-problem for readers.
+**03** attacks the root enabler — the write amplification — and was **split in two
+when drafted**. The options sketched at milestone open (fold-before-append,
+compaction, a separate last-write-wins file) turned out to have very different risk
+profiles, and bundling them would have put a one-way rewrite of the user's
+telemetry store inside the same review as a small, safe write-side guard. So:
+
+- **03** is the write-side fix alone: harvest reads the folded ledger state once
+  (via phase 02's `read_all`) and appends only buckets that actually differ.
+  Stops the ~53 KB/minute of pure amplification. No migration surface — it only
+  ever writes *fewer* records than today.
+- **06** is compaction: reclaiming the existing 103 MB. It rewrites the store, so
+  it gets its own phase, its own backup story, and its own review. It also has a
+  trap worth naming now — compaction must **not** silently drop the 566
+  unversioned legacy `PhaseRun` lines, because that would decide phase 05's open
+  question by deletion rather than by argument.
+
+03 deliberately accepts one new cost: a full store read per harvest (~150 ms once
+per 60 s sweep tick against today's file), in exchange for stopping the appends.
+That trade improves once 06 shrinks the file.
 
 **05** was added while drafting phase 02, which had to pick a filtering semantics
 and so surfaced a pre-existing defect: the dashboard's private `read_phase_runs`

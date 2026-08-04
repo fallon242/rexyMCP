@@ -4,7 +4,23 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M43-dashboard-idle-cpu/phase-02-single-pass-telemetry-read` (todo).**
+**Active phase: `M43-dashboard-idle-cpu/phase-03-skip-unchanged-ledger-appends` (todo).**
+
+**Phase 02 done and approved 2026-08-04** (`ffe3d39`, approval `55c2c91`,
+verdict `approved_first_try`). `telemetry::read_all` reads the store once,
+dispatched on the `record` discriminator with no `serde_json::Value` round-trip;
+reload work fell 3.2× (~77 → ~24 ticks) in an alternating A/B against the
+phase-01 binary, with all nine `load_data_*` tests passing unmodified. The
+`≤ 70 ticks` criterion was superseded, not missed — an absolute threshold
+anchored to a render baseline that drifts (26 when specced, ~72 at review, 384
+once). **Second architect spec defect in this milestone with the same root: an
+end-to-end criterion stated in terms the phase does not control.** Two is a
+trend; candidate fold recorded in the M43 README, awaiting a third occurrence
+and user sign-off before touching `STANDARDS.md`.
+
+**Phase 03 was split from the original "bound growth" sketch** — the write-side
+guard (03, no migration surface) is separated from compacting the existing
+103 MB store (**06**, rewrites user data, needs its own review).
 
 **Phase 01 done and approved 2026-08-04** (`a2e9b43`, approval `24cdd94`,
 verdict `approved_first_try`). Idle cost is now independent of telemetry-store
