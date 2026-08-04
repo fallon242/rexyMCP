@@ -1,7 +1,7 @@
 # Phase 02: single-pass telemetry read
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** done
 **Depends on:** phase-01 (done — the reload gate that makes this the *only*
 remaining telemetry cost)
 **Estimated diff:** ~200 lines
@@ -251,7 +251,13 @@ exactly what this phase forbids.
       exactly one place.
 - [ ] `read_phase_runs` no longer exists in `mcp/src/dashboard/mod.rs`.
 - [ ] No `serde_json::Value` appears in `read_all`.
-- [ ] The reload-path measurement below shows **≤ 70 ticks**, down from 124.
+- [x] ~~The reload-path measurement below shows **≤ 70 ticks**, down from 124.~~
+      **Superseded at review** — an absolute tick threshold silently depends on
+      the render baseline, which drifts with the environment and the size of
+      whichever session log is newest. Replaced by the delta form: **reload work
+      (`reloading − quiescent`) must fall by ≥ 2×**. Measured 3.2× (~77 → ~24)
+      in an alternating A/B against the phase-01 binary — see § End-to-end
+      verification.
 
 ## Test plan
 
@@ -332,11 +338,34 @@ quiescent (6s): 26 ticks
 reloading (6s): 124 ticks
 ```
 
-The ~26 quiescent ticks are the per-tick render, which this phase does not touch
-(that is phase 04) — so ~98 of the 124 are telemetry parsing. Removing two of
-three reads and the `Value` round-trip must bring `reloading` to **≤ 70 ticks**.
-`quiescent` must stay at ~26 — if it moves, something outside this phase's scope
-changed. Quote both literal output lines in the completion Update Log.
+> **Corrected at review (architect).** Both the `≤ 70 ticks` target and the
+> "`quiescent` must stay at ~26" check were wrong in *form*. `quiescent` is pure
+> render cost, which drifts with machine load and with the size of whichever
+> session log is newest — it measured 26 when this spec was written and ~72 for
+> **both** binaries at review, with a 384-tick outlier in between. Anchoring an
+> absolute threshold to it made a real 3.2× improvement read as a miss, and made
+> a stable render baseline read as a regression. The executor reported both
+> honestly; the spec was the defective part.
+>
+> **The measure that is robust** is the *delta* — `reloading − quiescent` — which
+> isolates the telemetry work from the render floor.
+
+**Measured at review**, alternating the phase-01 binary (`a2e9b43`) and the
+phase-02 binary in the same session, three reps each:
+
+| Binary   | quiescent  | reloading    | reload work (delta) |
+| -------- | ---------- | ------------ | ------------------- |
+| phase-01 | 72, 71, 73 | 67, 149, 150 | **~77**             |
+| phase-02 | 71, 72, 72 | 96, 95, 96   | **~24**             |
+
+Reload work fell **~77 → ~24 ticks, 3.2×**, and phase-02's readings are markedly
+more stable (±1 vs ±40). `quiescent` is identical across both binaries, which is
+the check that this phase changed only the reload path — the right form of the
+"nothing outside scope moved" assertion.
+
+**Revised criterion:** reload work (`reloading − quiescent`) must fall by **≥ 2×**
+against the previous binary, measured by alternating A/B in one session. Met at
+3.2×. Absolute tick counts are recorded for context but are not the gate.
 
 ## Authorizations
 
@@ -479,3 +508,29 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** ffe3d3929ad963ff060a927f1f4a075a60399f8c
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-04
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none in behavior. Two cosmetic defects, both recorded
+  rather than bounced: (1) deleting `read_phase_runs` left the following doc
+  comment's first line **duplicated** and dropped the blank line before it
+  (`mcp/src/dashboard/mod.rs:202`) — repaired in the approval commit as a
+  comment-only edit, since bouncing a dispatch for two lines of prose would cost
+  a run and write a misleading `bounced` datapoint into the scorecard;
+  (2) `read_all_missing_file_returns_empty` asserts against a hardcoded
+  `/tmp/does-not-exist-…` path instead of a `TempDir` path, which is a mild
+  breach of the hermeticity rule in `STANDARDS.md` §3 — left as a **nit** for the
+  next phase touching that test module.
+- **Calibration:** architect-side spec defect, second in this milestone. The
+  acceptance criterion was an **absolute** tick count (`≤ 70`) anchored to a
+  render baseline that drifts with machine load and session-log size. At review
+  that baseline read ~72 for *both* binaries (and 384 once), so a genuine 3.2×
+  improvement (~77 → ~24 ticks of reload work) presented as a miss, and a stable
+  render floor presented as a regression the executor felt obliged to explain.
+  The robust form is the **delta** — `reloading − quiescent` — measured by
+  alternating A/B in one session. The executor's reporting was accurate and it
+  flagged the anomaly rather than burying it; the defect was in what it was asked
+  to measure against.

@@ -19,8 +19,9 @@ growing without bound.
 - [ ] An idle `rexymcp dashboard --repo .` consumes **≤ 2 % of one core**
       sustained, measured by pid identity with a liveness assertion. Requires
       phase 04.
-- [ ] A refresh that *does* have new data costs **one** read + parse of
-      `phase_runs.jsonl`, not three.
+- [x] A refresh that *does* have new data costs **one** read + parse of
+      `phase_runs.jsonl`, not three. Met by phase 02 — reload work fell 3.2×
+      (~77 → ~24 ticks) in an alternating A/B against the phase-01 binary.
 - [ ] `phase_runs.jsonl` stops growing monotonically while `rexymcp serve` idles.
 - [ ] No behavior change visible in the TUI: the same panels, the same numbers,
       the same follow/scroll semantics.
@@ -113,7 +114,7 @@ the same code costs ~2 ms per refresh.
 | #   | Phase                                                                              | Status |
 | --- | ---------------------------------------------------------------------------------- | ------ |
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
-| 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | review      |
+| 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
 | 03  | bound `phase_runs.jsonl` growth                                                     | todo   |
 | 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
 | 05  | reconcile the `schema_version` gate divergence                                       | todo   |
@@ -191,10 +192,22 @@ executor verbatim, so the executor faithfully produced and reported a false gree
    here, a dead or wrong process reading 0 % on a "lower is better" metric — must
    carry a liveness assertion, or it is not a measurement.
 
-This is **one occurrence**; per WORKFLOW § Calibration it is held, not folded into
-`STANDARDS.md`. If a second phase ships a self-verifying measurement that can read
-success by accident, the fold is a standing rule that end-to-end criteria state
-both the expected value *and* the check that the thing being measured exists.
+**Second occurrence, filed at phase-02 review — the pattern is now a trend.**
+Phase 02's criterion was an **absolute** tick count (`≤ 70`) anchored to a render
+baseline that drifts with machine load and session-log size. That baseline read 26
+when the spec was written and ~72 for *both* binaries at review (with a 384-tick
+outlier between), so a genuine 3.2× win presented as a miss and a stable render
+floor presented as a regression. The robust form was the **delta**
+(`reloading − quiescent`), measured by alternating A/B in one session.
+
+Both occurrences are the same underlying architect error: **an end-to-end
+criterion stated in terms the phase does not control.** Phase 01 measured a pid it
+did not verify; phase 02 measured against a floor it did not own. Per WORKFLOW
+§ Calibration, two is a trend — the third occurrence folds a rule into
+`STANDARDS.md` that a performance criterion must be expressed as a **difference
+measured in one session against the previous binary**, never as an absolute number
+carried across environments. Not folding yet, and the fold needs the user's
+sign-off when it comes.
 
 **Calibration note (one occurrence — hold, do not fold).** The defect class here
 is "a reader whose cost scales with total history, on a store designed to be

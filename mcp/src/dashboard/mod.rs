@@ -199,7 +199,7 @@ pub fn run_dashboard(
     ratatui::restore();
     result
 }
-/// Returns the milestone **directory name** (e.g. `"M17-dashboard-polish-3"`)
+
 /// Returns the milestone **directory name** (e.g. `"M17-dashboard-polish-3"`)
 /// for the running phase, using the same candidate-selection rules as
 /// `resolve_milestone`. `None` when no matching milestone directory is found.
