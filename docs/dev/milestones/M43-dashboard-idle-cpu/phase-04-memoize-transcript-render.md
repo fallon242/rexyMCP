@@ -1,0 +1,344 @@
+# Phase 04: memoize the transcript build + wrap
+
+**Milestone:** M43 — Dashboard Idle CPU
+**Status:** todo
+**Depends on:** phase-01 (the reload gate, which supplies the "did the data
+change?" signal this phase keys its cache on)
+**Estimated diff:** ~200 lines
+**Tags:** language=rust, kind=refactor, size=m
+
+## Goal
+
+Stop rebuilding and re-wrapping the entire Activity transcript on every 500 ms
+tick. It is rebuilt from all records, wrapped in full, and then only a viewport
+slice is displayed — even when nothing changed. This is the whole of the residual
+idle cost the milestone has left, and it closes the last open exit criterion.
+
+## Architecture references
+
+Read before starting:
+
+- `docs/dev/milestones/M43-dashboard-idle-cpu/README.md` § "Measured, not
+  inferred" — row 4 of the evidence table is the measurement that assigns the
+  residual to this path.
+
+## Pre-flight
+
+1. Read `docs/dev/STANDARDS.md` top to bottom — **including new § 1.1**, which
+   governs this phase's end-to-end verification.
+2. Read the architecture reference above.
+3. Read this entire phase doc before touching any code.
+4. Confirm the repo is on a clean branch with no uncommitted changes.
+
+## Current state
+
+`render_dashboard` (`mcp/src/dashboard/render.rs:172`) is called once per tick
+from `event_loop::run_loop` (`mcp/src/dashboard/event_loop.rs:78`). In the normal
+(filter-closed) branch it does this, at `render.rs:307–309`:
+
+```rust
+        let transcript = transcript_lines(&data.records, &filter_state.filter);
+        let wrapped = wrap_lines_hanging(&transcript, wrap_width, INDENT);
+        total_wrapped = wrapped.len();
+```
+
+…and the filter-open branch does the same work purely to compute a line count,
+at `render.rs:300–305`:
+
+```rust
+        total_wrapped = wrap_lines_hanging(
+            &transcript_lines(&data.records, &filter_state.filter),
+            wrap_width,
+            INDENT,
+        )
+        .len();
+```
+
+Both build styled `Line`s for **every** record and wrap **all** of them; only a
+viewport slice is then rendered via `Paragraph::scroll`. On this repo the newest
+session log is ~1.5 MB, and this is measurably the entire remaining idle cost:
+the same binary against a trivial session log measures 0 %.
+
+The two functions are pure and fully owned — nothing borrows from `data`:
+
+```rust
+// mcp/src/dashboard/transcript.rs:58
+pub(crate) fn transcript_lines(
+    records: &[SessionRecord],
+    filter: &ActivityFilter,
+) -> Vec<Line<'static>>
+
+// mcp/src/dashboard/render.rs:134
+pub(crate) fn wrap_lines_hanging(
+    lines: &[Line<'static>],
+    width: usize,
+    continuation_indent: usize,
+) -> Vec<Line<'static>>
+```
+
+Their output depends on exactly three things: the records, the filter, and the
+wrap width. `ActivityFilter` derives `Clone + Debug + PartialEq`
+(`mcp/src/dashboard/filter.rs:7`), so it can be stored and compared directly.
+
+`ViewState` (`mcp/src/dashboard/render.rs:18`) carries the per-tick view state:
+
+```rust
+pub(crate) struct ViewState {
+    pub(crate) offset: u16,
+    pub(crate) follow: bool,
+    pub(crate) spinner: Option<usize>,
+    pub(crate) filter: FilterState,
+    pub(crate) budget_display: BudgetDisplay,
+}
+```
+
+Note `spinner` changes **every** tick — but it feeds only the Session and Tasks
+panels, which are a handful of lines. It does not reach the transcript, which is
+why the transcript can be cached across ticks while the spinner keeps animating.
+
+Phase 01 left the event loop reloading only when a stat-only fingerprint moves
+(`event_loop.rs:46–56`):
+
+```rust
+        let next_fp = crate::dashboard::fingerprint(repo, session, telemetry_dir);
+        if next_fp != fp {
+            fp = next_fp;
+            data = load_data(/* … */);
+        }
+```
+
+That `if` is the exact point where the records can change, and it is where this
+phase's cache key must be invalidated.
+
+## Spec
+
+### 1. Add a `TranscriptCache` in `mcp/src/dashboard/render.rs`
+
+```rust
+/// Memoizes the Activity pane's build + wrap across ticks.
+///
+/// `transcript_lines` + `wrap_lines_hanging` process every record and are
+/// re-run on every 500 ms tick, even though their inputs — the records, the
+/// filter, and the wrap width — change only on a reload, a filter toggle, or a
+/// terminal resize. The spinner changes every tick but does not reach this
+/// pane, so it is deliberately **not** part of the key.
+#[derive(Default)]
+pub(crate) struct TranscriptCache {
+    key: Option<(u64, ActivityFilter, usize)>,
+    wrapped: Vec<Line<'static>>,
+}
+
+impl TranscriptCache {
+    /// Wrapped transcript lines for this generation/filter/width, rebuilding
+    /// only when the key differs from the cached one.
+    pub(crate) fn get(
+        &mut self,
+        generation: u64,
+        records: &[SessionRecord],
+        filter: &ActivityFilter,
+        wrap_width: usize,
+        indent: usize,
+    ) -> &[Line<'static>] {
+        let key = (generation, filter.clone(), wrap_width);
+        if self.key.as_ref() != Some(&key) {
+            self.wrapped = wrap_lines_hanging(
+                &transcript_lines(records, filter),
+                wrap_width,
+                indent,
+            );
+            self.key = Some(key);
+        }
+        &self.wrapped
+    }
+}
+```
+
+`generation` is a `u64` the event loop increments on every reload — see §3. It
+stands in for "the records changed"; comparing the records themselves would cost
+as much as rebuilding.
+
+### 2. Use the cache in both branches of `render_dashboard`
+
+Add a `cache: &mut TranscriptCache` parameter to `render_dashboard`
+(`render.rs:172`) and a `generation: u64` field to `ViewState` (`render.rs:18`).
+
+Replace `render.rs:307–309` with:
+
+```rust
+        let wrapped = cache
+            .get(
+                state.generation,
+                &data.records,
+                &filter_state.filter,
+                wrap_width,
+                INDENT,
+            )
+            .to_vec();
+        total_wrapped = wrapped.len();
+```
+
+and `render.rs:300–305` (the filter-open branch) with the same `cache.get(…)`
+call, taking only `.len()`. **Both** branches must go through the cache — the
+filter-open branch does the identical work today just to produce a count, so
+leaving it uncached means opening the filter panel re-introduces the full cost
+every tick.
+
+The `.to_vec()` is a deliberate clone: `Paragraph::new` wants owned lines and the
+cache must keep its copy. Cloning the wrapped `Vec` is far cheaper than rebuilding
+it — but do **not** clone in the filter-open branch, where only the length is
+needed.
+
+### 3. Drive `generation` from the reload in `event_loop.rs`
+
+Add a counter next to the existing fingerprint state and bump it in the **same**
+`if` that reloads, so the two can never disagree:
+
+```rust
+    let mut generation: u64 = 0;
+    let mut cache = crate::dashboard::render::TranscriptCache::default();
+    // …
+        let next_fp = crate::dashboard::fingerprint(repo, session, telemetry_dir);
+        if next_fp != fp {
+            fp = next_fp;
+            data = load_data(/* … unchanged … */);
+            generation = generation.wrapping_add(1);
+        }
+```
+
+Put `generation` into the `ViewState` construction, and pass `&mut cache` to
+`render_dashboard`.
+
+> **The one way this phase goes wrong.** If `generation` is bumped anywhere other
+> than alongside the reload — or not bumped at all — the Activity pane silently
+> freezes on stale content while the rest of the dashboard keeps updating. That
+> is worse than the performance problem being fixed, and it will not show up in
+> a build or a lint. The bump and the reload must be in the same `if` body. A
+> test below pins the stale-on-same-generation behavior so the contract is
+> explicit rather than incidental.
+
+## Acceptance criteria
+
+- [ ] `cargo build` succeeds.
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+- [ ] `cargo fmt --all --check` reports no diff. (Fix with `rustfmt <file>` on
+      touched files only — never `cargo fmt --all`.)
+- [ ] `cargo test` passes, including the new `TranscriptCache` tests.
+- [ ] `transcript_lines` and `wrap_lines_hanging` are each called from exactly
+      one place in `render.rs` — inside `TranscriptCache::get`.
+- [ ] Quiescent idle cost falls by **≥ 2×** against the phase-03 binary, measured
+      by alternating A/B in one session, **with the positive control below
+      reporting a non-zero difference** (STANDARDS § 1.1).
+
+## Test plan
+
+In a `#[cfg(test)] mod tests` in `mcp/src/dashboard/render.rs` (the block already
+there, holding `header_band_height_fits_tallest_plus_borders`). Build
+`SessionRecord`s with the existing helpers used by `mcp/src/dashboard/mod.rs`'s
+tests (`rec(...)`, `start_event()`, `progress_event(...)`) — import or mirror them;
+do **not** add a crate.
+
+- `transcript_cache_matches_the_uncached_result` — for a few records, assert
+  `cache.get(0, &records, &filter, 40, 4)` equals
+  `wrap_lines_hanging(&transcript_lines(&records, &filter), 40, 4)`. The
+  equivalence guard: memoization must not change output.
+- `transcript_cache_rebuilds_when_generation_changes` — call with generation 0,
+  then with generation 1 and **different** records; assert the second result
+  reflects the new records.
+- `transcript_cache_rebuilds_when_width_changes` — same records and generation,
+  two different `wrap_width`s; assert the results differ (a narrower width wraps
+  to more lines).
+- `transcript_cache_rebuilds_when_filter_changes` — same records and generation,
+  two filters that admit different event sets; assert the results differ.
+- `transcript_cache_returns_stale_content_for_an_unchanged_generation` — call
+  with generation 0, then call again with generation 0 but **different** records;
+  assert the result still reflects the *first* records. This pins the caching
+  contract and documents the hazard in §3: the generation is the sole
+  invalidation signal for record changes.
+
+Hermetic and deterministic: no `sleep`, no wall clock, no new crate.
+
+## End-to-end verification
+
+Alternate the phase-03 binary and this one in a single session, three reps each,
+selecting the process by `/proc/<pid>/comm` and asserting liveness. Build the
+comparison binary from the phase-03 commit in a worktree:
+
+```bash
+git worktree add /tmp/p03 acae94e   # phase-03: skip unchanged ledger appends
+(cd /tmp/p03 && cargo build --release)
+cargo build --release
+```
+
+For each binary, run the dashboard against this repo (whose newest session log is
+~1.5 MB) and sample `/proc/<pid>/stat` fields 14/15 over a 10 s quiescent window:
+
+```bash
+script -qec "$BIN dashboard --repo /home/matt/src/rexyMCP" /dev/null >/dev/null 2>&1 &
+sleep 4
+PID=""
+for p in $(pgrep -f "rexymcp dashboard"); do
+  [ -r "/proc/$p/comm" ] || continue
+  if [ "$(cat /proc/$p/comm)" = "rexymcp" ]; then PID=$p; break; fi
+done
+[ -n "$PID" ] || { echo "FAIL: no dashboard process"; exit 1; }
+read -r _ _ _ _ _ _ _ _ _ _ _ _ _ U1 S1 _ < /proc/$PID/stat
+sleep 10
+[ -d "/proc/$PID" ] || { echo "FAIL: process died"; exit 1; }
+read -r _ _ _ _ _ _ _ _ _ _ _ _ _ U2 S2 _ < /proc/$PID/stat
+echo "quiescent ticks: $(( (U2-U1)+(S2-S1) ))"
+kill "$PID"
+```
+
+**Required positive control (STANDARDS § 1.1).** A frozen or crashed dashboard
+also reports a low tick count, so a small number alone proves nothing. Run the
+**same harness** against a repo whose session log is trivial — the phase-03
+worktree at `/tmp/p03` has no `.rexymcp/sessions`, so use
+`--repo /tmp/p03 --config /home/matt/src/rexyMCP/rexymcp.toml`. That configuration
+measured **0 ticks** before this phase. The control passes only if the *large*
+session log costs measurably more than the trivial one **on the phase-03
+binary** — that difference is what proves the harness is sensitive to the work
+this phase removes. Report all three numbers:
+
+| Binary   | 1.5 MB session log | trivial session log |
+| -------- | ------------------ | ------------------- |
+| phase-03 | (expect ~70)       | (expect ~0)         |
+| phase-04 | (expect ≤ 35)      | (expect ~0)         |
+
+The phase-03 row's own left-minus-right difference is the positive control; if it
+is ~0, the harness is not measuring the transcript path and the phase-04 number
+means nothing — say so in the Update Log rather than reporting a pass.
+
+**Behavioral liveness.** Separately confirm the pane still updates: with the
+dashboard open on this repo, append a line to the newest file in
+`.rexymcp/sessions/`, and confirm CPU rises for a tick and the Activity pane shows
+the new content. A cache that never invalidates would pass every timing check
+above while being completely broken — this is the check that catches it. Quote
+the observation in the Update Log.
+
+## Authorizations
+
+None. No new dependency, no `Cargo.toml` edit. Touches
+`mcp/src/dashboard/render.rs` and `mcp/src/dashboard/event_loop.rs`.
+
+## Out of scope
+
+- **Caching the header panels** (Session / Budget / Context / Tasks / Files).
+  They are a handful of lines each and the spinner legitimately changes them every
+  tick. Leave them.
+- **Skipping `terminal.draw` entirely on an unchanged tick.** Tempting, and a
+  bigger win — but it breaks spinner animation and terminal-resize handling, and
+  it needs its own design. Not here.
+- **Changing the 500 ms poll interval**, the wrap algorithm, the hanging-indent
+  rule, or anything about how the transcript *looks*. The equivalence test in the
+  Test plan is the contract: same output, less often.
+- **Incrementally appending to the cache** when only new records arrive. A whole
+  rebuild on reload is fine — reloads are already rare after phase 01. Do the
+  simple thing.
+- **The `schema_version` divergence** (phase 05) and **store compaction**
+  (phase 06).
+
+## Update Log
+
+(Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
+
+<!-- entries appended below this line -->

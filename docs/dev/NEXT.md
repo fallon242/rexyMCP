@@ -4,7 +4,21 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M43-dashboard-idle-cpu/phase-03-skip-unchanged-ledger-appends` (todo).**
+**Active phase: `M43-dashboard-idle-cpu/phase-04-memoize-transcript-render` (todo).**
+
+**Phase 03 done and approved 2026-08-04** (`acae94e`, approval `ba4127c`,
+verdict `approved_first_try`). Harvest reads the folded ledger once and appends
+only buckets that differ. Verified on the real 48-session corpus: 145 appended
+into an empty store, then 0 appended / 145 unchanged; and exactly 1 appended /
+144 unchanged after one message was added to one transcript. **Restart a running
+`rexymcp serve` to pick this up** — the live process still has the old harvest.
+
+**The measurement-discipline fold landed** (`b62ca68`): third occurrence in this
+milestone reached WORKFLOW's fold threshold, and with the user's sign-off
+`docs/dev/STANDARDS.md` gained **§ 1.1 "An end-to-end verification must prove it
+is live"** — every end-to-end check now carries a positive control, as a DoD
+checkbox. Not propagated to `plugin/templates/STANDARDS.md` (a product decision,
+still open). Phase 04's own verification is written to that rule.
 
 **Phase 02 done and approved 2026-08-04** (`ffe3d39`, approval `55c2c91`,
 verdict `approved_first_try`). `telemetry::read_all` reads the store once,

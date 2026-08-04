@@ -121,7 +121,7 @@ the same code costs ~2 ms per refresh.
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
 | 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
 | 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
-| 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
+| 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | todo |
 | 05  | reconcile the `schema_version` gate divergence                                       | todo   |
 | 06  | compact the existing store (data-migration surface)                                  | todo   |
 
