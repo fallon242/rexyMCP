@@ -1,7 +1,7 @@
 # Phase 03: skip unchanged ledger appends
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** done
 **Depends on:** phase-02 (done — `telemetry::read_all`, which this phase uses to
 read the current ledger state in one pass)
 **Estimated diff:** ~180 lines
@@ -255,36 +255,70 @@ The artifact is the running binary's write behavior against a real transcript
 corpus. Verify with a **scratch copy** of the store so the real one is never
 mutated.
 
+> **Architect correction, 2026-08-04 (post-review) — the command below was
+> wrong, again.** `--telemetry-path`'s **filename is ignored**: `harvest()` takes
+> its *parent* as the telemetry dir (`mcp/src/harvest.rs:226`) and always writes
+> `<dir>/phase_runs.jsonl` (`:244`). The original command passed
+> `--telemetry-path "$SP/store.jsonl"` and then counted lines in `store.jsonl` —
+> a file harvest never touches. Every count read 0, so `after == mid` held
+> trivially and the check "passed" while measuring nothing. The executor ran the
+> command it was given and reported `before=60000 after-first=60000
+> after-second=60000` in good faith. Corrected command below counts
+> `$SP/phase_runs.jsonl`, seeds an **empty** dir so the first harvest must append,
+> and checks exit status.
+
 ```bash
 cargo build --release
 SP=$(mktemp -d)
-head -60000 ~/.rexymcp/telemetry/phase_runs.jsonl > "$SP/store.jsonl"
 TX=~/.claude/projects/-home-matt-src-rexyMCP
+# NOTE: only the *parent* of --telemetry-path matters; the store is always
+# <parent>/phase_runs.jsonl. Count that file, not the name you passed.
+STORE="$SP/phase_runs.jsonl"
 
-before=$(wc -l < "$SP/store.jsonl")
 target/release/rexymcp harvest --config rexymcp.toml --transcript-dir "$TX" \
-  --telemetry-path "$SP/store.jsonl"
-mid=$(wc -l < "$SP/store.jsonl")
+  --telemetry-path "$SP/x.jsonl" || { echo "FAIL: harvest #1 errored"; exit 1; }
+a=$(wc -l < "$STORE")
 target/release/rexymcp harvest --config rexymcp.toml --transcript-dir "$TX" \
-  --telemetry-path "$SP/store.jsonl"
-after=$(wc -l < "$SP/store.jsonl")
+  --telemetry-path "$SP/x.jsonl" || { echo "FAIL: harvest #2 errored"; exit 1; }
+b=$(wc -l < "$STORE")
 
-echo "before=$before after-first=$mid after-second=$after"
-echo "second harvest appended $((after - mid)) lines"
+echo "after-first=$a after-second=$b  second-harvest-appended=$((b - a))"
 ```
 
-The **second** harvest must append **0 lines** (`after == mid`), and its printout
-must report `0` new with a non-zero unchanged count. The first harvest may append
-records — the scratch store is a 60k-line prefix, so some buckets legitimately
-differ from the full corpus. Quote the literal `before=… after-first=… after-second=…`
-line and the second harvest's printout in the completion Update Log.
+Into an empty dir the **first** harvest must append a non-zero count (proving the
+measurement is pointed at a file that actually gets written), and the **second**
+must append **0** while reporting a non-zero unchanged count. Quote both printouts
+and the `after-first=… after-second=…` line in the completion Update Log.
 
-> **Measurement discipline (M43 phases 01–02 lesson, twice burned).** State the
-> result as a **difference you observe in one session** — here, `after - mid`
-> lines — not as an absolute number carried in from elsewhere. And assert the
-> thing you measured actually ran: if the harvest command errors, `after == mid`
-> is also true, and a broken command would read as a perfect pass. Check the
-> command's exit status and that its printout appeared before believing the zero.
+**Measured at review** (real transcript corpus, 48 sessions):
+
+```
+harvested 7320 messages across 48 sessions -> 145 ledger records (0 unchanged, 7347 duplicates skipped)
+REAL lines after #1 = 145
+harvested 7320 messages across 48 sessions -> 0 ledger records (145 unchanged, 7347 duplicates skipped)
+REAL lines after #2 = 145
+APPENDED BY SECOND HARVEST: 0
+```
+
+And the negative direction, which matters more — appending one assistant message
+to one transcript in a scratch copy of the corpus:
+
+```
+harvested 7322 messages across 48 sessions -> 1 ledger records (144 unchanged, ...)
+after-change delta = 1
+```
+
+Exactly one bucket re-appended, 144 skipped. Updates are not lost, which is the
+failure mode a key-presence-only comparison would have produced.
+
+> **Measurement discipline — third occurrence in this milestone.** All three have
+> the same root: an end-to-end criterion stated in terms the phase does not
+> control. Phase 01 measured a pid it did not verify; phase 02 measured against a
+> floor it did not own; phase 03 counted a file that was never written. The
+> general rule: **make the measurement prove it is live before you believe a
+> zero.** A "good" result that is also what you would see if the thing never ran
+> is not evidence. Here that means seeding an empty store so the first harvest
+> *must* be non-zero — a positive control.
 
 ## Authorizations
 
@@ -426,3 +460,27 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** acae94ee95ae827cf24ca4aa8e29920bc5e25c16
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-04
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none. The spec's three named failure modes were all
+  avoided: the comparison is `== Some(&ledger)` on the whole record, not key
+  presence; `total_messages` stays unconditional and `harvest_is_idempotent` is
+  unmodified; the candidate carries the record tag.
+- **Calibration:** **third** architect measurement defect in this milestone, and
+  the clearest. `--telemetry-path`'s filename is ignored — its parent becomes the
+  telemetry dir and the store is always `<parent>/phase_runs.jsonl`
+  (`mcp/src/harvest.rs:226`, `:244`) — so the spec's command counted a file
+  harvest never writes. All counts read 0, `after == mid` held trivially, and the
+  check passed while measuring nothing. Re-verified at review against the real
+  corpus: 145 appended into an empty store, then 0 appended / 145 unchanged, and
+  exactly 1 appended / 144 unchanged after adding one message to one transcript.
+  Phase 01 measured a pid it did not verify, phase 02 measured against a floor it
+  did not own, phase 03 counted a file that was never written — three instances of
+  one rule: **a measurement must prove it is live before a zero counts as
+  success.** Per WORKFLOW § Calibration this is the fold threshold; the fold is
+  proposed to the user rather than applied, since `STANDARDS.md` changes need
+  explicit sign-off.

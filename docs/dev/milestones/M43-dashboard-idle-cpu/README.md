@@ -22,7 +22,12 @@ growing without bound.
 - [x] A refresh that *does* have new data costs **one** read + parse of
       `phase_runs.jsonl`, not three. Met by phase 02 — reload work fell 3.2×
       (~77 → ~24 ticks) in an alternating A/B against the phase-01 binary.
-- [ ] `phase_runs.jsonl` stops growing monotonically while `rexymcp serve` idles.
+- [x] `phase_runs.jsonl` stops growing monotonically while `rexymcp serve` idles.
+      Met by phase 03 — verified against the real 48-session corpus: 145 records
+      appended into an empty store, then **0 appended / 145 unchanged** on a
+      re-harvest, and exactly **1 appended / 144 unchanged** after one message was
+      added to one transcript. *(Requires restarting a running `serve` to pick up
+      the new binary.)*
 - [ ] No behavior change visible in the TUI: the same panels, the same numbers,
       the same follow/scroll semantics.
 
@@ -115,7 +120,7 @@ the same code costs ~2 ms per refresh.
 | --- | ---------------------------------------------------------------------------------- | ------ |
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
 | 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | done |
-| 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | review      |
+| 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
 | 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
 | 05  | reconcile the `schema_version` gate divergence                                       | todo   |
 | 06  | compact the existing store (data-migration surface)                                  | todo   |
@@ -215,14 +220,32 @@ outlier between), so a genuine 3.2× win presented as a miss and a stable render
 floor presented as a regression. The robust form was the **delta**
 (`reloading − quiescent`), measured by alternating A/B in one session.
 
-Both occurrences are the same underlying architect error: **an end-to-end
-criterion stated in terms the phase does not control.** Phase 01 measured a pid it
-did not verify; phase 02 measured against a floor it did not own. Per WORKFLOW
-§ Calibration, two is a trend — the third occurrence folds a rule into
-`STANDARDS.md` that a performance criterion must be expressed as a **difference
-measured in one session against the previous binary**, never as an absolute number
-carried across environments. Not folding yet, and the fold needs the user's
-sign-off when it comes.
+**Third occurrence, filed at phase-03 review — the fold threshold is reached.**
+Phase 03's end-to-end command counted `$SP/store.jsonl`, but `--telemetry-path`
+ignores the filename it is given: `harvest()` takes the *parent* as the telemetry
+dir (`mcp/src/harvest.rs:226`) and always writes `<parent>/phase_runs.jsonl`
+(`:244`). So every count read 0, `after == mid` held trivially, and the check
+reported success while measuring a file nothing ever wrote.
+
+All three are the same architect error: **an end-to-end criterion stated in terms
+the phase does not control**, and in each case the failure mode was
+indistinguishable from success.
+
+| Phase | What was measured                       | Why a "pass" was meaningless      |
+| ----- | --------------------------------------- | --------------------------------- |
+| 01    | a pid never verified to be the target   | the `script` wrapper reads 0 %     |
+| 02    | a delta against a floor it did not own  | the floor drifted 26 → 72 → 384    |
+| 03    | a file the binary never writes          | an untouched file never grows      |
+
+Per WORKFLOW § Calibration, three is a fix. The **proposed fold**, awaiting the
+user's sign-off before anything is written to `STANDARDS.md`:
+
+> An end-to-end criterion must carry a **positive control** — an observation in
+> the same session that would fail if the measurement were not live. Prefer a
+> difference measured against a known-good starting state (seed an empty store so
+> the first run *must* be non-zero; A/B against the previous binary) over an
+> absolute number carried in from another environment. A result that is also what
+> you would see if the thing never ran is not evidence.
 
 **Calibration note (one occurrence — hold, do not fold).** The defect class here
 is "a reader whose cost scales with total history, on a store designed to be
