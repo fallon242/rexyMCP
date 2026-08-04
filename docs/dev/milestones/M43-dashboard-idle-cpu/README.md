@@ -237,15 +237,20 @@ indistinguishable from success.
 | 02    | a delta against a floor it did not own  | the floor drifted 26 → 72 → 384    |
 | 03    | a file the binary never writes          | an untouched file never grows      |
 
-Per WORKFLOW § Calibration, three is a fix. The **proposed fold**, awaiting the
-user's sign-off before anything is written to `STANDARDS.md`:
+Per WORKFLOW § Calibration, three is a fix. **Folded 2026-08-04 with the user's
+sign-off** into `docs/dev/STANDARDS.md` § 1.1, "An end-to-end verification must
+prove it is live", plus a cross-reference from the §1 end-to-end DoD box. The rule:
 
-> An end-to-end criterion must carry a **positive control** — an observation in
-> the same session that would fail if the measurement were not live. Prefer a
-> difference measured against a known-good starting state (seed an empty store so
-> the first run *must* be non-zero; A/B against the previous binary) over an
-> absolute number carried in from another environment. A result that is also what
-> you would see if the thing never ran is not evidence.
+> An end-to-end check has to be able to fail. Every one carries a **positive
+> control** — an observation in the same session that would come out differently
+> if the measurement were not live. Seed a known-good starting state so the first
+> observation must be non-zero; prefer a difference measured in one session over
+> an absolute carried in from another environment; assert the subject exists,
+> survived, and is the thing under test; check exit status.
+
+Not propagated to `plugin/templates/STANDARDS.md` — the templates already lag the
+resolved copies (248 vs 265 lines before this fold), and pushing a rule to every
+future project is a product decision separate from adopting it here.
 
 **Calibration note (one occurrence — hold, do not fold).** The defect class here
 is "a reader whose cost scales with total history, on a store designed to be
