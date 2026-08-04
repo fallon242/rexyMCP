@@ -113,9 +113,10 @@ the same code costs ~2 ms per refresh.
 | #   | Phase                                                                              | Status |
 | --- | ---------------------------------------------------------------------------------- | ------ |
 | 01  | mtime-gated reload ([phase-01-mtime-gated-reload.md](phase-01-mtime-gated-reload.md)) | done   |
-| 02  | single-pass telemetry read                                                          | todo   |
+| 02  | single-pass telemetry read ([phase-02-single-pass-telemetry-read.md](phase-02-single-pass-telemetry-read.md)) | todo |
 | 03  | bound `phase_runs.jsonl` growth                                                     | todo   |
 | 04  | render-path cost — session-log re-highlight per tick (the residual 4 %)             | todo   |
+| 05  | reconcile the `schema_version` gate divergence                                       | todo   |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when
 there is no new work to do. It is deliberately first because it is the smallest
@@ -132,6 +133,24 @@ when the phase is drafted: fold-before-append in the sweep, a compaction pass ov
 the store, or splitting the ledger into its own last-write-wins file. Sequenced
 last because it is the only one with a data-migration surface, and because 01 + 02
 already make the store's size a non-problem for readers.
+
+**05** was added while drafting phase 02, which had to pick a filtering semantics
+and so surfaced a pre-existing defect: the dashboard's private `read_phase_runs`
+(`mcp/src/dashboard/mod.rs:216`) has **no `schema_version` gate**, while
+`telemetry::read` (`executor/src/store/telemetry.rs:214`) does. For this project's
+own runs the two disagree by 2.4×:
+
+| Reader                                | Runs | Executor input tokens |
+| ------------------------------------- | ---- | --------------------- |
+| dashboard (`read_phase_runs`, ungated)| 279  | 675,472,883           |
+| `rexymcp costs` (`read`, gated)       | 55   | 287,266,673           |
+
+566 of the 745 `PhaseRun` lines in the store predate M35 and carry no
+`schema_version`. Phase 02 **preserves both behaviors exactly** — per an explicit
+decision that a visible numbers change should be reviewed on its own merits rather
+than folded into a performance refactor. Phase 05 picks the winner. Note
+`architecture.md` §35 already states pre-M35 records go dark, which argues the
+dashboard is the outlier; that is phase 05's argument to make, not phase 02's.
 
 **04** was added at phase-01 review, when correcting the measurement showed the
 render path is not free after all: it is the entire residual 4 %, re-wrapping and

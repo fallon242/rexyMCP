@@ -4,7 +4,18 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M43-dashboard-idle-cpu/phase-01-mtime-gated-reload` (todo).**
+**Active phase: `M43-dashboard-idle-cpu/phase-02-single-pass-telemetry-read` (todo).**
+
+**Phase 01 done and approved 2026-08-04** (`a2e9b43`, approval `24cdd94`,
+verdict `approved_first_try`). Idle cost is now independent of telemetry-store
+size — 103 MB and an empty dir both measure 4 %, down from a 62 % baseline. Two
+corrections landed with the approval: the phase doc's end-to-end command selected
+the `script` wrapper rather than the dashboard (so the executor's reported
+`idle CPU: 0%` was a false green from an idle process), and the milestone's
+opening claim that the render path is free was read off that same wrapper — it is
+in fact the whole residual 4 %, now phase 04. Phase 05 was added while drafting
+02: the dashboard's run reader has no `schema_version` gate where
+`telemetry::read` does, and the two disagree 2.4× on this project's totals.
 
 **M43 — Dashboard Idle CPU opened 2026-08-04** from a user report that `rexymcp
 dashboard --repo .` pins a core while `rexymcp serve` is idle, on long-lived
