@@ -7,6 +7,76 @@ change?" signal this phase keys its cache on)
 **Estimated diff:** ~200 lines
 **Tags:** language=rust, kind=refactor, size=m
 
+---
+
+# ⚠ THIS IS A BOUNCE FIX — READ THIS FIRST
+
+**The code in this repo already builds, lints, and passes all 1061 tests. That is
+not the task and it is not evidence of success.** The first attempt at this phase
+was implemented exactly as specced, passed every gate — and delivered **zero**
+measurable improvement. It was bounced.
+
+**Read [`bugs/bug-04-1.md`](bugs/bug-04-1.md) before touching anything.**
+
+What is already done and must be **kept**: `TranscriptCache` in `render.rs`, the
+`generation` counter in `event_loop.rs`, the `ViewState.generation` field, and the
+five cache tests. All correct. Do not rewrite them.
+
+What is **broken**, in `mcp/src/dashboard/render.rs`, filter-closed branch:
+
+```rust
+        let wrapped = cache
+            .get(state.generation, &data.records, &filter_state.filter, wrap_width, INDENT)
+            .to_vec();          // <-- THIS. Deep-copies every Span's String,
+                                //     every record, every tick. Costs about what
+                                //     rebuilding cost, so the cache buys nothing.
+```
+
+Replace it with a viewport slice — clone only the rows that will be drawn, and
+drop `.scroll(...)` because the slice already positions the window:
+
+```rust
+        let all = cache.get(
+            state.generation,
+            &data.records,
+            &filter_state.filter,
+            wrap_width,
+            INDENT,
+        );
+        total_wrapped = all.len();
+        let viewport = activity_area.height.saturating_sub(2);
+        let scroll = visible_offset(state.follow, state.offset, total_wrapped, viewport);
+        let start = (scroll as usize).min(total_wrapped);
+        let end = start.saturating_add(viewport as usize).min(total_wrapped);
+        let visible: Vec<Line<'static>> = all[start..end].to_vec();
+
+        frame.render_widget(
+            Paragraph::new(visible).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Activity [f=filter] "),
+            ),
+            activity_area,
+        );
+```
+
+`total_wrapped` stays the **full** count — the scrollbar and the event loop's
+`clamp_scroll` both depend on it. The filter-open branch already takes only
+`.len()`; leave it.
+
+Then two more items, both in bug-04-1: make
+`transcript_cache_rebuilds_when_width_changes` assert a strict `>` (it currently
+uses `>=`, which passes even when the cache ignores width — the exact bug it is
+named for), and **run the end-to-end verification with its positive control** and
+quote the numbers. Skipping that check is why a phase that achieved nothing was
+reported complete.
+
+**You are not done when the gates are green.** You are done when the A/B
+measurement shows quiescent CPU at or below half the phase-03 binary's, with the
+positive control non-zero. If it does not, say so — do not report complete.
+
+---
+
 ## Goal
 
 Stop rebuilding and re-wrapping the entire Activity transcript on every 500 ms
