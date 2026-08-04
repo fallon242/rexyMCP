@@ -4,9 +4,41 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M43-dashboard-idle-cpu/phase-05-reconcile-schema-version-gate` (todo).**
+**Active phase: `M43-dashboard-idle-cpu/phase-06-compact-the-store` (todo).**
 
-**Phase 05 drafted 2026-08-04**, after a design fork the user resolved. The
+**Phase 06 drafted 2026-08-04** — the milestone's only data-rewriting phase. A
+`rexymcp compact` subcommand rewrites `phase_runs.jsonl` to the records that
+still matter: simulated against the real store, **108.7 MB → ~0.48 MB**
+(291,768 → 865 lines, 0.44 %). Three things the spec makes load-bearing:
+selection is **by line, copied byte-for-byte** (never parse-and-re-serialize, or
+the compacted store is not the same data); a **tail-preserving atomic rename** so
+the user need not stop `serve`; and a **backup written before the rename**. The
+correctness criterion is that `rexymcp costs` reports identical figures before
+and after — with a positive control showing the bytes underneath changed by
+~290,000 lines, since "the numbers match" is also what a no-op produces.
+
+**Found while drafting 06 — the JSONL appends are not atomic.** 209 lines in the
+real store hold two concatenated JSON objects with no newline between them,
+because `append` and its three siblings write the payload and the `\n` as two
+separate `write_all` calls on an `O_APPEND` handle. Every reader
+`filter_map(...ok())`s them away silently, so ~418 ledger records are invisible
+today and nothing ever reported it. **Candidate phase 07**, deliberately kept out
+of 06 (a producer-side fix does not belong in the same review as a one-shot
+migration of user data). 06 drops those lines and reports the count; the backup
+retains them. Detail in the M43 README § "Found while drafting 06".
+
+**Phase 05 done and approved 2026-08-04** (`d14e649`, approval `4cabaea`,
+verdict `approved_first_try`). The `PhaseRun` arm of `read_all` now carries the
+`schema_version` gate, so the dashboard and `rexymcp costs` agree. Verified by
+mutation (reverting the gate fails exactly the three tests meant to catch it) and
+by an A/B in one session: the phase-04 binary reads $1460.26 from `costs` against
+$3461.30 on the dashboard, the phase-05 binary reads $1460.26 from both. One
+calibration nit held at first occurrence: the executor's Update Log entry
+self-reported "Claude (Sonnet 4.5)" — false, corrected at review; the
+server-authored bookkeeping tail records the true model, so telemetry is
+unaffected.
+
+**Phase 05 was drafted** after a design fork the user resolved. The
 dashboard and `rexymcp costs` disagree 2.4× because the `PhaseRun` arm of
 `read_all` has no `schema_version` gate; 05 adds it, and the dashboard Budget
 panel's Project column drops to match `costs`. One finding argued the other way

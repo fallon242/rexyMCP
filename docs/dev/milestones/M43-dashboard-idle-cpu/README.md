@@ -127,7 +127,8 @@ the same code costs ~2 ms per refresh.
 | 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
 | 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | done |
 | 05  | reconcile the `schema_version` gate divergence ([phase-05-reconcile-schema-version-gate.md](phase-05-reconcile-schema-version-gate.md)) | done   |
-| 06  | compact the existing store (data-migration surface)                                  | todo   |
+| 06  | compact the existing store ([phase-06-compact-the-store.md](phase-06-compact-the-store.md)) | todo   |
+| 07  | make the JSONL appends atomic (candidate — see § Notes)                              | not drafted |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when
 there is no new work to do. It is deliberately first because it is the smallest
@@ -276,3 +277,40 @@ append-only forever." M35 built the append-only store; M40 added the sweep that
 writes to it every 60 s; M8's dashboard reads it at 2 Hz. Each was locally
 reasonable. If a second such interaction shows up, the fold is a standing rule
 about append-only stores needing a bounded-read contract at design time.
+
+### Found while drafting 06 — the appends are not atomic (candidate phase 07)
+
+Simulating the compaction rules against the real store turned up **209 lines
+that hold two concatenated JSON objects with no newline between them** — e.g. a
+735-byte line whose parse fails at `Extra data: line 1 column 363`. They sit in
+one contiguous band (file lines ~31,620–33,748), so this was a single episode
+rather than steady state.
+
+The cause is structural. `append` (`executor/src/store/telemetry.rs:206`) and
+its three siblings write the payload and the trailing newline as **two separate
+`write_all` calls** on an `O_APPEND` handle:
+
+```rust
+    file.write_all(line.as_bytes())?;
+    file.write_all(b"\n")?;
+```
+
+Each `write_all` is its own atomic append, so a second appender can land between
+them — which is exactly what a 60 s sweep racing a phase-run write would do.
+
+Two things make this worse than it looks. First, **every reader hides it**: they
+all `filter_map(|l| serde_json::from_str(l).ok())`, so a corrupted line is
+skipped in silence — roughly 418 ledger records are invisible today and nothing
+ever said so. Second, the fix is nearly free (build one buffer, one `write_all`),
+which means the only reason it has survived is that nobody looked.
+
+Deliberately **not** folded into 06: 06 rewrites user data and already carries a
+backup/atomicity/tail-preservation story, and mixing a producer-side fix into a
+one-shot migration would put two unrelated risks in one review. 06 therefore
+drops those lines and **reports the count**; the backup retains them. Sequence 07
+after 06 — compacting first shrinks the corpus the fix has to be verified
+against.
+
+Worth deciding at 07 drafting time, not now: whether readers should *count*
+malformed lines rather than skip them silently, so the next occurrence surfaces
+on its own instead of waiting for someone to simulate a migration.

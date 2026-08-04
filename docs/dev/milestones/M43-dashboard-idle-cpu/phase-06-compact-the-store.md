@@ -1,0 +1,335 @@
+# Phase 06: compact the existing telemetry store
+
+**Milestone:** M43 — Dashboard Idle CPU
+**Status:** todo
+**Depends on:** phase-03 (stopped the growth), phase-05 (decided legacy runs are dark)
+**Estimated diff:** ~400 lines (new `mcp/src/compact.rs` + CLI wiring + tests)
+**Tags:** language=rust, kind=feature, size=m
+
+## Goal
+
+Phases 01–04 made the dashboard stop *re-reading* a 108 MB store; phase 03
+stopped it *growing*. Nobody has reclaimed what is already there. This phase
+adds a `rexymcp compact` subcommand that rewrites `phase_runs.jsonl` down to the
+records that still matter — on this project, **108.7 MB → ~0.48 MB** — behind a
+backup and an atomic rename.
+
+This is the milestone's only phase that **rewrites the user's data**. Treat
+every instruction about backup, atomicity, and reporting as load-bearing.
+
+## Architecture references
+
+Read before starting:
+
+- `docs/architecture.md` §35 (M35, design fork 4) — telemetry is version-gated
+  and pre-M35 records go dark. This is why compaction may drop unstamped
+  `PhaseRun` records.
+- `docs/architecture.md` §43 (M43 — Dashboard idle CPU) — the milestone.
+
+## Pre-flight
+
+1. Read `docs/dev/STANDARDS.md` top to bottom, including **§1.1 "An end-to-end
+   verification must prove it is live"**.
+2. Read the architecture references above.
+3. Read this entire phase doc before touching any code.
+4. Confirm the repo is on a clean branch with no uncommitted changes.
+
+## Current state
+
+`phase_runs.jsonl` is one append-only JSONL file holding four record types,
+discriminated by a `record` field (absent on `PhaseRun`). Measured on the real
+store at `/home/matt/.rexymcp/telemetry/phase_runs.jsonl` on 2026-08-04:
+
+| Line class                                     | Count       |
+| ---------------------------------------------- | ----------- |
+| `architect_ledger`                             | 290,157     |
+| `review`                                       | 329         |
+| `architect_activity`                           | 323         |
+| `PhaseRun`, stamped (`schema_version: 1`)      | 184         |
+| `PhaseRun`, unversioned (pre-M35)              | 357         |
+| blank lines                                    | 209         |
+| **malformed** (two JSON objects on one line)   | 209         |
+| **total**                                      | **291,768** |
+| **total bytes**                                | 108,690,529 |
+
+The ledger lines are 99.4 % of the file and almost all of them are dead:
+`fold_ledger` collapses them by last-write-wins to **410** surviving keys.
+`fold_activities` collapses the 323 activities to **104**.
+
+**A simulation of the selection rules below, run against the real file, keeps
+865 lines / 479,540 bytes — 0.44 % of the original.** Use that as an order-of-
+magnitude expectation, not as a hard assertion (the store changes between
+sessions).
+
+### The two fold rules you must reproduce exactly
+
+`fold_ledger` (`executor/src/store/telemetry.rs:666`) — **last** record wins per
+key, order preserved:
+
+```rust
+pub fn fold_ledger(ledgers: Vec<ArchitectLedger>) -> Vec<ArchitectLedger> {
+    let mut latest: HashMap<(Option<String>, String, String, String), usize> = HashMap::new();
+    let mut out: Vec<ArchitectLedger> = Vec::new();
+    for l in ledgers {
+        let key = (l.project_id.clone(), l.session_id.clone(), l.model.clone(), l.skill.clone());
+        if let Some(&idx) = latest.get(&key) { out[idx] = l; } else { latest.insert(key, out.len()); out.push(l); }
+    }
+    out
+}
+```
+
+`fold_activities` (`:534`) — same shape, key `(phase_id, activity, ts)`.
+
+### The malformed lines — a real finding, do not "fix" them here
+
+209 lines contain **two concatenated JSON objects with no newline between
+them**, e.g. a line of 735 bytes whose parse fails with `Extra data: line 1
+column 363`. They sit in one contiguous band (file lines ~31,620–33,748), so
+this was one episode, not steady-state.
+
+The cause is visible in `append` (`executor/src/store/telemetry.rs:206`) and its
+three siblings: the payload and the newline are **two separate `write_all`
+calls** on an `O_APPEND` file, so a concurrent appender can interleave between
+them. Every current reader hides this — they all `filter_map(... .ok())` and
+skip the line silently, meaning ~418 ledger records are invisible today.
+
+**Fixing the append atomicity is NOT this phase** (it is a follow-up, noted in
+the milestone README). This phase must (a) not choke on those lines, and (b)
+**report** how many it dropped rather than dropping them silently.
+
+## Spec
+
+### 1. New module `mcp/src/compact.rs`
+
+Add `mod compact;` to `mcp/src/main.rs` (the `mod` list at `:6`–`:31`, kept
+alphabetical — it goes after `mod cap;`).
+
+Model the module on `mcp/src/review.rs`, which is the closest analogue already
+in the tree: a borrowed-args struct, an outcome struct, one `pub fn` returning
+`Result<Outcome, String>`, config-or-override path resolution. Its resolution
+block is the pattern to copy (`mcp/src/review.rs:41`):
+
+```rust
+    // Resolve the telemetry DIRECTORY (append_review joins phase_runs.jsonl).
+    let telemetry_dir: PathBuf = if let Some(p) = telemetry_path {
+        p.parent().map(Path::to_path_buf)
+            .ok_or_else(|| "invalid --telemetry-path: no parent directory".to_string())?
+    } else if let Some(ref dir) = cfg.telemetry.dir {
+        dir.clone()
+    } else {
+        return Err("telemetry disabled: cfg.telemetry.dir not set and no --telemetry-path provided".to_string());
+    };
+```
+
+### 2. Selection is by **line**, never by re-serialization
+
+This is the single most important rule in the phase. Compaction decides *which
+raw lines to keep* and copies them through **byte-for-byte**. It must never
+parse a record into a struct and re-serialize it — a round-trip silently
+rewrites field order, drops unknown fields, and re-floats numbers, which would
+mean the compacted store is not the same data.
+
+Parse only enough to classify and to compute fold keys. Keep the original
+`&str` for output.
+
+Selection rules, applied to lines in file order:
+
+- **blank line** (`line.trim().is_empty()`) → drop, count as `blank`.
+- **fails `serde_json::from_str::<serde_json::Value>`** → drop, count as
+  `malformed`.
+- **`record == "architect_ledger"`** and `schema_version == 1` → keep **only**
+  the last line per `(project_id, session_id, model, skill)`.
+- **`record == "architect_activity"`** and `schema_version == 1` → keep **only**
+  the last line per `(phase_id, activity, ts)`.
+- **`record == "review"`** and `schema_version == 1` → keep all.
+- **no `record` field** (i.e. a `PhaseRun`) and `schema_version == 1` → keep all.
+- **no `record` field** and no/other `schema_version` → **drop**, count as
+  `legacy_run`. These are the 357 pre-M35 records phase 05 decided are dark.
+- any `record` value not listed above, or a listed one with a non-current
+  `schema_version` → drop, count as `other`.
+
+Emit kept lines in **original file order** (sort the kept indices). Terminate
+every line with a single `\n`.
+
+### 3. Concurrency: tail-preserving, atomic rename
+
+`rexymcp serve`'s sweep appends to this file every 60 s. Do not require the user
+to stop it. Instead:
+
+1. Stat the store; record its length `n`.
+2. Read the file and apply §2 to the content **within the first `n` bytes only**.
+3. Write kept lines to a temp file **in the same directory** (same filesystem is
+   required for the rename to be atomic) — e.g. `phase_runs.jsonl.compact-tmp`.
+4. Copy bytes `[n..EOF)` from the live store to the temp file verbatim — the
+   records appended while step 2 ran. Repeat, advancing `n`, until a pass copies
+   zero bytes, up to **3** passes.
+5. Copy the original store to `phase_runs.jsonl.bak-compact-<ts>` where `<ts>`
+   is the injected timestamp (see §5). **The backup must be complete on disk
+   before the rename.**
+6. `std::fs::rename(temp, store)`.
+
+**Accepted residual race, state it in the module doc comment:** an append that
+lands between the final tail copy and the rename is lost. The window is
+sub-millisecond, and the sweep's harvest is idempotent by design (it re-appends
+full-sum ledger records per key), so the next sweep restores anything lost. This
+is a deliberate trade against making the user stop `serve`.
+
+### 4. `--dry-run`
+
+With `--dry-run`, do everything through step 2, report, and **write nothing** —
+no temp file, no backup, no rename. This is the flag a cautious user reaches for
+first, so it must be genuinely inert on the filesystem.
+
+### 5. Determinism: inject the timestamp
+
+Do **not** call `SystemTime::now()` inside the compaction function — STANDARDS
+§ Testing forbids real clocks in testable paths. Take `ts: u64` as a parameter
+and compute it in `main.rs`, exactly as the `Review` arm does
+(`mcp/src/main.rs:885`):
+
+```rust
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+```
+
+### 6. CLI subcommand
+
+Add a `Compact` variant to the `Commands` enum in `mcp/src/main.rs`, following
+the `Review` variant's shape (`:321`):
+
+- `--config <PathBuf>` (required)
+- `--telemetry-path <PathBuf>` (optional override, names the *file*)
+- `--dry-run` (bool flag)
+
+Dispatch it to `compact::compact_store(...)` and print the report. On `Err`,
+print the message to stderr and exit non-zero.
+
+### 7. The report
+
+Print a human-readable summary to stdout. It must name, at minimum: input lines
+and bytes, output lines and bytes, the reduction as a percentage, and a
+per-class breakdown of what was dropped — **with `legacy_run` and `malformed`
+called out as their own lines**, since those are the two classes that represent
+real records going away rather than superseded duplicates. Also print the backup
+path (or, under `--dry-run`, say that nothing was written).
+
+Pin the *content*, not the exact layout — the executor chooses the formatting.
+
+## Acceptance criteria
+
+- [ ] `cargo test` passes (existing + new).
+- [ ] `rexymcp compact --config <cfg> --dry-run` prints a report and leaves the
+      store **byte-identical** (verify with a checksum before and after).
+- [ ] `rexymcp compact --config <cfg>` produces a store containing exactly the
+      lines the §2 rules select, in original order, byte-for-byte identical to
+      their form in the input.
+- [ ] A backup file `phase_runs.jsonl.bak-compact-<ts>` exists after a non-dry
+      run and is byte-identical to the pre-compaction store.
+- [ ] After compaction, `rexymcp costs` reports the **same** Project Executor and
+      Project Architect figures as before it. This is the correctness criterion
+      that matters — compaction must be invisible to every consumer.
+- [ ] Records appended to the store *while* compaction runs survive it.
+- [ ] Test `compact_keeps_only_the_last_ledger_per_key` passes.
+- [ ] Test `compact_drops_unversioned_phase_runs` passes.
+- [ ] Test `compact_dry_run_writes_nothing` passes.
+- [ ] Test `compact_preserves_bytes_appended_during_the_run` passes.
+
+## Test plan
+
+Hermetic — `TempDir` only, injected `ts`, no real store, no network.
+
+- `compact_keeps_only_the_last_ledger_per_key` — seed three ledger lines, two
+  sharing a `(project_id, session_id, model, skill)` key with different
+  `messages` values. Assert the output has two lines and that the surviving
+  duplicate is the **later** one (assert on a distinguishing field value, not
+  just the count — a count-only assertion passes if you keep the wrong one).
+- `compact_keeps_all_reviews_and_stamped_runs` — seed one review + one stamped
+  `PhaseRun`; assert both survive.
+- `compact_drops_unversioned_phase_runs` — seed one stamped and one unstamped
+  `PhaseRun`; assert only the stamped one survives and the report counts one
+  `legacy_run`.
+- `compact_drops_malformed_and_blank_lines` — seed a blank line and a line of
+  two concatenated JSON objects (reproduce the real shape:
+  `{"a":1}{"b":2}` on one line); assert both are dropped and counted in their
+  own classes.
+- `compact_preserves_kept_lines_byte_for_byte` — seed a ledger line whose JSON
+  has deliberately unusual key order and extra whitespace; assert the output
+  line equals the input line **exactly**. This is the test that catches an
+  accidental parse/re-serialize round-trip.
+- `compact_output_preserves_file_order` — seed records so that fold winners are
+  interleaved with reviews; assert the output order matches input order.
+- `compact_dry_run_writes_nothing` — snapshot the directory listing and the
+  store's bytes before and after; assert both unchanged and that no temp or
+  backup file was created.
+- `compact_writes_backup_before_replacing` — assert the backup exists, is
+  byte-identical to the original, and that its name carries the injected `ts`.
+- `compact_preserves_bytes_appended_during_the_run` — the tail-copy path.
+  Simulate by appending to the store between the length-stat and the tail copy;
+  if that is awkward to inject, restructure so the tail copy is a separate
+  testable function and test it directly. Assert the appended record is present
+  in the compacted output.
+- `compact_on_missing_store_is_an_error_not_a_panic` — a store path that does
+  not exist returns `Err`, does not panic, and creates nothing.
+
+## End-to-end verification
+
+The unit tests run against fixtures; the artifact this phase ships rewrites a
+108 MB file the user depends on. Verify against a **copy** of the real store —
+never against the live one.
+
+1. `cp ~/.rexymcp/telemetry/phase_runs.jsonl /tmp/<scratch>/phase_runs.jsonl`
+   and point a throwaway config's `[telemetry] dir` at that scratch directory.
+2. Run with `--dry-run`. Confirm the store's checksum is unchanged and quote the
+   report.
+3. Run for real. Quote the report: input/output lines and bytes, the reduction,
+   and the dropped-class breakdown.
+4. **The correctness check:** run `rexymcp costs --config <throwaway cfg>`
+   **before** and **after** compaction against the scratch store, and show the
+   Project Executor and Project Architect figures are **identical**. A smaller
+   file that changes the numbers is a failed compaction, not a successful one.
+
+**Positive control (STANDARDS §1.1), required.** A "the numbers match" result
+looks the same as a compaction that did nothing at all. So in the same session,
+also show the run **did** transform the file: quote input vs output byte counts
+from step 3 (expect roughly 108 MB → ~0.5 MB) **and** show that the pre- and
+post-compaction files are not the same file — e.g. `wc -l` differing by ~290,000
+and the checksums differing. Report both halves together: the numbers the
+consumers see are unchanged *and* the bytes underneath them changed enormously.
+
+**Check exit status** on every command, and confirm the backup file exists with
+the expected size before reporting success.
+
+## Authorizations
+
+- [ ] May add dependencies: **No.** `serde_json` and `tempfile` are already
+      `mcp` dependencies (`mcp/Cargo.toml:15`, `:27`).
+- [ ] May touch `docs/architecture.md`: **No.**
+
+Everything else: None.
+
+## Out of scope
+
+- **Fixing the two-`write_all` append race** that produced the 209 malformed
+  lines. It is a real bug and it is a separate phase — note it in "Notes for
+  review" if you like, but do not touch `append`, `append_review`,
+  `append_architect_activity`, or `append_architect_ledger`.
+- **Repairing or recovering the malformed lines.** Drop and count them. The
+  backup retains them.
+- **Deleting or touching the existing `.bak*` files** in the telemetry dir
+  (~74 MB of them). They are the user's, nothing reads them, and removing user
+  backups is not a decision this phase gets to make.
+- **Running compaction automatically** — no sweep hook, no serve-startup hook,
+  no size threshold that triggers it. This phase ships a command the human runs.
+- **Changing any reader**, fold function, or the schema-version gate. If
+  compaction appears to require a reader change, stop and report it — that means
+  the selection rules and the readers disagree, which is a spec defect.
+- **Compacting the session logs** under `.rexymcp/sessions/`. Different store,
+  different lifecycle.
+
+## Update Log
+
+(Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
+
+<!-- entries appended below this line -->
