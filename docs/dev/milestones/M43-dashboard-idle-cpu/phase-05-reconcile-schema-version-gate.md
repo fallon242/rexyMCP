@@ -1,7 +1,7 @@
 # Phase 05: reconcile the `schema_version` gate divergence
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** done
 **Depends on:** phase-02 (introduced `read_all`), phase-04 (done)
 **Estimated diff:** ~90 lines (≈10 production, the rest test fixtures)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -277,7 +277,10 @@ Everything else: None.
 
 ### Update — 2026-08-04 22:50 (started)
 
-**Executor:** Claude (Sonnet 4.5)
+**Executor:** Qwen/Qwen3.6-27B-FP8 *(corrected at review — this entry
+originally self-reported "Claude (Sonnet 4.5)", which is false; the dispatched
+model is the local executor, per `executor_health` and the server-authored
+completion entry below.)*
 
 Implementing schema_version gate on the `PhaseRun` arm of `read_all` to reconcile the dashboard and `rexymcp costs` divergence.
 
@@ -389,3 +392,68 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** d14e649cfcfd288acd3fbedf4bbabef149881acd
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-04
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none. All seven spec tasks implemented as written. The
+  gate uses the specified `let`-chain form; the deferral note is gone; no
+  `architecture.md` edit (correctly — none was authorized); the store itself was
+  not touched, so the phase-06 boundary held.
+- **Calibration:** one nit, recorded not folded (first occurrence). The
+  executor's "started" Update Log entry self-reported **"Claude (Sonnet 4.5)"**,
+  which is false — a local-model self-misidentification, contradicted by the
+  server-authored completion entry in the same doc. Corrected in place at review.
+  It is a docs-only artifact with no effect on the code or the gates, and the
+  server-authored bookkeeping tail (M27 phase-03) already records the true model,
+  so telemetry attribution is unaffected. Hold for recurrence.
+
+**Verified at review (architect), all numbers measured independently:**
+
+**Gates**, re-run as separate invocations: `cargo fmt --all --check` clean,
+`cargo build` clean, `cargo clippy --all-targets --all-features -- -D warnings`
+clean, `cargo test` **1061 + 700 + 2 passed, 0 failed**, no test deleted and none
+`#[ignore]`d.
+
+**Mutation check** — the assertions are real, not decorative. Reverting the
+production change to the pre-fix ungated form fails exactly the three tests that
+are supposed to catch it, and no others:
+
+```
+read_all_runs_are_schema_version_gated ................. FAILED
+read_all_matches_per_type_readers_on_the_same_file ..... FAILED
+load_data_project_savings_excludes_other_projects ...... FAILED
+(read_all_* siblings, other load_data_* .................... ok)
+```
+
+The third is the load-bearing one for spec task 7: before the strengthening, that
+fixture was excluded for having no `project_id` and would have passed with the
+gate absent. It now fails, so it tests the gate rather than the `project_id`
+filter.
+
+**End-to-end, A/B in one session** (release builds, dashboard rendered in a
+detached 200×50 tmux pane and read back with `capture-pane`):
+
+| Binary             | `rexymcp costs` Project Executor | Dashboard Budget Project Executor |          |
+| ------------------ | -------------------------------- | --------------------------------- | -------- |
+| phase-04 (pre-fix) | $1460.26                         | **$3461.30**                      | unequal  |
+| phase-05           | $1460.26                         | **$1460.26**                      | **equal**|
+
+Positive control (STANDARDS § 1.1): the phase-04 row is the control — the same
+harness, same store, same session shows the 2.37× divergence, which proves the
+measurement can detect the defect and that the phase-05 equality is a real result
+rather than two readers both returning nothing. Both dashboard processes were
+confirmed to be the subject under test via `/proc/<pid>/comm` = `rexymcp` and
+still alive at capture; both `costs` invocations exited 0.
+
+Session and Milestone columns read $0.97 / $4.82 identically under both binaries,
+confirming the phase doc's prediction that milestone-scoped costs were already
+unaffected and only the Project column moves.
+
+**Absolute figures differ from the executor's ($1459.29 → $1460.26)** because
+this phase's own run appended a `PhaseRun` between the two measurements. That
+drift is precisely why the criterion was specified as a *relationship* rather
+than an absolute — the third time this milestone has been served well by that
+rule.
