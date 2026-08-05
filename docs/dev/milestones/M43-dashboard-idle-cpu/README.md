@@ -127,7 +127,7 @@ the same code costs ~2 ms per refresh.
 | 03  | skip unchanged ledger appends ([phase-03-skip-unchanged-ledger-appends.md](phase-03-skip-unchanged-ledger-appends.md)) | done |
 | 04  | memoize transcript render ([phase-04-memoize-transcript-render.md](phase-04-memoize-transcript-render.md)) | done |
 | 05  | reconcile the `schema_version` gate divergence ([phase-05-reconcile-schema-version-gate.md](phase-05-reconcile-schema-version-gate.md)) | done   |
-| 06  | compact the existing store ([phase-06-compact-the-store.md](phase-06-compact-the-store.md)) | review      |
+| 06  | compact the existing store ([phase-06-compact-the-store.md](phase-06-compact-the-store.md)) | done   |
 | 07  | make the JSONL appends atomic (candidate — see § Notes)                              | not drafted |
 
 **01** removes the idle cost outright — the dashboard stops doing the work when

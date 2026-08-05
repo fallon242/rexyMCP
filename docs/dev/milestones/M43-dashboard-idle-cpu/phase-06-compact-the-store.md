@@ -1,7 +1,7 @@
 # Phase 06: compact the existing telemetry store
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** done
 **Depends on:** phase-03 (stopped the growth), phase-05 (decided legacy runs are dark)
 **Estimated diff:** ~400 lines (new `mcp/src/compact.rs` + CLI wiring + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -667,3 +667,76 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 64e1ff3593625d656b72a9b53b9497e39d9f4265
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-05
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 (bug-06-1 blocker, bug-06-2 major — both closed)
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none. The bounce fix stayed inside the scope the header
+  set — `mod tests`, one `#[allow]` deletion, and the authorized `copy_tail`
+  extraction. The reviewed compaction logic (`select_lines`, the selection rules,
+  backup/rename ordering, the report) was left alone as instructed.
+- **Calibration:** the loud bounce-fix header earned its keep for the second time
+  in this milestone. Both bounce conditions were the ones that make a *plain*
+  re-dispatch no-op — four green gates and a green suite — and the executor
+  nonetheless fixed exactly the two things named, ran both mutations itself, and
+  quoted the failing output rather than a green suite. Setting the bar at "a
+  mutation must go red" instead of "the gates must pass" is what made the
+  difference; on the first attempt the same executor produced two tests that
+  could not fail.
+
+**Verified at review (architect), all checks run independently:**
+
+**Gates**, separate invocations: `cargo fmt --all --check` clean, `cargo build`
+clean, `cargo clippy --all-targets --all-features -- -D warnings` clean,
+`cargo test` **1061 + 711 + 2 passed, 0 failed**, no test deleted or `#[ignore]`d.
+`grep '#\[allow'` over `mcp/src/compact.rs` returns nothing. Zero
+`unwrap`/`expect`/`panic!` in production paths (all occurrences sit past the
+`#[cfg(test)]` boundary at `:387`).
+
+**The two mutations — this was the bar for the re-dispatch, and both now bite.**
+Each produces exactly one targeted failure and no collateral:
+
+```
+# copy_tail body emptied:
+compact_preserves_bytes_appended_during_the_run ... FAILED
+  panicked at mcp/src/compact.rs:748: assertion failed: new_offset > initial_len
+  → 10 passed; 1 failed
+
+# activity fold inverted to keep-first:
+compact_keeps_only_the_last_activity_per_key ... FAILED
+  panicked at mcp/src/compact.rs:517: the later activity (outcome=last) must
+  survive, not the earlier one
+  → 10 passed; 1 failed
+```
+
+Compare the pre-bounce state, where deleting the entire tail-copy block and
+inverting the activity fold both left all 13 tests green.
+
+**End-to-end, re-run from scratch against a fresh copy of the real store**
+(re-verified rather than carried over, because `compact_store` itself changed
+shape when `copy_tail` was extracted):
+
+| | |
+| --- | --- |
+| Input | 291,785 lines / 108,698,467 bytes |
+| Output | 868 lines / 482,287 bytes (**99.56 %** reduction) |
+| Dropped | 209 blank, 209 malformed, 357 legacy_run, 381 other |
+| `--dry-run` | store md5 `10da5ef7…` unchanged — byte-identical |
+| Backup | md5 `10da5ef7…` — identical to the original |
+| Compacted | md5 `b3ba9adf…` — differs, so the transformation was real |
+| Stamped `PhaseRun` | 186 → 186 |
+| Executor input tokens | 308,739,974 → 308,739,974 |
+| Ledgers / activities | 290,171 → 410, 323 → 104 (exact fold semantics) |
+| `costs` Architect (project) | $2181.64 either side |
+
+Positive control (STANDARDS § 1.1): the identical `costs` figure is paired with a
+~291,000-line drop and a changed checksum, so "the numbers match" cannot be
+confused with a compaction that did nothing. Both commands exited 0 and the
+verification ran against a **copy** in a scratch dir — the live store was never
+touched.
+
+**Nit left unfixed, by design:** `byte_offset_of_line` still rescans from index 0
+per line (O(n²), 8.1 s on the real store in release). Flagged as optional in the
+bounce notes and correctly declined — it is a one-shot maintenance command.
