@@ -4,8 +4,29 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none — M44 is open but no phase is drafted yet. Run
-`/rexymcp:architect next` to draft `M44/phase-01`.**
+**Active phase: `M44-atomic-jsonl-appends/phase-01-one-atomic-write-per-append` (todo).**
+
+**Phase 01 drafted 2026-08-05.** All four telemetry append functions are
+byte-identical apart from the record type, so the fix is one private generic
+helper (`append_stamped`) that builds `line + "\n"` into a single buffer and
+issues one `write_all`; the four public functions become one-line delegations with
+unchanged signatures. A fix applied to three of four would leave the race live,
+hence the shared helper rather than four edits.
+
+**The deciding criterion is a mutation, not a green suite.** The phase's real
+content is `append_is_atomic_under_concurrent_appenders` — 8 threads × 250 appends
+into one `TempDir` store, asserting zero unparseable lines *and* exactly 2000
+lines (a splice destroys two records' framing but yields one line, so the count
+catches what the parse check might not). The test is deliberately **one-sided**:
+under the fixed code it cannot fail, so it will not flake; restoring the two-write
+form must turn it red, and the phase doc says in as many words not to report
+complete on a green suite alone. `thread::spawn` is pre-injected in full because
+**there is no threading precedent anywhere in this repo's tests**.
+
+One residual is documented rather than solved, in the helper's doc comment:
+`write_all` will issue more than one `write` syscall on a short count. For regular
+files of this size on Linux that does not occur, and the alternative is worse.
+Reader changes are explicitly out of scope — phase 02 owns them.
 
 **M44 — Atomic JSONL Appends opened 2026-08-05** with the user's sign-off, from
 the defect M43 phase-06 surfaced. A telemetry append is not atomic: all four

@@ -103,7 +103,7 @@ The reason it survived is that nothing was looking.
 
 | # | Phase | Status |
 | --- | --- | --- |
-| 01 | one atomic write per append (all four functions) | not drafted |
+| 01 | one atomic write per append ([phase-01-one-atomic-write-per-append.md](phase-01-one-atomic-write-per-append.md)) | todo |
 | 02 | surface malformed-line counts instead of skipping silently | not drafted |
 
 **01** is the writer fix: build `line + "\n"` into a single buffer and issue one
@@ -112,6 +112,17 @@ the race rather than asserting the shape of the code — spawning concurrent
 appenders and showing spliced lines appear before the fix and never after. That
 reproduction is the interesting part of the phase and the reason it isn't a
 one-line drive-by.
+
+Drafted 2026-08-05 with two decisions worth recording. First, the four bodies are
+**byte-identical** apart from the record type, so the fix goes into one private
+generic helper the four public functions delegate to — the defect is one mistake
+copied four times, and a fix applied to three of four leaves the race live.
+Second, the concurrency test is written to be **one-sided**: under the fixed code
+it cannot fail (so it will not flake in CI), and its validity is established by
+*mutation* rather than by passing. The phase's deciding criterion is that
+restoring the two-write form turns it red. Also pre-injected: a `thread::spawn`
+pattern, because there is no threading precedent anywhere in this repo's tests
+for the executor to copy.
 
 **02** is the observability half, and it carries the open design question this
 milestone must answer: **what should a reader do with a line it cannot parse?**
