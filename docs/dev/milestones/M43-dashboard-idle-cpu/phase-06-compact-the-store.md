@@ -6,6 +6,87 @@
 **Estimated diff:** ~400 lines (new `mcp/src/compact.rs` + CLI wiring + tests)
 **Tags:** language=rust, kind=feature, size=m
 
+---
+
+# ⚠ THIS IS A BOUNCE FIX — READ THIS BEFORE ANYTHING ELSE
+
+**The code already works. All four gates are green. All 13 tests pass. That is
+not the bar for this re-dispatch, and "everything passes" is NOT a completion
+report — it is the starting condition.**
+
+You already implemented this phase and the compaction logic was reviewed and
+**accepted**. Do not rewrite `compact_store`, `select_lines`, the selection
+rules, the backup/rename ordering, or the report. They are correct — verified
+against a copy of the real 108 MB store (backup byte-identical, 185 stamped runs
+and 308,651,157 executor tokens preserved, ledgers 290,164 → 410, activities
+323 → 104, `costs` unchanged either side).
+
+**Two of your tests cannot fail.** That is the entire job this time. The bar is
+a *mutation*: break the code on purpose, and the test must go red.
+
+### Fix 1 — the tail-copy test (bug-06-1, blocker)
+
+`compact_preserves_bytes_appended_during_the_run` appends **before** calling
+`compact_store`, so the bytes are inside `initial_len` and the tail-copy loop
+never runs:
+
+```rust
+        // Simulate concurrent append: add a stamped run after the initial content.
+        let mut file = fs::OpenOptions::new().append(true).open(&store).unwrap();
+        file.write_all(appended.as_bytes()).unwrap();
+        drop(file);                       // <-- this all happens BEFORE compact_store
+        let outcome = compact_store(&args).unwrap();
+        assert!(outcome.output_lines >= 2);   // <-- `>=` cannot tell the paths apart
+```
+
+**Proof it is inert:** delete the whole `// Phase 3: tail-copy` block and all 13
+tests still pass.
+
+Easiest fix — extract the loop so it can be tested directly:
+
+```rust
+fn copy_tail(store_path: &Path, tmp: &mut fs::File, from: u64) -> Result<u64, String> {
+    // the existing Phase-3 body, returning the new offset
+}
+```
+
+then test `copy_tail` on its own: write a file, record its length, append past
+that length, call `copy_tail`, assert the appended bytes are in the temp file.
+Use an **exact** expected line count, not `>=`.
+
+### Fix 2 — the activity fold (bug-06-2, major)
+
+The `architect_activity` fold has **no test**. Inverting it to keep-first breaks
+nothing. And you silenced the unused fixture instead of using it:
+
+```rust
+    #[allow(dead_code)]          // <-- DELETE THIS
+    fn activity_line(phase_id: &str, activity: &str, ts: u64) -> String {
+```
+
+Write `compact_keeps_only_the_last_activity_per_key`, modelled exactly on your
+own `compact_keeps_only_the_last_ledger_per_key` — which is a *good* test,
+because it asserts on a distinguishing field value (`"messages":30` present,
+`"messages":10` absent) rather than only a count. Do the same for activities.
+`activity_line` currently varies only the key fields, so give it a
+distinguishing field or parameter first. Then delete the `#[allow(dead_code)]`
+and confirm clippy is still clean.
+
+### How to report completion
+
+Your Update Log must quote, for **each** fix, the **failing** output of the
+mutation described in the bug doc — not just a green suite. A green suite is
+what you already had when this was bounced. If you cannot show a test going red
+when you break the thing it names, the fix is not done.
+
+Both bug docs (`bugs/bug-06-1.md`, `bugs/bug-06-2.md`) carry the exact mutation
+to run.
+
+**Scope: `mod tests` in `mcp/src/compact.rs`, plus deleting one `#[allow]`, plus
+optionally extracting `copy_tail`. Nothing else.**
+
+---
+
 ## Goal
 
 Phases 01–04 made the dashboard stop *re-reading* a 108 MB store; phase 03
