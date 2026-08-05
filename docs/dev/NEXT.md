@@ -4,7 +4,28 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase: none — M44 is open but no phase is drafted yet. Run
+`/rexymcp:architect next` to draft `M44/phase-01`.**
+
+**M44 — Atomic JSONL Appends opened 2026-08-05** with the user's sign-off, from
+the defect M43 phase-06 surfaced. A telemetry append is not atomic: all four
+append functions write payload and newline as two separate `write_all` calls on
+an `O_APPEND` handle, so a second appender can splice two records onto one line.
+209 such lines exist in the real store and **~418 ledger records are invisible
+today**, because all four read paths `filter_map` parse failures away in silence.
+Two phases planned: **01** one atomic write per append, proven by a test that
+*reproduces* the race rather than asserting code shape; **02** the open design
+question — what a reader should do with an unparseable line — so the next
+occurrence announces itself. Details in
+[M44/README.md](milestones/M44-atomic-jsonl-appends/README.md);
+`architecture.md` §44.
+
+**The M43 calibration fold was decided: not folded.** "A test that promises more
+than it asserts" stays recorded at three occurrences. Only the M37 instance
+actually shipped — the other two were caught at review by mutation testing — so
+the existing gate is working and a fold would mostly codify current practice.
+**Revisit if one slips *through* review**; that, not a fourth occurrence, is the
+signal.
 
 **M43 — Dashboard Idle CPU closed 2026-08-05.** Six phases, all done; 4
 `approved_first_try`, 2 `approved_after_1`, 3 bugs, zero escalations, zero

@@ -1232,6 +1232,32 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+44. **M44 — Atomic JSONL appends** *(planning; opened 2026-08-05 from a defect
+    found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
+    four append functions (`executor/src/store/telemetry.rs:195`, `:392`, `:553`,
+    `:689`) write the JSON payload and its trailing newline as **two separate
+    `write_all` calls** on an `O_APPEND` handle. `O_APPEND` makes each individual
+    write atomic against other appenders, but with two of them a second writer can
+    land between payload and newline, splicing two records onto one line —
+    `{...A...}{...B...}\n`. The concurrent writers are real and routine: the M40
+    sweep inside `serve` re-appends the whole ledger every 60 s while a finishing
+    phase run appends its `PhaseRun` and the architect appends a `review`. The real
+    store carries **209 such lines** in one contiguous band, and — the worse half —
+    **every reader hides them**: all four read paths
+    `filter_map(|l| serde_json::from_str::<Value>(l).ok())` (`:223`, `:421`, `:585`,
+    `:721`), so ~418 ledger records are invisible today and nothing ever reported
+    it. The defect was found only by accident, while simulating an unrelated
+    migration. Two phases: **01** builds payload + newline into one buffer and
+    issues a single `write_all` in all four functions, proven by a test that
+    *reproduces* the race (spliced lines before the fix, none after) rather than
+    asserting the shape of the code; **02** answers the open design question —
+    what a reader should do with a line it cannot parse — so the next occurrence
+    announces itself. Sequenced after M43 deliberately: compaction first shrinks
+    the corpus (108.7 MB → 482 KB), and a producer-side fix does not belong in the
+    same review as a one-way migration of user data. The existing 209 lines are
+    **not** repaired here — M43's compaction drops them and its backup retains
+    them; the ledger state is already correct because harvest re-derives it from
+    the transcripts by last-write-wins.
 43. **M43 — Dashboard idle CPU** *(done 2026-08-05; opened 2026-08-04 from a user report)*.
     `rexymcp dashboard --repo .` pins a core even while `rexymcp serve` is idle,
     and only on long-lived projects. Measured on this repo: **59 % of one core**

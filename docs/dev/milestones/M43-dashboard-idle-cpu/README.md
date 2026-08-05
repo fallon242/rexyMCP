@@ -393,6 +393,12 @@ spec asserting a guarantee must name the mutation that would break it" would
 change behavior at the point where these defects are actually born. **Held for
 the user's decision, not folded unilaterally.**
 
+**Decided 2026-08-05: not folded.** The user chose to keep it recorded at three
+occurrences and hold. The reasoning that carried: only the M37 instance actually
+shipped, so the existing review gate is catching these, and folding now would
+mostly codify a practice already in force. Revisit if one slips *through* review
+— that, not a fourth occurrence, is the signal that the gate is insufficient.
+
 ### Two design questions this milestone settled
 
 - **The `schema_version` divergence (phase 05).** Reconciled *toward* the gate:
