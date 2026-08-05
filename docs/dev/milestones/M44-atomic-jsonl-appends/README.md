@@ -4,7 +4,7 @@
 can no longer interleave and corrupt a line — and make the corruption that
 already exists *visible* instead of silently skipped.
 
-**Status:** planning
+**Status:** done (closed 2026-08-05, one phase)
 
 **Opened:** 2026-08-05, from a defect found while drafting M43 phase-06.
 
@@ -24,13 +24,20 @@ shrinks the corpus this fix is verified against, and which surfaced the defect)
       code and produces **zero** against the fixed code. Met by phase 01 —
       restoring the two-write form splices **461 / 390 / 451** of 2,000 records
       across three runs (~20 % each time); the fixed code passes five consecutive
-      runs. *(Not yet live in the running `serve`, which predates the fix.)*
-- [ ] Malformed lines are no longer invisible. Every reader that currently drops
+      runs. **Live in the running `serve` since 2026-08-05 10:03**, verified by
+      `strace` rather than by timestamp — see § "Verified live, not assumed".
+- [~] ~~Malformed lines are no longer invisible. Every reader that currently drops
       a parse failure silently reports a count, and at least one user-facing
-      surface shows it.
-- [ ] No behavior change for well-formed stores: every existing telemetry test
-      passes unmodified, and `rexymcp costs` reports identical figures before and
-      after on a real store.
+      surface shows it.~~ **Withdrawn 2026-08-05** with the user's decision — see
+      § "Phase 02 declined". This criterion was written before the corpus was
+      cleaned and the cause fixed; with both done there is no corruption left to
+      reveal and no known mechanism to create more.
+- [x] No behavior change for well-formed stores. Met by phase 01, and by stronger
+      evidence than the criterion asked for: an `strace` of one append shows the
+      pre-fix form writing `payload(282) + "\n"(1)` and the fixed form writing
+      `payload(283)`, producing a **byte-identical 283-byte file**. Output
+      equivalence is proven at the syscall boundary rather than inferred from a
+      `costs` comparison, and all 69 existing telemetry tests pass unmodified.
 
 ## Architecture references
 
@@ -96,10 +103,11 @@ writers against one file.
 ```
 
 `executor/src/store/telemetry.rs:223`, `:421`, `:585`, `:721`. A corrupted line is
-skipped in silence, so **roughly 418 ledger records are invisible today** and
-nothing ever said so. The defect was found by accident, while simulating an
-unrelated migration — which is the real problem: there is no path by which this
-reports itself.
+skipped in silence, so **roughly 418 ledger records were invisible** *(as of
+milestone open — those lines are gone from the store now; see § "Phase 02
+declined")* and nothing ever said so. The defect was found by accident, while
+simulating an unrelated migration — which is the real problem: there is no path by
+which this reports itself.
 
 The fix to the writer is nearly free (build one buffer, issue one `write_all`).
 The reason it survived is that nothing was looking.
@@ -109,7 +117,7 @@ The reason it survived is that nothing was looking.
 | # | Phase | Status |
 | --- | --- | --- |
 | 01 | one atomic write per append ([phase-01-one-atomic-write-per-append.md](phase-01-one-atomic-write-per-append.md)) | done |
-| 02 | surface malformed-line counts instead of skipping silently | not drafted |
+| 02 | ~~surface malformed-line counts instead of skipping silently~~ | **declined** |
 
 **01** is the writer fix: build `line + "\n"` into a single buffer and issue one
 `write_all`, in all four functions. Small, but it needs a test that *reproduces*
@@ -129,8 +137,13 @@ restoring the two-write form turns it red. Also pre-injected: a `thread::spawn`
 pattern, because there is no threading precedent anywhere in this repo's tests
 for the executor to copy.
 
-**02** is the observability half, and it carries the open design question this
-milestone must answer: **what should a reader do with a line it cannot parse?**
+**02 was declined at milestone close** — the reasoning is in § "Phase 02
+declined" below, and it supersedes the intent stated in this paragraph. Kept as
+written because the design question it framed is still a real one, just not one
+worth machinery today.
+
+**02** was to be the observability half, carrying the open design question:
+**what should a reader do with a line it cannot parse?**
 Options to weigh when drafting — return a count alongside the records; log a
 warning; expose it in `rexymcp doctor`; surface it on the dashboard. The
 requirement is that the next occurrence announces itself instead of waiting for
@@ -151,3 +164,108 @@ may not be worth it — they are `architect_ledger` records, which the harvest
 re-derives from the transcripts by last-write-wins, so the current ledger state
 is already correct. Worth confirming that reasoning during phase-01 drafting
 rather than assuming it.
+
+---
+
+## M44 retrospective — closed 2026-08-05, one phase
+
+Opened and closed the same day. **One phase, `approved_first_try`, zero bugs,
+zero escalations.** Phase 02 was drafted-in-outline and then **declined** — see
+below; that decision is the most interesting thing in this milestone.
+
+### What changed
+
+All four telemetry append functions now delegate to a single private
+`append_stamped` helper that builds payload + newline into one buffer and issues
+**one** `write_all`. The four bodies had been byte-identical apart from the record
+type, so the fix is single-sourced rather than copied four times — a fix applied
+to three of four would have left the race live.
+
+### Verified live, not assumed
+
+The fix is in the running `serve` as of **2026-08-05 10:03**. That was confirmed
+functionally, because the obvious check was actively misleading: `md5sum` of the
+installed binary differs from a local `cargo build --release` of the same commit,
+since `cargo install` embeds different build paths. Comparing hashes would have
+suggested staleness that wasn't there.
+
+The defect has a deterministic syscall signature, so `strace` of a single
+`rexymcp review` append settled it — against a deliberately rebuilt pre-fix
+control in the same session:
+
+| Binary | `write` syscalls per append |
+| --- | --- |
+| pre-fix control | `write(9, payload, 282)` **then** `write(9, "\n", 1)` |
+| installed binary | `write(9, payload, 283)` |
+
+Both produce a **byte-identical 283-byte file**, which is exactly why this bug
+was invisible for months: under a single writer the two forms are
+indistinguishable in the output. The syscall boundary is the only place the
+difference shows.
+
+That same trace doubles as the phase's "no behavior change" evidence — stronger
+than the `rexymcp costs` comparison the exit criterion originally asked for.
+
+### Phase 02 declined
+
+Phase 02 was to make malformed lines visible instead of silently skipped. **The
+user declined it, and the reasoning is worth preserving rather than filing as
+"deferred".**
+
+By the time the fork was put to the user, both halves of the problem were already
+closed:
+
+- **The cause is fixed** (phase 01, verified live above), so no new spliced lines
+  can appear from this mechanism.
+- **The corpus is clean.** M43 phase-06's compaction dropped all 209 malformed
+  lines from the live store that morning — that is what its `malformed: 209`
+  report line was. A census of every file on disk at close confirms **zero
+  malformed and zero blank lines** in the live store (891 lines) and in all three
+  remaining June backups (184 lines each). The 108 MB compact backup that held
+  them has since been removed, so the corrupt lines are gone from the system
+  entirely.
+
+So phase 02's remaining value was detecting *future, unknown* causes of readers
+discarding input — real, but speculative. Weighed against that: the design fork
+had no cheap option. Logging from inside a reader was effectively off the table
+(no `tracing`/`log` crate, the executor library emits zero diagnostics today, and
+the dashboard calls these readers at 2 Hz), and the criterion's literal reading —
+all four readers returning counts — hits ~13 production call sites plus ~44 test
+sites across 6 files.
+
+**Reopening trigger, stated so this is not a silent drop:** a reader is found
+discarding input silently again. Not a schedule, not a fourth occurrence of
+something — that specific event.
+
+### Carried forward — the wider defect this milestone did *not* fix
+
+`filter_map(|l| serde_json::from_str::<Value>(l).ok())` at
+`executor/src/store/telemetry.rs:223`, `:421`, `:585`, `:721` also silently
+swallows **schema-mismatched** records, not only spliced ones. A future field
+rename or type change would go equally quiet, and that mechanism is still live.
+
+It has not bitten yet, and it is a different defect from the one M44 opened for,
+so it is named here rather than used to justify a phase now. The generalizable
+statement — *readers discard input without saying so* — is the thing to remember
+if a numbers discrepancy ever shows up again with no obvious cause.
+
+### Calibration — a trend at two, not folded
+
+The executor misreported its own model in this milestone's Update Log
+(`claude-opus-4-5-20251101`); the M43 phase-05 entry claimed "Claude (Sonnet
+4.5)". Both false, both corrected at review, both harmless to telemetry because
+the server-authored bookkeeping tail records the true model
+(`Qwen/Qwen3.6-27B-FP8`).
+
+Two occurrences is a trend, not a fix. If it recurs the fold is mechanical rather
+than a judgment call: **stop asking the executor to write the model name at all**
+and let the server own that field, the way it already owns the completion tail.
+
+### What worked
+
+The spec set the bar at a **mutation going red** rather than at a green suite, and
+pre-injected the `thread::spawn` pattern because there is no threading precedent
+anywhere in this repo's tests. Result: `approved_first_try` on a phase whose
+entire substance was "write a test that can actually fail." That is the M43 lesson
+applied forward rather than re-learned — the third milestone in a row where the
+deciding question was *can this observation come out differently?*

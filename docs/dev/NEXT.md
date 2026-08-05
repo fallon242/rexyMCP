@@ -4,7 +4,49 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M44-atomic-jsonl-appends/phase-01-one-atomic-write-per-append` (todo).**
+**Active phase: none.**
+
+**M44 — Atomic JSONL Appends closed 2026-08-05 at one phase**
+(`approved_first_try`, zero bugs). All four telemetry append functions delegate to
+one `append_stamped` helper: one buffer, one `write_all`. Proven by mutation —
+restoring the two-write form splices **461 / 390 / 451** of 2,000 records across
+three runs, while the fixed code passes five consecutive runs. **Live in `serve`
+since 10:03**, verified by `strace` against a rebuilt pre-fix control (pre-fix
+writes `payload(282) + "\n"(1)`, fixed writes `payload(283)`, both yielding a
+byte-identical 283-byte file — which is exactly why the bug was invisible under a
+single writer). Note for future sessions: an `md5sum` comparison of the installed
+binary against a local `cargo build --release` **misleads** — `cargo install`
+embeds different build paths, so the hashes differ even when the code is
+identical. Retrospective in
+[M44/README.md § M44 retrospective](milestones/M44-atomic-jsonl-appends/README.md);
+`architecture.md` §44 done.
+
+**Phase 02 (reader visibility) was declined**, not deferred. By the time the design
+fork was posed, both halves were already closed: the cause was fixed, and the
+corpus was clean — M43's compaction had dropped all 209 malformed lines, and a
+census at close found **zero** malformed lines in the live store (891 lines) and in
+all three remaining backups. Its remaining value was detecting future *unknown*
+causes, against a fork with no cheap option. **Reopening trigger: a reader is found
+discarding input silently again** — that specific event, not a schedule.
+
+**Carried forward unfixed, named rather than scheduled:** the same
+`filter_map(|l| serde_json::from_str::<Value>(l).ok())` sites
+(`executor/src/store/telemetry.rs:223`, `:421`, `:585`, `:721`) also silently
+swallow **schema-mismatched** records, so a future field rename or type change
+would go equally quiet. If a numbers discrepancy ever appears with no obvious
+cause, look here first.
+
+**Calibration — a trend at two, not folded.** The executor misreported its own
+model in both M43 phase-05 ("Claude (Sonnet 4.5)") and M44 phase-01
+(`claude-opus-4-5-20251101`); the true model is `Qwen/Qwen3.6-27B-FP8` and the
+server-authored bookkeeping tail records it correctly, so telemetry is unaffected.
+If it recurs the fold is mechanical: stop asking the executor to write that field
+and let the server own it, as it already owns the completion tail.
+
+**The next milestone is a human decision — no auto-advance across the boundary.**
+No candidate is queued.
+
+---
 
 **Phase 01 drafted 2026-08-05.** All four telemetry append functions are
 byte-identical apart from the record type, so the fix is one private generic

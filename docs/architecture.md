@@ -1232,8 +1232,8 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-44. **M44 — Atomic JSONL appends** *(planning; opened 2026-08-05 from a defect
-    found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
+44. **M44 — Atomic JSONL appends** *(done 2026-08-05 at one phase; opened the same
+    day from a defect found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
     four append functions (`executor/src/store/telemetry.rs:195`, `:392`, `:553`,
     `:689`) write the JSON payload and its trailing newline as **two separate
     `write_all` calls** on an `O_APPEND` handle. `O_APPEND` makes each individual
@@ -1258,6 +1258,29 @@ The project plan. Each entry becomes a milestone with its own
     **not** repaired here — M43's compaction drops them and its backup retains
     them; the ledger state is already correct because harvest re-derives it from
     the transcripts by last-write-wins.
+    **Closed at one phase, `approved_first_try`.** All four functions delegate to a
+    single private `append_stamped` helper (one buffer, one `write_all`); the fix is
+    single-sourced because a fix applied to three of four would leave the race live.
+    Proven by mutation, not by a green suite: restoring the two-write form splices
+    **461 / 390 / 451** of 2,000 records across three runs, while the fixed code
+    passes five consecutive runs. **Live in `serve` since 10:03**, verified by
+    `strace` against a rebuilt pre-fix control — pre-fix writes
+    `payload(282) + "\n"(1)`, fixed writes `payload(283)`, and both produce a
+    byte-identical 283-byte file, which is precisely why the bug was invisible under
+    a single writer. (An `md5sum` comparison would have *misled* here: `cargo
+    install` embeds different build paths than a local release build.) **Phase 02
+    (reader visibility) was declined** with the user's decision: by the time the
+    fork was posed, the cause was fixed and the corpus was clean — M43's compaction
+    had already dropped all 209 malformed lines, and a census at close found zero
+    malformed lines in the live store and every remaining backup. Its value was
+    reduced to detecting future *unknown* causes, against a fork with no cheap
+    option (no `tracing`/`log` crate, the executor library emits no diagnostics, the
+    dashboard reads at 2 Hz, and the literal criterion spans ~13 production plus
+    ~44 test call sites). Reopening trigger: a reader found discarding input
+    silently again. **Carried forward unfixed:** the same `filter_map(...ok())`
+    sites also swallow *schema-mismatched* records, so a future field rename would
+    go equally quiet — named, not scheduled. Retrospective in
+    [M44/README.md § M44 retrospective](dev/milestones/M44-atomic-jsonl-appends/README.md).
 43. **M43 — Dashboard idle CPU** *(done 2026-08-05; opened 2026-08-04 from a user report)*.
     `rexymcp dashboard --repo .` pins a core even while `rexymcp serve` is idle,
     and only on long-lived projects. Measured on this repo: **59 % of one core**
