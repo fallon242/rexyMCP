@@ -14,12 +14,17 @@ shrinks the corpus this fix is verified against, and which surfaced the defect)
 
 **Exit criteria:**
 
-- [ ] A telemetry append issues **one** write syscall carrying payload + newline,
+- [x] A telemetry append issues **one** write syscall carrying payload + newline,
       so two concurrent appenders can no longer produce a spliced line. All four
-      append functions.
-- [ ] The fix is demonstrated against the real failure mode, not asserted: a
+      append functions. Met by phase 01 — one private `append_stamped` helper, all
+      four public functions delegating to it, exactly one `write_all` left in the
+      append path.
+- [x] The fix is demonstrated against the real failure mode, not asserted: a
       concurrency test that reliably produces spliced lines against the current
-      code and produces **zero** against the fixed code.
+      code and produces **zero** against the fixed code. Met by phase 01 —
+      restoring the two-write form splices **461 / 390 / 451** of 2,000 records
+      across three runs (~20 % each time); the fixed code passes five consecutive
+      runs. *(Not yet live in the running `serve`, which predates the fix.)*
 - [ ] Malformed lines are no longer invisible. Every reader that currently drops
       a parse failure silently reports a count, and at least one user-facing
       surface shows it.
@@ -103,7 +108,7 @@ The reason it survived is that nothing was looking.
 
 | # | Phase | Status |
 | --- | --- | --- |
-| 01 | one atomic write per append ([phase-01-one-atomic-write-per-append.md](phase-01-one-atomic-write-per-append.md)) | review      |
+| 01 | one atomic write per append ([phase-01-one-atomic-write-per-append.md](phase-01-one-atomic-write-per-append.md)) | done |
 | 02 | surface malformed-line counts instead of skipping silently | not drafted |
 
 **01** is the writer fix: build `line + "\n"` into a single buffer and issue one

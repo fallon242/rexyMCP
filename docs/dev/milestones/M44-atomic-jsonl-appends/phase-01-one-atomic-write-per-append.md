@@ -1,7 +1,7 @@
 # Phase 01: one atomic write per telemetry append
 
 **Milestone:** M44 — Atomic JSONL Appends
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~130 lines (a shared helper replacing four copies, plus one concurrency test)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -313,7 +313,11 @@ Everything else: None.
 
 ### Update — 2026-08-05 15:52 (started)
 
-**Executor:** claude-opus-4-5-20251101
+**Executor:** Qwen/Qwen3.6-27B-FP8 *(corrected at review — this entry
+originally self-reported "claude-opus-4-5-20251101", which is false; the
+dispatched model is the local executor, per `executor_health` and the
+server-authored completion entry below. Second occurrence of this
+self-misidentification.)*
 **Status:** started
 
 ### Update — ts=1785945610674 (complete, server-authored)
@@ -425,3 +429,64 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** cccdc9f808a7b1e27120f04ae4cb2dea547c9dd3
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-05
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8
+- **Scope deviations:** none. The helper matches the spec'd shape, all four
+  public functions delegate with unchanged signatures, no reader was touched, no
+  existing test was modified, and `architecture.md` was left alone (not
+  authorized).
+- **Calibration:** one nit, now at **two occurrences — a trend, not yet folded.**
+  The executor's "started" Update Log entry self-reported
+  `claude-opus-4-5-20251101`; the M43 phase-05 entry claimed "Claude (Sonnet
+  4.5)". Both false, both corrected at review, both harmless to telemetry because
+  the server-authored bookkeeping tail records the true model. If it recurs a
+  third time the fold is mechanical: stop asking the executor to write the model
+  name at all and let the server own that field, the way it already owns the
+  completion tail.
+
+**Verified at review (architect), all checks run independently:**
+
+**Gates**, separate invocations: `cargo fmt --all --check` clean, `cargo build`
+clean, `cargo clippy --all-targets --all-features -- -D warnings` clean,
+`cargo test` **1062 + 711 + 2 passed, 0 failed** (+1 vs the pre-phase 1061 — the
+new test). No test deleted, none `#[ignore]`d, no `#[allow]` added.
+
+**Structure.** All four public functions delegate to `append_stamped`; the
+production append path contains exactly **one** `write_all`
+(`executor/src/store/telemetry.rs:222`), with the remaining occurrences all
+inside `#[cfg(test)]` (boundary at `:791`) as fixture setup. The four reader
+`filter_map(... .ok())` sites are untouched — phase 02's territory preserved. The
+only production deletion in the diff is the old `append` body being replaced. Four
+new `unwrap()`s, all in the test module, so STANDARDS § 2 exempt.
+
+**The mutation — the phase's deciding criterion.** Restoring the pre-fix
+two-write form and running the test three times:
+
+```
+run 1: FAILED   left: 461  right: 0   (malformed lines)
+run 2: FAILED   left: 390  right: 0
+run 3: FAILED   left: 451  right: 0
+```
+
+Roughly **20 % of 2,000 records spliced** on every run — the race reproduces
+comfortably, not marginally, so the test is not a coin flip that happened to land.
+
+**The other direction, which matters just as much for a concurrency test:** with
+the fix restored, five consecutive runs all pass. The test is one-sided as
+designed — it cannot fail on correct code, so it will not flake in CI, and its
+validity rests on the mutation above rather than on having passed.
+
+**Not verified, and deliberately so:** there is no end-to-end run against the
+live store. This phase ships no CLI surface, and the fix is only observable under
+concurrency, which the mutation exercises directly. Per STANDARDS § 1.1 the
+mutation *is* the positive control here — a green suite is what the pre-fix code
+also produced, and the mutation is what distinguishes them.
+
+**Operational note (not a defect):** the fix is not live in the running `rexymcp
+serve` — that process is the binary installed at 08:19, which predates this
+commit. Reinstall and restart to stop the race in the real store; until then the
+sweep can still splice a line.
