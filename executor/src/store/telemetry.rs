@@ -189,24 +189,45 @@ pub struct PhaseRun {
 /// at any other version (including pre-M35 records, which have none).
 pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
 
-/// Append one `PhaseRun` as a JSON line to `<telemetry_dir>/phase_runs.jsonl`,
-/// creating the directory if needed. Stamps `schema_version` at the write
-/// boundary so readers can version-gate. Returns the file path.
-pub fn append(telemetry_dir: &Path, run: &PhaseRun) -> std::io::Result<PathBuf> {
+/// Serialize `record`, stamp `schema_version` at the write boundary, and append
+/// it to `<telemetry_dir>/phase_runs.jsonl` as **one** buffered write.
+///
+/// The payload and its trailing newline are built into a single buffer and
+/// issued as one `write_all`, so a concurrent appender on the same `O_APPEND`
+/// file cannot land between a record and its newline. Writing them as two
+/// separate calls is what produced the spliced lines this milestone exists to
+/// fix.
+///
+/// Residual, documented rather than solved: `write_all` will issue more than one
+/// `write` syscall if the kernel returns a short count. For regular files of
+/// this size on Linux that does not occur in practice, and the alternative
+/// (raw `write` with a manual retry loop that cannot retry safely under
+/// `O_APPEND`) is worse.
+fn append_stamped<T: serde::Serialize>(
+    telemetry_dir: &Path,
+    record: &T,
+) -> std::io::Result<PathBuf> {
     use std::io::Write;
 
     std::fs::create_dir_all(telemetry_dir)?;
     let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(run).map_err(std::io::Error::other)?;
+    let mut value = serde_json::to_value(record).map_err(std::io::Error::other)?;
     value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
+    let mut line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
+    line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)?;
     file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
     Ok(path)
+}
+
+/// Append one `PhaseRun` as a JSON line to `<telemetry_dir>/phase_runs.jsonl`,
+/// creating the directory if needed. Stamps `schema_version` at the write
+/// boundary so readers can version-gate. Returns the file path.
+pub fn append(telemetry_dir: &Path, run: &PhaseRun) -> std::io::Result<PathBuf> {
+    append_stamped(telemetry_dir, run)
 }
 
 /// Read all `PhaseRun` records from a store file. Records with a missing or
@@ -390,20 +411,7 @@ pub const REVIEW_RECORD_TAG: &str = "review";
 /// (the same store as `PhaseRun`). Stamps `schema_version` at the write
 /// boundary. Returns the file path.
 pub fn append_review(telemetry_dir: &Path, review: &PhaseReview) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-
-    std::fs::create_dir_all(telemetry_dir)?;
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(review).map_err(std::io::Error::other)?;
-    value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    Ok(path)
+    append_stamped(telemetry_dir, review)
 }
 
 /// Read all `PhaseReview` records from a store file. Lines with a missing or
@@ -554,20 +562,7 @@ pub fn append_architect_activity(
     telemetry_dir: &Path,
     activity: &ArchitectActivity,
 ) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-
-    std::fs::create_dir_all(telemetry_dir)?;
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(activity).map_err(std::io::Error::other)?;
-    value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    Ok(path)
+    append_stamped(telemetry_dir, activity)
 }
 
 /// Read all `ArchitectActivity` records from a store file. Lines with a missing
@@ -690,20 +685,7 @@ pub fn append_architect_ledger(
     telemetry_dir: &Path,
     ledger: &ArchitectLedger,
 ) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-
-    std::fs::create_dir_all(telemetry_dir)?;
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(ledger).map_err(std::io::Error::other)?;
-    value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    Ok(path)
+    append_stamped(telemetry_dir, ledger)
 }
 
 /// Read all `ArchitectLedger` records from a store file. Lines with a missing
@@ -2184,5 +2166,45 @@ mod tests {
         );
         assert!(records.runs.is_empty());
         assert!(records.activities.is_empty());
+    }
+
+    #[test]
+    fn append_is_atomic_under_concurrent_appenders() {
+        let dir = tempfile::tempdir().unwrap();
+        let telemetry_dir = dir.path().to_path_buf();
+
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 250;
+
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let d = telemetry_dir.clone();
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..PER_THREAD {
+                    append(&d, &sample()).unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let path = telemetry_dir.join("phase_runs.jsonl");
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        // Every line must be exactly one JSON object.
+        let mut malformed = 0usize;
+        for l in &lines {
+            if serde_json::from_str::<serde_json::Value>(l).is_err() {
+                malformed += 1;
+            }
+        }
+        assert_eq!(malformed, 0, "spliced/unparseable lines found");
+        assert_eq!(
+            lines.len(),
+            THREADS * PER_THREAD,
+            "every append must produce exactly one line"
+        );
     }
 }

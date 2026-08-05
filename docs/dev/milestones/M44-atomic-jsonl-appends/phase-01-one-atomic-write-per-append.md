@@ -1,7 +1,7 @@
 # Phase 01: one atomic write per telemetry append
 
 **Milestone:** M44 — Atomic JSONL Appends
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~130 lines (a shared helper replacing four copies, plus one concurrency test)
 **Tags:** language=rust, kind=bugfix, size=s
@@ -310,3 +310,8 @@ Everything else: None.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-05 15:52 (started)
+
+**Executor:** claude-opus-4-5-20251101
+**Status:** started

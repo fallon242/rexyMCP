@@ -103,7 +103,7 @@ The reason it survived is that nothing was looking.
 
 | # | Phase | Status |
 | --- | --- | --- |
-| 01 | one atomic write per append ([phase-01-one-atomic-write-per-append.md](phase-01-one-atomic-write-per-append.md)) | todo |
+| 01 | one atomic write per append ([phase-01-one-atomic-write-per-append.md](phase-01-one-atomic-write-per-append.md)) | in-progress |
 | 02 | surface malformed-line counts instead of skipping silently | not drafted |
 
 **01** is the writer fix: build `line + "\n"` into a single buffer and issue one
