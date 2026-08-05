@@ -48,6 +48,32 @@ impl CompactOutcome {
     }
 }
 
+/// Copy bytes appended to the live store after the initial stat, up to 3 passes.
+///
+/// Returns the new tail offset (the file length after the last copy).
+fn copy_tail(store_path: &Path, tmp: &mut fs::File, mut from: u64) -> Result<u64, String> {
+    for _ in 0..3 {
+        let current_len = fs::metadata(store_path)
+            .map_err(|e| format!("failed to stat store: {}", e))?
+            .len();
+        if current_len <= from {
+            break;
+        }
+        let new_bytes =
+            fs::read(store_path).map_err(|e| format!("failed to read store tail: {}", e))?;
+        let tail = &new_bytes[from as usize..];
+        if tail.is_empty() {
+            break;
+        }
+        tmp.write_all(tail)
+            .map_err(|e| format!("failed to append tail: {}", e))?;
+        tmp.flush()
+            .map_err(|e| format!("failed to flush tail: {}", e))?;
+        from = current_len;
+    }
+    Ok(from)
+}
+
 /// Compact the telemetry store according to the selection rules in the phase
 /// spec. On success returns the outcome summary; on error returns a `String`
 /// message.
@@ -75,7 +101,7 @@ pub fn compact_store(args: &CompactArgs) -> Result<CompactOutcome, String> {
     // Stat the store.
     let metadata = fs::metadata(&store_path)
         .map_err(|e| format!("store not found: {}: {}", store_path.display(), e))?;
-    let mut initial_len = metadata.len();
+    let initial_len = metadata.len();
 
     // Read the file.
     let content =
@@ -126,27 +152,8 @@ pub fn compact_store(args: &CompactArgs) -> Result<CompactOutcome, String> {
     tmp.flush()
         .map_err(|e| format!("failed to flush temp file: {}", e))?;
 
-    // Phase 3: tail-copy — append bytes added while we were working.
-    for _ in 0..3 {
-        let current_len = fs::metadata(&store_path)
-            .map_err(|e| format!("failed to stat store: {}", e))?
-            .len();
-        if current_len <= initial_len {
-            break;
-        }
-        let new_bytes =
-            fs::read(&store_path).map_err(|e| format!("failed to read store tail: {}", e))?;
-        let tail = &new_bytes[initial_len as usize..];
-        if tail.is_empty() {
-            break;
-        }
-        tmp.write_all(tail)
-            .map_err(|e| format!("failed to append tail: {}", e))?;
-        tmp.flush()
-            .map_err(|e| format!("failed to flush tail: {}", e))?;
-        initial_len = current_len;
-    }
-    drop(tmp);
+    copy_tail(&store_path, &mut tmp, initial_len)
+        .map_err(|e| format!("tail-copy failed: {}", e))?;
 
     // Phase 4: backup the original store.
     let backup_name = format!("phase_runs.jsonl.bak-compact-{}", args.ts);
@@ -421,11 +428,10 @@ dir = "{}"
         )
     }
 
-    #[allow(dead_code)]
-    fn activity_line(phase_id: &str, activity: &str, ts: u64) -> String {
+    fn activity_line(phase_id: &str, activity: &str, ts: u64, outcome: &str) -> String {
         format!(
-            r#"{{"record":"architect_activity","schema_version":1,"phase_id":"{}","activity":"{}","ts":{},"project_id":null,"phase_doc_path":null,"milestone_id":null,"outcome":null,"model":null,"tokens":{{"input":0,"cache_creation":0,"cache_read":0,"output":0}}}}"#,
-            phase_id, activity, ts
+            r#"{{"record":"architect_activity","schema_version":1,"phase_id":"{}","activity":"{}","ts":{},"project_id":null,"phase_doc_path":null,"milestone_id":null,"outcome":"{}","model":null,"tokens":{{"input":0,"cache_creation":0,"cache_read":0,"output":0}}}}"#,
+            phase_id, activity, ts, outcome
         )
     }
 
@@ -479,6 +485,42 @@ dir = "{}"
         assert!(
             !output_content.contains("\"messages\":10"),
             "the earlier ledger (messages=10) must be dropped"
+        );
+    }
+
+    #[test]
+    fn compact_keeps_only_the_last_activity_per_key() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let store = dir.path().join("telemetry").join("phase_runs.jsonl");
+
+        // Three activity lines, two sharing the same key with different `outcome`.
+        let content = format!(
+            "{}\n{}\n{}\n",
+            activity_line("phase-01", "design", 1000, "first"),
+            activity_line("phase-02", "design", 1000, "other"), // different phase — different key
+            activity_line("phase-01", "design", 1000, "last"),  // same key as first — wins
+        );
+        fs::write(&store, &content).unwrap();
+
+        let args = CompactArgs {
+            config_path: &config,
+            telemetry_path: Some(&store),
+            ts: 1_717_000_000_000,
+            dry_run: false,
+        };
+        let outcome = compact_store(&args).unwrap();
+
+        assert_eq!(outcome.output_lines, 2);
+        // The surviving duplicate for key (phase-01, design, 1000) is the later one (outcome="last").
+        let output_content = fs::read_to_string(&store).unwrap();
+        assert!(
+            output_content.contains("\"outcome\":\"last\""),
+            "the later activity (outcome=last) must survive, not the earlier one"
+        );
+        assert!(
+            !output_content.contains("\"outcome\":\"first\""),
+            "the earlier activity (outcome=first) must be dropped"
         );
     }
 
@@ -693,33 +735,46 @@ dir = "{}"
 
     #[test]
     fn compact_preserves_bytes_appended_during_the_run() {
+        // Test copy_tail directly: write a file, record a length, append past
+        // that length, call copy_tail, and assert the appended bytes landed in
+        // the temp file verbatim.
         let dir = TempDir::new().unwrap();
-        let config = make_config(&dir);
-        let store = dir.path().join("telemetry").join("phase_runs.jsonl");
+        let store = dir.path().join("store.jsonl");
+        let tmp_path = dir.path().join("tmp.jsonl");
 
-        // Seed with one review.
-        let content = format!("{}\n", review_line("phase-01"));
-        fs::write(&store, &content).unwrap();
+        let initial = "line1\nline2\n";
+        fs::write(&store, initial).unwrap();
+        let initial_len = initial.len() as u64;
 
-        // Simulate concurrent append: add a stamped run after the initial content.
+        // Append after the initial content.
         let appended = format!("{}\n", stamped_run_line());
         let mut file = fs::OpenOptions::new().append(true).open(&store).unwrap();
         file.write_all(appended.as_bytes()).unwrap();
         drop(file);
 
-        let args = CompactArgs {
-            config_path: &config,
-            telemetry_path: Some(&store),
-            ts: 1_717_000_000_000,
-            dry_run: false,
-        };
-        let outcome = compact_store(&args).unwrap();
+        // Verify the store now has both.
+        let store_content = fs::read_to_string(&store).unwrap();
+        assert!(store_content.contains("line1"));
+        assert!(store_content.contains("\"turns\":10"));
 
-        // Both the original review and the appended run should survive.
-        assert!(outcome.output_lines >= 2);
-        let output_content = fs::read_to_string(&store).unwrap();
-        assert!(output_content.contains("phase-01"));
-        assert!(output_content.contains("\"turns\":10")); // from stamped_run_line
+        // Now copy_tail should bring the appended bytes into the temp file.
+        let mut tmp = fs::File::create(&tmp_path).unwrap();
+        let new_offset = copy_tail(&store, &mut tmp, initial_len).unwrap();
+        drop(tmp);
+
+        // The tail offset advanced past the appended data.
+        assert!(new_offset > initial_len);
+
+        // The temp file contains the appended run.
+        let tmp_content = fs::read_to_string(&tmp_path).unwrap();
+        assert!(
+            tmp_content.contains("\"turns\":10"),
+            "appended bytes must appear in the temp file after copy_tail"
+        );
+        assert!(
+            !tmp_content.contains("line1"),
+            "copy_tail must not re-copy the initial content"
+        );
     }
 
     #[test]
