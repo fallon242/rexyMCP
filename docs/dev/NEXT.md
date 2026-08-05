@@ -4,7 +4,47 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: `M43-dashboard-idle-cpu/phase-06-compact-the-store` (todo).**
+**Active phase: none.**
+
+**M43 — Dashboard Idle CPU closed 2026-08-05.** Six phases, all done; 4
+`approved_first_try`, 2 `approved_after_1`, 3 bugs, zero escalations, zero
+architect takeovers. Idle CPU **62 % → 0.1 %** of one core, store growth
+**~53 KB/min → ~370 B/min**, and `rexymcp compact` rewrites the real store
+**108.7 MB → 482 KB** (99.56 %) behind a backup and an atomic rename.
+Retrospective in
+[M43/README.md § M43 retrospective](milestones/M43-dashboard-idle-cpu/README.md);
+`architecture.md` §43 marked done.
+
+**The next milestone is a human decision — no auto-advance across the boundary.**
+Three things are queued for that conversation:
+
+1. **Candidate phase 07 / next milestone — the JSONL appends are not atomic.**
+   A live bug, found while drafting 06: the four `telemetry` append functions
+   write payload and newline as two separate `write_all` calls on an `O_APPEND`
+   handle, so concurrent appenders interleave. 209 corrupt lines in the real
+   store, **~418 ledger records invisible right now**, hidden because every
+   reader `filter_map`s parse failures away. The fix is nearly free; the open
+   design question is whether readers should *count* malformed lines instead of
+   skipping them silently.
+2. **A calibration fold awaiting user sign-off.** "A test that promises more than
+   it asserts" is at three occurrences (M37 phase-06, M43 phase-05, M43
+   phase-06 ×2) — WORKFLOW's threshold. But two of the three were caught at
+   review by mutation testing, so the review practice is working and the gap is
+   upstream in what specs *ask for*. Options and the argument are in the M43
+   retrospective § "Candidate fold". **Not folded unilaterally.**
+3. **Housekeeping, not phase work:** the live store has not itself been compacted
+   (the command was verified against copies only); ~74 MB of `.bak*` files sit
+   beside it that nothing reads; and `~/.cargo/bin/rexymcp` predates phases
+   05–06, so `cargo install --path mcp` is needed to get the reconciled dashboard
+   figure and the `compact` command on PATH.
+
+**One occurrence, still held (not folded):** "a reader whose cost scales with
+total history, over a store designed to be appended to forever." M35 built the
+append-only store, M40 added the 60 s sweep, M8 reads it at 2 Hz — each locally
+reasonable. A second such interaction makes it a standing rule about append-only
+stores needing a bounded-read contract at design time.
+
+---
 
 **Phase 06 drafted 2026-08-04** — the milestone's only data-rewriting phase. A
 `rexymcp compact` subcommand rewrites `phase_runs.jsonl` to the records that

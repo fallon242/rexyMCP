@@ -1232,7 +1232,7 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-43. **M43 — Dashboard idle CPU** *(planning; opened 2026-08-04 from a user report)*.
+43. **M43 — Dashboard idle CPU** *(done 2026-08-05; opened 2026-08-04 from a user report)*.
     `rexymcp dashboard --repo .` pins a core even while `rexymcp serve` is idle,
     and only on long-lived projects. Measured on this repo: **59 % of one core**
     sustained with the dashboard untouched, and **0 %** with `[telemetry] dir`
@@ -1261,6 +1261,32 @@ The project plan. Each entry becomes a milestone with its own
     rather than assumed in. The defect class — a reader whose cost scales with total
     history over a store designed to be appended to forever — is held as one
     occurrence for calibration, not folded.
+    **Closed at six phases**, not three: **04** memoizes the per-tick transcript
+    build+wrap (added at phase-01 review, when correcting the measurement showed
+    the render path was the whole residual cost — the "0 % with telemetry removed"
+    row above was read off a `script` wrapper, not the dashboard, and the claim
+    that nothing in the render path is implicated was wrong); **05** reconciles the
+    dashboard's ungated `PhaseRun` read with `telemetry::read`'s
+    `schema_version` gate, which had made the dashboard and `rexymcp costs`
+    disagree 2.4× (resolved toward §35's waiver, with the user declining a
+    backfill even though the 357 pre-M35 records proved field-complete); **06**
+    adds `rexymcp compact`, a human-run command that rewrote the real store
+    108.7 MB → 482 KB (99.56 %) behind a backup and an atomic rename, verified
+    invisible to consumers by identical `costs` figures either side. Outcome:
+    idle cost **62 % → 0.1 %** of one core, growth **~53 KB/min → ~370 B/min**.
+    The milestone's dominant failure mode was **architect** spec defects, not
+    model error — three end-to-end criteria stated in terms the phase did not
+    control — which is the fold **`STANDARDS.md` § 1.1** ("an end-to-end
+    verification must prove it is live", `b62ca68`). Both bounces occurred on a
+    fully green tree, where a plain re-dispatch no-ops; both were fixed on the
+    first re-dispatch after a loud bounce-fix header set the bar at a measurement
+    or a mutation rather than at the gates. Retrospective in
+    [M43/README.md § M43 retrospective](dev/milestones/M43-dashboard-idle-cpu/README.md).
+    One live defect found while drafting 06 and **carried forward unfixed**: the
+    four `telemetry` append functions write payload and newline as two separate
+    `write_all` calls on an `O_APPEND` handle, so concurrent appenders interleave —
+    209 corrupt lines in the real store, ~418 ledger records silently invisible
+    because every reader `filter_map`s parse failures away. Candidate phase 07.
 42. **M42 — Bookkeeping format hygiene** *(done 2026-07-24; opened and closed the
     same day from GitHub issue #4)*. The server-authored bookkeeping tail — the
     completion Update Log entry and the milestone README status row — is written

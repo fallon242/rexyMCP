@@ -5,7 +5,7 @@ happening, by (a) not re-reading unchanged files, (b) reading the telemetry stor
 once per refresh instead of three times, and (c) stopping `phase_runs.jsonl` from
 growing without bound.
 
-**Status:** planning
+**Status:** done (closed 2026-08-05)
 
 **Depends on:** M35 (the architect ledger and `scope_costs` core this reads), M40
 (the sweep that appends the ledger snapshots), M8 (the dashboard itself)
@@ -314,3 +314,116 @@ against.
 Worth deciding at 07 drafting time, not now: whether readers should *count*
 malformed lines rather than skip them silently, so the next occurrence surfaces
 on its own instead of waiting for someone to simulate a migration.
+
+---
+
+## M43 retrospective — closed 2026-08-05
+
+Six phases, opened and closed in two days. **4 `approved_first_try`, 2
+`approved_after_1`**, 3 bugs filed, zero escalations and zero architect
+takeovers — every phase was implemented by the dispatched executor
+(`Qwen/Qwen3.6-27B-FP8`).
+
+### What the milestone actually delivered
+
+| | Before | After |
+| --- | --- | --- |
+| Idle CPU, dashboard untouched | 62 % of one core | **0.1 %** (1 tick / 10 s) |
+| Reload cost when data *has* changed | 3 reads, 5 parse passes | 1 read, 1 pass (**3.2×** less work) |
+| `phase_runs.jsonl` growth while `serve` idles | ~53 KB/min | **~370 B/min** (~140×) |
+| Store size | 108.7 MB | **482 KB** via `rexymcp compact` (99.56 %) |
+| Dashboard vs `rexymcp costs` project totals | disagreed 2.4× | identical |
+
+All five exit criteria are met, with the first one *superseded* rather than hit
+as originally written — see the note below.
+
+### The milestone's defining failure mode was mine, not the executor's
+
+Three of this milestone's spec defects share one root: **an end-to-end criterion
+stated in terms the phase does not control.**
+
+1. **Phase 01** — the phase doc's own measurement command selected the `script`
+   wrapper rather than the dashboard, so the executor faithfully reported
+   `idle CPU: 0%` while the true figure was 4 %. The milestone's opening
+   evidence table was read off the same wrapper, which is why it wrongly
+   declared the render path free and refused it a phase.
+2. **Phase 02** — an absolute `≤ 70 ticks` criterion anchored to a render
+   baseline that drifted 26 → 72 → 384 between sessions.
+3. **Phase 04** — a memoization criterion aimed at a value that was already
+   cheap; the bounce (bug-04-1) was a spec defect, not an implementation fault.
+
+That third occurrence hit WORKFLOW's fold threshold and, with the user's
+sign-off, produced **`STANDARDS.md` § 1.1 "An end-to-end verification must prove
+it is live"** (`b62ca68`) — every end-to-end check now carries a positive
+control, as a DoD checkbox. It paid for itself immediately: phases 05 and 06
+both shipped genuine A/B positive controls, and phase 06's review caught two
+untestable tests precisely because the standard had made "can this observation
+fail?" the default question.
+
+**Not propagated to `plugin/templates/STANDARDS.md`** — still an open product
+decision, unchanged by this close.
+
+### Both bounces happened on a green tree
+
+Phase 04 and phase 06 were each bounced while all four gates passed and the full
+suite was green. That is the exact condition under which a *plain* re-dispatch
+self-reports "complete" and changes nothing. Both were fixed on the first
+re-dispatch after adding a **loud bounce-fix header** to the phase doc — one that
+names what to keep, quotes the offending lines inline, and sets the bar at the
+measurement (phase 04) or at a mutation going red (phase 06) rather than at the
+gates. That technique is now **2 for 2** in this milestone and is the single most
+transferable operational lesson in it.
+
+### Candidate fold — third occurrence, deliberately not folded here
+
+**"A test that promises more than it asserts"** is now at three occurrences:
+M37 phase-06's `savings_lines_debit_digits_align_with_non_debit` (asserted equal
+*width* while promising equal decimal *column*); M43 phase-05's legacy fixture
+(excluded by a missing `project_id`, so it would have passed with the gate
+absent); and M43 phase-06's two (the tail-copy test that never entered the
+tail-copy path, and an activity fold with no test at all, masked by
+`#[allow(dead_code)]`).
+
+That is the fold threshold, but the honest reading argues against a reflexive
+`STANDARDS.md` edit: **two of the three were caught at review by mutation
+testing**, and only the M37 one shipped. The review practice is working; the gap
+is upstream, in what phase docs *ask for*. A fold that says "reviewers should
+mutation-test" would codify something already happening. A fold that says "a
+spec asserting a guarantee must name the mutation that would break it" would
+change behavior at the point where these defects are actually born. **Held for
+the user's decision, not folded unilaterally.**
+
+### Two design questions this milestone settled
+
+- **The `schema_version` divergence (phase 05).** Reconciled *toward* the gate:
+  the dashboard moved, `rexymcp costs` was already right. Notably the evidence
+  argued the other way — the 357 pre-M35 records turned out to be
+  **field-complete**, missing only `gen_time_s` and `schema_version` — so the
+  gate discards readable data, not corrupt data. The user affirmed
+  `architecture.md` §35's waiver anyway and declined a backfill-the-stamp
+  alternative. Recorded so a later reader does not mistake it for an oversight.
+- **Compaction is a command, not a policy (phase 06).** No sweep hook, no
+  startup hook, no size threshold. The human runs it, it backs up before it
+  replaces, and it is invisible to every consumer — verified by identical
+  `costs` figures across a 99.56 % rewrite.
+
+### Carried forward
+
+- **Candidate phase 07 — the JSONL appends are not atomic.** A live bug, not a
+  hypothetical: ~418 ledger records are invisible in the real store right now,
+  and every reader hides it. Detail in § "Found while drafting 06" above. Not
+  drafted; sequencing it after 06 was deliberate.
+- **Open question for 07 drafting:** whether readers should *count* malformed
+  lines instead of skipping them silently, so the next occurrence announces
+  itself.
+- **One occurrence, still held:** "a reader whose cost scales with total history,
+  over a store designed to be appended to forever." M35 built the store, M40 the
+  60 s sweep, M8 the 2 Hz reader — each locally reasonable. A second such
+  interaction turns this into a standing rule about append-only stores needing a
+  bounded-read contract at design time.
+- **The `resolve_milestone` double directory walk** stays measured-out of scope.
+- **Housekeeping, not phase work:** ~74 MB of `.bak*` files sit beside the store
+  and nothing reads them; and the live store has not itself been compacted — the
+  new command was verified against copies only.
+- **`byte_offset_of_line` is O(n²)** (`mcp/src/compact.rs`) — 8.1 s on the real
+  store in release. Correctly declined as optional for a one-shot command.
