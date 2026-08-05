@@ -556,3 +556,9 @@ One nit, not a bug and not blocking: `byte_offset_of_line`
 O(n²) — 8.1 s on the real store in release. Fine for a one-shot command; fix it
 only if you are already in that code (a running offset accumulator in the
 `select_lines` loop removes the helper entirely).
+
+### Update — 2026-08-05 05:46 (started)
+
+**Executor:** model (bounce fix for bug-06-1 and bug-06-2)
+
+Fixing two test-quality defects from the architect review. The compaction logic itself is untouched.
