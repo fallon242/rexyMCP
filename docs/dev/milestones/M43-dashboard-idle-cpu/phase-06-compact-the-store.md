@@ -1,7 +1,7 @@
 # Phase 06: compact the existing telemetry store
 
 **Milestone:** M43 — Dashboard Idle CPU
-**Status:** review
+**Status:** in-progress
 **Depends on:** phase-03 (stopped the growth), phase-05 (decided legacy runs are dark)
 **Estimated diff:** ~400 lines (new `mcp/src/compact.rs` + CLI wiring + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -443,3 +443,35 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 26b96cfb66879aedc493ca92101297c9fd16c3f5
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-08-04 (architect review — BOUNCED)
+
+Bounced on two test-quality defects. **The implementation itself is correct** —
+verified independently against a copy of the real 108 MB store: backup
+byte-identical to the original, all 185 stamped `PhaseRun` records and all
+308,651,157 executor input tokens preserved, ledgers 290,164 → 410 and
+activities 323 → 104 exactly matching the fold semantics, `rexymcp costs`
+Architect figure identical ($2173.28) either side, dry-run leaving the store
+byte-identical by md5. Do **not** rewrite the compaction logic.
+
+What must change is the tests. Two bugs, both of the same shape — a guarantee
+the spec named, asserted by something that cannot fail:
+
+- **bug-06-1 (blocker)** — `compact_preserves_bytes_appended_during_the_run`
+  appends *before* calling `compact_store`, so the tail-copy loop never runs.
+  Deleting the entire Phase-3 block leaves all 13 tests passing.
+- **bug-06-2 (major)** — the `architect_activity` fold has no test at all;
+  inverting it to keep-first breaks nothing, and the unused fixture was silenced
+  with `#[allow(dead_code)]` rather than used.
+
+Each bug doc carries the exact mutation to re-run as its verification step.
+
+**Notes for executor:** keep `select_lines`, the byte-for-byte selection, the
+backup/rename ordering, and the report — all reviewed and correct. This bounce is
+scoped to `mod tests` plus deleting one `#[allow]`.
+
+One nit, not a bug and not blocking: `byte_offset_of_line`
+(`mcp/src/compact.rs:333`) rescans from index 0 for every line, making selection
+O(n²) — 8.1 s on the real store in release. Fine for a one-shot command; fix it
+only if you are already in that code (a running offset accumulator in the
+`select_lines` loop removes the helper entirely).
