@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod detector;
+pub mod egress;
 pub mod gateway;
 pub mod ner;
 pub mod registry;
