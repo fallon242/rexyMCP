@@ -112,10 +112,15 @@ the times you forget.
 ```toml
 [privacy]
 enabled = false                                 # opt-in; the gate is inert until true
-# engine_base_url = "http://localhost:8080/v1"  # local NER endpoint (detection only)
-# engine_model = "qwen3.5-9b"                    # thinking must be off
+# engine_base_url = "http://localhost:8080/v1"  # your local NER endpoint (detection only, stays on your LAN)
+# engine_model = "local-ner-model"              # the model id your endpoint serves; thinking must be off
 # vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault
+# redact_executor_egress = true                 # M45: force egress redaction on/off; default auto (cloud only)
+# scan_globs = ["data/**"]                       # M46: limit the egress pre-scan to these repo-relative globs
 ```
+
+Absent `[privacy]` (or `enabled = false`) → no anonymization, no boundary scrub,
+no egress protection: the architect and executor behave in the default manner.
 
 ## Limitations (do not skip)
 

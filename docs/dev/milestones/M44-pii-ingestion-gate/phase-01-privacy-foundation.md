@@ -214,6 +214,6 @@ config). Zero failures.
 **End-to-end verification:** Phase ships no runtime-loadable artifact beyond the
 library (no CLI/binary — those are phase-05). The `[privacy]` config is exercised
 end-to-end by `loads_privacy_section`, which writes a real `rexymcp.toml`
-(`[privacy] enabled = true`, `engine_model = "qwen3.5-9b"`) to a `TempDir` and
+(`[privacy] enabled = true`, `engine_model = "local-ner-model"`) to a `TempDir` and
 asserts `Config::load` reads it back — the closest to end-to-end this phase
 reaches.

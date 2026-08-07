@@ -48,7 +48,7 @@ Three cloud egress points; one local engine sits in front of all of them.
 your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ DeepSeek executor (CLOUD ②)
                     ▲                                              │ reads target repo
                     └──── PhaseResult / diff / briefing ◀──────────┘  (return path, CLOUD ①)
-        Qwen3.5 @ 192.168.50.138:8080 = local PII engine, never on any cloud path
+        Qwen3.5 @ 192.168.1.10:8080 = local PII engine, never on any cloud path
 ```
 
 - **① Architect (Claude).** Protected two ways: the `UserPromptSubmit` hook
@@ -100,7 +100,7 @@ crypto lands in 02, the first model call in 03, the first hash dep in 04.
 
 - **PII engine config (not the executor).** Qwen3.5 is the *detection engine
   only*; the executor stays `deepseek-v4-flash`. The engine endpoint is
-  `http://192.168.50.138:8080/v1`, model `qwen3.5-9b`, served by llama.cpp.
+  `http://192.168.1.10:8080/v1`, model `local-ner-model`, served by llama.cpp.
   Phase-01 adds a `[privacy]` config section carrying this endpoint separately
   from `[executor]`.
 - **Qwen is a reasoning model — thinking must be off.** Verified 2026-08-07:

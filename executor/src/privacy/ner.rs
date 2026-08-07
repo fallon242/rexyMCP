@@ -212,12 +212,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "live: needs Qwen at the [privacy] engine endpoint; run with --ignored"]
-    async fn live_qwen_detects_person_names() {
+    #[ignore = "live: set REXYMCP_PRIVACY_ENGINE_URL + REXYMCP_PRIVACY_ENGINE_MODEL; run with --ignored"]
+    async fn live_engine_detects_person_names() {
         let cfg = PrivacyConfig {
             enabled: true,
-            engine_base_url: Some("http://192.168.50.138:8080/v1".to_string()),
-            engine_model: Some("qwen3.5-9b".to_string()),
+            engine_base_url: Some(
+                std::env::var("REXYMCP_PRIVACY_ENGINE_URL")
+                    .expect("set REXYMCP_PRIVACY_ENGINE_URL to run this live test"),
+            ),
+            engine_model: Some(
+                std::env::var("REXYMCP_PRIVACY_ENGINE_MODEL")
+                    .expect("set REXYMCP_PRIVACY_ENGINE_MODEL to run this live test"),
+            ),
             ..Default::default()
         };
         let ner = NerEngine::from_config(&cfg).unwrap();
