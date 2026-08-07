@@ -113,8 +113,17 @@ pub async fn build_egress_index(
 ) -> Result<(Vec<(String, PiiKind)>, HashSet<PathBuf>)> {
     let ner = NerEngine::from_config(privacy)?;
     let files = scan_repo_files(root, &privacy.scan_globs);
-    let mut registry = Registry::load(&root.join(".rexymcp/egress-prescan.json"))?;
-    let index = build_pii_index(&files, &ner, &mut registry, &PiiIndex::empty()).await?;
+    // Persist the index + registry under the vault dir (M46) so an unchanged file
+    // reuses its prior entry — no NER call — on the next dispatch.
+    let vault_dir = privacy
+        .vault_dir
+        .clone()
+        .unwrap_or_else(|| root.join(".rexymcp/vault"));
+    let prior = PiiIndex::load(&vault_dir)?;
+    let mut registry = Registry::load(&vault_dir.join("egress-registry.json"))?;
+    let index = build_pii_index(&files, &ner, &mut registry, &prior).await?;
+    index.save(&vault_dir)?;
+    registry.save()?;
     let terms = index.redaction_terms();
     let pii_files = index.files().cloned().collect();
     Ok((terms, pii_files))

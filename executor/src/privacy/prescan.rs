@@ -4,23 +4,59 @@
 //! registry, so NER runs only on new or changed files.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use super::PiiKind;
 use super::detector::detect_deterministic;
 use super::ner::NerEngine;
 use super::registry::Registry;
-use crate::error::Result;
+use super::seal;
+use crate::error::{Error, Result};
 
 /// The repo's PII, stored per file so an unchanged file can reuse its entry.
-#[derive(Debug, Default, Clone)]
+/// Persisted **encrypted** (it is a PII honeypot) via [`super::seal`].
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PiiIndex {
     per_file: BTreeMap<PathBuf, Vec<(String, PiiKind)>>,
 }
 
+/// On-disk name of the sealed index inside the vault dir.
+const INDEX_FILE: &str = "egress-index.enc";
+
 impl PiiIndex {
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Load the sealed index from `dir/egress-index.enc` (empty if absent).
+    pub fn load(dir: &Path) -> Result<Self> {
+        match fs::read(dir.join(INDEX_FILE)) {
+            Ok(blob) => {
+                let key = seal::load_or_create_key(dir)?;
+                let plaintext = seal::unseal(&key, &blob)?;
+                serde_json::from_slice(&plaintext)
+                    .map_err(|e| Error::Privacy(format!("parse egress index: {e}")))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::empty()),
+            Err(e) => Err(Error::Io(e)),
+        }
+    }
+
+    /// Seal and atomically write the index to `dir/egress-index.enc`.
+    pub fn save(&self, dir: &Path) -> Result<()> {
+        fs::create_dir_all(dir)?;
+        fs::write(dir.join(".gitignore"), "*\n")?;
+        let key = seal::load_or_create_key(dir)?;
+        let plaintext = serde_json::to_vec(self)
+            .map_err(|e| Error::Privacy(format!("serialize egress index: {e}")))?;
+        let blob = seal::seal(&key, &plaintext)?;
+        let tmp = dir.join("egress-index.enc.tmp");
+        fs::write(&tmp, &blob)?;
+        fs::rename(&tmp, dir.join(INDEX_FILE))?;
+        Ok(())
     }
 
     /// True if `path` was found to contain any PII.
@@ -87,6 +123,37 @@ pub async fn build_pii_index(
 mod tests {
     use super::*;
     use crate::ai::testing::MockAiClient;
+
+    #[test]
+    fn index_persists_encrypted_across_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path().join("vault");
+        let mut idx = PiiIndex::empty();
+        idx.per_file.insert(
+            PathBuf::from("data.json"),
+            vec![("Alice".to_string(), PiiKind::PersonName)],
+        );
+        idx.save(&vault).unwrap();
+
+        let blob = std::fs::read(vault.join("egress-index.enc")).unwrap();
+        assert!(
+            !blob.windows(5).any(|w| w == b"Alice"),
+            "the index must be encrypted at rest"
+        );
+
+        let loaded = PiiIndex::load(&vault).unwrap();
+        assert!(loaded.contains_file(Path::new("data.json")));
+    }
+
+    #[test]
+    fn load_missing_index_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            PiiIndex::load(&dir.path().join("absent"))
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[tokio::test]
     async fn scans_all_files_first_pass_and_aggregates() {

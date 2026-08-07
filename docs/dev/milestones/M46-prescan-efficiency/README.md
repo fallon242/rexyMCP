@@ -3,7 +3,7 @@
 **Goal:** Make the M45 executor-egress pre-scan practical on real repos — bound
 what it walks, and stop re-running NER on unchanged files every dispatch.
 
-**Status:** in-progress
+**Status:** review (both phases implemented + tested)
 
 **Depends on:** M45 (the pre-scan + `build_egress_index`).
 
@@ -16,8 +16,8 @@ NER call per file, per dispatch — impractical. Two follow-ups fix it.
 
 | #  | Phase                                                          | Status |
 |----|----------------------------------------------------------------|--------|
-| 01 | `[privacy] scan_globs` — limit which files the pre-scan walks   | in-progress ← active |
-| 02 | encrypted `PiiIndex` persistence — reuse unchanged files (skip NER) | todo |
+| 01 | `[privacy] scan_globs` — limit which files the pre-scan walks   | review |
+| 02 | encrypted `PiiIndex` persistence — reuse unchanged files (skip NER) | review |
 
 ## Notes
 
