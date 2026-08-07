@@ -79,7 +79,7 @@ The PII engine reduces leak risk; it does not eliminate it. Two rules follow:
 | #  | Phase                                                        | Build      | Status |
 |----|-------------------------------------------------------------|------------|--------|
 | 01 | privacy foundation: `[privacy]` config + deterministic detectors + stable tokenizer | architect | review ← active |
-| 02 | encrypted vault: persist/load TokenMap, XChaCha20-Poly1305, local key | architect | todo |
+| 02 | encrypted vault: persist/load TokenMap, XChaCha20-Poly1305, local key | architect | review |
 | 03 | Qwen NER engine + gateway (deterministic ∪ NER → tokenize → vault) | architect | todo |
 | 04 | ingestion registry: content-hash change tracking, incremental scrub | architect | todo |
 | 05 | CLI: `scrub` / `anonymize` / `reconstitute` / `vault`       | → Qwen executor | todo |

@@ -5,12 +5,15 @@
 //! This is the reversible counterpart to [`crate::security::redact`], whose
 //! masking is deliberately one-way.
 
+use serde::{Deserialize, Serialize};
+
 pub mod detector;
 pub mod tokenizer;
+pub mod vault;
 
 /// A class of personally identifiable information. The variant fixes the token
 /// prefix a detected artifact is masked with (`Email` → `Email_1`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PiiKind {
     PersonName,
     Email,

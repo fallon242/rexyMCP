@@ -6,9 +6,18 @@
 use std::collections::HashMap;
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 use super::detector::detect_deterministic;
 use super::{PiiKind, PiiSpan};
+
+/// A single dictionary row — the persisted, serializable unit of the vault.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultEntry {
+    pub token: String,
+    pub original: String,
+    pub kind: PiiKind,
+}
 
 /// A reversible original↔token dictionary. The same original always interns to
 /// the same token; distinct originals never collide (per-kind monotonic
@@ -83,6 +92,40 @@ impl TokenMap {
             }
         })
         .into_owned()
+    }
+
+    /// Flatten the dictionary into serializable rows for persistence.
+    pub fn entries(&self) -> Vec<VaultEntry> {
+        self.reverse
+            .iter()
+            .map(|(token, (original, kind))| VaultEntry {
+                token: token.clone(),
+                original: original.clone(),
+                kind: *kind,
+            })
+            .collect()
+    }
+
+    /// Rebuild a map from persisted rows. Each per-kind counter is restored to
+    /// the max numeric suffix seen for that kind, so no future `intern` re-mints
+    /// a token that collides with a persisted one.
+    pub fn from_entries(entries: Vec<VaultEntry>) -> Self {
+        let mut map = Self::new();
+        for entry in entries {
+            let n = entry
+                .token
+                .rsplit('_')
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(0);
+            let counter = map.counters.entry(entry.kind).or_insert(0);
+            *counter = (*counter).max(n);
+            map.forward
+                .insert(entry.original.clone(), entry.token.clone());
+            map.reverse
+                .insert(entry.token, (entry.original, entry.kind));
+        }
+        map
     }
 }
 
