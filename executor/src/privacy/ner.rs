@@ -218,9 +218,7 @@ mod tests {
             enabled: true,
             engine_base_url: Some("http://192.168.50.138:8080/v1".to_string()),
             engine_model: Some("qwen3.5-9b".to_string()),
-            vault_dir: None,
-            kinds: Vec::new(),
-            redact_executor_egress: None,
+            ..Default::default()
         };
         let ner = NerEngine::from_config(&cfg).unwrap();
         let spans = ner

@@ -61,14 +61,21 @@ pub fn pii_write_refusal(
 /// `.git`, `target`, `.rexymcp`, … are skipped) and hidden files. Binary and
 /// oversized (>1 MiB) files are skipped. Paths are absolute (as `root` is),
 /// matching the loop's resolved edit targets.
-pub fn scan_repo_files(root: &Path) -> Vec<(PathBuf, String)> {
+pub fn scan_repo_files(root: &Path, globs: &[String]) -> Vec<(PathBuf, String)> {
     const MAX_BYTES: u64 = 1_048_576;
+    let globset = build_globset(globs);
     let mut out = Vec::new();
     for entry in ignore::WalkBuilder::new(root).build().flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
         let path = entry.path();
+        if let Some(gs) = &globset {
+            let rel = path.strip_prefix(root).unwrap_or(path);
+            if !gs.is_match(rel) {
+                continue;
+            }
+        }
         if std::fs::metadata(path).map(|m| m.len()).unwrap_or(u64::MAX) > MAX_BYTES {
             continue;
         }
@@ -77,6 +84,21 @@ pub fn scan_repo_files(root: &Path) -> Vec<(PathBuf, String)> {
         }
     }
     out
+}
+
+/// Build a `GlobSet` from repo-relative patterns; `None` when empty (= match
+/// everything). Invalid patterns are skipped.
+fn build_globset(globs: &[String]) -> Option<globset::GlobSet> {
+    if globs.is_empty() {
+        return None;
+    }
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in globs {
+        if let Ok(glob) = globset::Glob::new(pattern) {
+            builder.add(glob);
+        }
+    }
+    builder.build().ok()
 }
 
 /// Pre-scan the repo for PII: returns the outbound-redaction term dictionary +
@@ -90,7 +112,7 @@ pub async fn build_egress_index(
     privacy: &PrivacyConfig,
 ) -> Result<(Vec<(String, PiiKind)>, HashSet<PathBuf>)> {
     let ner = NerEngine::from_config(privacy)?;
-    let files = scan_repo_files(root);
+    let files = scan_repo_files(root, &privacy.scan_globs);
     let mut registry = Registry::load(&root.join(".rexymcp/egress-prescan.json"))?;
     let index = build_pii_index(&files, &ner, &mut registry, &PiiIndex::empty()).await?;
     let terms = index.redaction_terms();
@@ -285,7 +307,7 @@ mod tests {
         std::fs::create_dir_all(root.join("ignored")).unwrap();
         std::fs::write(root.join("ignored/secret.txt"), "carol").unwrap();
 
-        let names: Vec<String> = scan_repo_files(root)
+        let names: Vec<String> = scan_repo_files(root, &[])
             .iter()
             .map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
@@ -295,6 +317,26 @@ mod tests {
         assert!(
             !names.iter().any(|n| n == "secret.txt"),
             "an ignored file must be skipped: {names:?}"
+        );
+    }
+
+    #[test]
+    fn scan_globs_limit_the_walk() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(root.join("data/users.json"), "alice").unwrap();
+        std::fs::write(root.join("main.rs"), "code").unwrap();
+
+        let rel: Vec<String> = scan_repo_files(root, &["data/**".to_string()])
+            .iter()
+            .map(|(p, _)| p.strip_prefix(root).unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert!(rel.iter().any(|n| n.contains("users.json")), "{rel:?}");
+        assert!(
+            !rel.iter().any(|n| n.contains("main.rs")),
+            "a non-matching file must be excluded: {rel:?}"
         );
     }
 }

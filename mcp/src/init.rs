@@ -118,6 +118,7 @@ enabled = false
 # engine_model = "qwen3.5-9b"                    # small model served there; thinking must be off
 # vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault (encrypted, git-ignored)
 # redact_executor_egress = true                  # force executor-egress redaction on/off (M45); default: auto (redact iff the executor endpoint is a cloud host)
+# scan_globs = ["data/**", "fixtures/**"]         # M46: limit the egress pre-scan to these repo-relative globs (default: scan everything, gitignore-honored)
 "#
     )
 }

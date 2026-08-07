@@ -207,6 +207,9 @@ pub struct PrivacyConfig {
     /// M45: force executor-egress redaction on/off. `None` = auto (redact iff the
     /// executor endpoint is a cloud host).
     pub redact_executor_egress: Option<bool>,
+    /// M46: glob patterns (relative to the repo root) limiting which files the
+    /// executor-egress pre-scan walks. Empty = scan everything (gitignore-honored).
+    pub scan_globs: Vec<String>,
 }
 
 /// What the low-novelty (churn) detector does when a full window collapses to
