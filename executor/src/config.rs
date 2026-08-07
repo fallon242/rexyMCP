@@ -204,6 +204,9 @@ pub struct PrivacyConfig {
     pub engine_model: Option<String>,
     pub vault_dir: Option<PathBuf>,
     pub kinds: Vec<String>,
+    /// M45: force executor-egress redaction on/off. `None` = auto (redact iff the
+    /// executor endpoint is a cloud host).
+    pub redact_executor_egress: Option<bool>,
 }
 
 /// What the low-novelty (churn) detector does when a full window collapses to

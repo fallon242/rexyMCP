@@ -8,8 +8,11 @@
 use serde::{Deserialize, Serialize};
 
 pub mod detector;
+pub mod egress;
 pub mod gateway;
 pub mod ner;
+pub mod prescan;
+pub mod redact;
 pub mod registry;
 pub mod tokenizer;
 pub mod vault;
@@ -42,6 +45,21 @@ impl PiiKind {
             PiiKind::Mac => "Mac",
             PiiKind::StreetAddress => "Address",
             PiiKind::Org => "Org",
+        }
+    }
+
+    /// The lowercase tag used in the irreversible `[REDACTED:<tag>]` marker (M45).
+    pub fn marker_tag(self) -> &'static str {
+        match self {
+            PiiKind::PersonName => "name",
+            PiiKind::Email => "email",
+            PiiKind::Phone => "phone",
+            PiiKind::Ssn => "ssn",
+            PiiKind::CreditCard => "card",
+            PiiKind::Ipv4 => "ip",
+            PiiKind::Mac => "mac",
+            PiiKind::StreetAddress => "address",
+            PiiKind::Org => "org",
         }
     }
 }

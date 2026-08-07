@@ -220,6 +220,7 @@ mod tests {
             engine_model: Some("qwen3.5-9b".to_string()),
             vault_dir: None,
             kinds: Vec::new(),
+            redact_executor_egress: None,
         };
         let ner = NerEngine::from_config(&cfg).unwrap();
         let spans = ner

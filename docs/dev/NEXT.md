@@ -4,13 +4,19 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active milestone: M44 — PII Ingestion Gate.** **Status:** phases 01–05, 06a,
-and 07 implemented and in review (architect-built, on branch
-`m44-pii-ingestion-gate`, 8 commits); **06b (executor→cloud-executor egress)
-deferred** — see its doc for the NER-scaling problem and prototype plan. The gate
-is usable via the CLI and auto-scrubs the `PhaseResult` return path. Ready for
-review / milestone close (baseline 1761 → 1806 tests).
-**Docs:** `docs/dev/milestones/M44-pii-ingestion-gate/` + `docs/privacy.md`.
+**Active milestone: M45 — Executor Egress Protection** (closes the M44 residual —
+cloud-executor PII egress — via irreversible redact-on-read + a write-guard).
+**Status:** phases 01–04 built, tested, committed on branch
+`m45-executor-egress-protection` (endpoint classification, PII pre-scan /
+`PiiIndex`, `RedactingAiClient`, `pii_write_refusal`; 1806 → 1827 tests).
+**Phase-05 (wiring into the dispatch path) deferred** to a focused follow-up PR —
+the invasive core-loop integration (~23 `LoopDeps` sites + repo file-walk); the
+plan is in `phase-05-wiring.md`.
+
+**M44 — PII Ingestion Gate: MERGED** to `fallon242/master` (PR #1, 2026-08-07,
+merge `3915b1d`). Usable via the CLI + auto-scrubs the `PhaseResult` return path;
+06b (reversible executor round-trip) prototyped, proven unsafe, abandoned.
+**Docs:** `docs/dev/milestones/M4{4,5}-*/` + `docs/privacy.md`.
 
 M44 (PII Ingestion Gate) anonymizes every input via a local PII engine (Qwen3.5
 on the LAN, detection only) before it reaches Claude or the DeepSeek executor,
