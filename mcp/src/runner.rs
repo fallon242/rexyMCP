@@ -308,6 +308,7 @@ async fn run_phase_with(
         governor: cfg.governor,
         task_tracking: cfg.executor.task_tracking,
         cancel: inp.cancel.clone(),
+        pii_files: std::collections::HashSet::new(),
     };
 
     let mut result = agent::execute_phase(&input, deps).await?;

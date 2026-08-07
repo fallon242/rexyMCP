@@ -145,6 +145,10 @@ pub struct LoopDeps<'a> {
     pub task_tracking: bool,
     /// Cooperative cancellation signal; `CancelSignal::never()` disables it.
     pub cancel: CancelSignal,
+    /// PII-bearing files (resolved absolute paths) the M45 pre-scan found when
+    /// executor-egress protection is engaged; empty = off. An edit-class call
+    /// targeting one is refused (a cloud model only sees its redacted contents).
+    pub pii_files: HashSet<PathBuf>,
 }
 
 /// Run the turn cycle until the model stops calling tools (`complete`) or the
@@ -1063,7 +1067,9 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
         } else {
             match destructive_restore_refusal(&tool_call, &pre_edit_content, deps.project_root)
                 .or_else(|| read_before_edit_refusal(&tool_call, &working_set, deps.project_root))
-            {
+                .or_else(|| {
+                    crate::privacy::egress::pii_write_refusal(edit_path.as_deref(), &deps.pii_files)
+                }) {
                 Some(refusal) => (false, refusal, None),
                 None => {
                     if let Some(path) = &edit_path
