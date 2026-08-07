@@ -192,6 +192,20 @@ impl Default for ContextConfig {
     }
 }
 
+/// PII ingestion gate (M44). `enabled` is opt-in (default false) until boundary
+/// enforcement lands; `engine_*` point at the local detection model (Qwen on the
+/// LAN, detection only); `vault_dir` locates the reversible token store; `kinds`
+/// narrows which PII classes are masked (empty = all).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PrivacyConfig {
+    pub enabled: bool,
+    pub engine_base_url: Option<String>,
+    pub engine_model: Option<String>,
+    pub vault_dir: Option<PathBuf>,
+    pub kinds: Vec<String>,
+}
+
 /// What the low-novelty (churn) detector does when a full window collapses to
 /// `<= novelty_distinct_floor` distinct targets. `Advisory` (default): the
 /// measurement is recorded (`NoveltySample`) but the run continues — the real
@@ -346,6 +360,8 @@ pub struct Config {
     pub escalation: EscalationConfig,
     #[serde(default)]
     pub architect: ArchitectConfig,
+    #[serde(default)]
+    pub privacy: PrivacyConfig,
 }
 
 /// Cross-project telemetry store. On by default: when `dir` is unset it
@@ -762,6 +778,40 @@ max_turns = 50
         assert_eq!(cfg.budget.context_length, 128000);
         assert_eq!(cfg.budget.max_context_pct, 80);
         assert_eq!(cfg.budget.max_turns, 50);
+    }
+
+    #[test]
+    fn loads_privacy_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"[privacy]
+enabled = true
+engine_base_url = "http://192.168.50.138:8080/v1"
+engine_model = "qwen3.5-9b"
+"#
+        )
+        .unwrap();
+        drop(f);
+
+        let cfg = Config::load(&path).unwrap();
+        assert!(cfg.privacy.enabled);
+        assert_eq!(cfg.privacy.engine_model.as_deref(), Some("qwen3.5-9b"));
+    }
+
+    #[test]
+    fn privacy_defaults_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "[project]\nid = \"x\"\n").unwrap();
+        drop(f);
+
+        let cfg = Config::load(&path).unwrap();
+        assert!(!cfg.privacy.enabled);
+        assert!(cfg.privacy.kinds.is_empty());
     }
 
     #[test]
