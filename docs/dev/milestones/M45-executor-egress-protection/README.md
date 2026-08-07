@@ -71,6 +71,10 @@ Engaged iff `privacy.enabled && !endpoint_is_local(executor.base_url)`.
 - **Best-effort remains best-effort.** Structured PII is redacted reliably; names
   the pre-scan NER misses still reach the cloud executor. M45 is a large reduction
   in egress risk, not an airtight guarantee — same honest limit as all of M44.
+  **Confirmed by the live DeepSeek dogfood (2026-08-07, phase-05 Update Log):** the
+  write-guard fired and the email/phone reached DeepSeek as `[REDACTED:…]`, but the
+  NER missed a name that run (Qwen returned `[]`) so it leaked — the limitation
+  caught in the act.
 - **Executor quality on data files.** The executor reads `[REDACTED:...]` where PII
   was, for PII-bearing files it cannot edit anyway. Code files (no PII) are
   untouched, so normal coding work is unaffected.

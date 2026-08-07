@@ -1,27 +1,25 @@
 //! Encrypted-at-rest persistence for the reversible token dictionary — the
 //! durable half of the "secure dictionary". The map is a PII honeypot, so it is
-//! sealed with XChaCha20-Poly1305 under a local key file and kept in a
-//! git-ignored directory: reversibility is the risk this buys, encryption is how
-//! it is contained.
+//! sealed (XChaCha20-Poly1305 under a local key file, via [`super::seal`]) and
+//! kept in a git-ignored directory: reversibility is the risk this buys,
+//! encryption is how it is contained.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng};
-use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::Key;
 
+use super::seal;
 use super::tokenizer::TokenMap;
 use crate::error::{Error, Result};
 
-const KEY_FILE: &str = "key";
 const VAULT_FILE: &str = "vault.enc";
-const NONCE_LEN: usize = 24;
 
 /// A durable, encrypted `TokenMap`. `open` loads (or creates) the key and any
 /// existing vault; `save` re-seals the current map.
 pub struct Vault {
     dir: PathBuf,
-    cipher: XChaCha20Poly1305,
+    key: Key,
     map: TokenMap,
 }
 
@@ -33,18 +31,22 @@ impl Vault {
         // The vault and its key must never be committed.
         fs::write(dir.join(".gitignore"), "*\n")?;
 
-        let key = load_or_create_key(dir)?;
-        let cipher = XChaCha20Poly1305::new(&key);
+        let key = seal::load_or_create_key(dir)?;
 
         let map = match fs::read(dir.join(VAULT_FILE)) {
-            Ok(bytes) => decrypt_map(&cipher, &bytes)?,
+            Ok(blob) => {
+                let plaintext = seal::unseal(&key, &blob)?;
+                let entries = serde_json::from_slice(&plaintext)
+                    .map_err(|e| Error::Privacy(format!("parse vault: {e}")))?;
+                TokenMap::from_entries(entries)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => TokenMap::new(),
             Err(e) => return Err(Error::Io(e)),
         };
 
         Ok(Self {
             dir: dir.to_path_buf(),
-            cipher,
+            key,
             map,
         })
     }
@@ -61,70 +63,12 @@ impl Vault {
     pub fn save(&self) -> Result<()> {
         let plaintext = serde_json::to_vec(&self.map.entries())
             .map_err(|e| Error::Privacy(format!("serialize vault: {e}")))?;
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
-        let ciphertext = self
-            .cipher
-            .encrypt(&nonce, plaintext.as_ref())
-            .map_err(|e| Error::Privacy(format!("encrypt vault: {e}")))?;
-
-        let mut blob = Vec::with_capacity(NONCE_LEN + ciphertext.len());
-        blob.extend_from_slice(nonce.as_slice());
-        blob.extend_from_slice(&ciphertext);
-
+        let blob = seal::seal(&self.key, &plaintext)?;
         let tmp = self.dir.join("vault.enc.tmp");
         fs::write(&tmp, &blob)?;
         fs::rename(&tmp, self.dir.join(VAULT_FILE))?;
         Ok(())
     }
-}
-
-fn load_or_create_key(dir: &Path) -> Result<Key> {
-    let path = dir.join(KEY_FILE);
-    match fs::read(&path) {
-        Ok(bytes) => {
-            if bytes.len() != 32 {
-                return Err(Error::Privacy(format!(
-                    "vault key at {} is {} bytes, expected 32",
-                    path.display(),
-                    bytes.len()
-                )));
-            }
-            Ok(*Key::from_slice(&bytes))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let key = XChaCha20Poly1305::generate_key(&mut OsRng);
-            fs::write(&path, key.as_slice())?;
-            set_owner_only(&path)?;
-            Ok(key)
-        }
-        Err(e) => Err(Error::Io(e)),
-    }
-}
-
-fn decrypt_map(cipher: &XChaCha20Poly1305, bytes: &[u8]) -> Result<TokenMap> {
-    if bytes.len() < NONCE_LEN {
-        return Err(Error::Privacy("vault file is truncated".into()));
-    }
-    let (nonce_bytes, ciphertext) = bytes.split_at(NONCE_LEN);
-    let nonce = XNonce::from_slice(nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|e| Error::Privacy(format!("decrypt vault: {e}")))?;
-    let entries = serde_json::from_slice(&plaintext)
-        .map_err(|e| Error::Privacy(format!("parse vault: {e}")))?;
-    Ok(TokenMap::from_entries(entries))
-}
-
-#[cfg(unix)]
-fn set_owner_only(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_owner_only(_path: &Path) -> Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]
@@ -182,7 +126,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         Vault::open(dir.path()).unwrap();
-        let mode = fs::metadata(dir.path().join(KEY_FILE))
+        let mode = fs::metadata(dir.path().join("key"))
             .unwrap()
             .permissions()
             .mode();
