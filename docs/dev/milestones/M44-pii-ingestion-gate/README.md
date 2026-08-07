@@ -84,7 +84,7 @@ The PII engine reduces leak risk; it does not eliminate it. Two rules follow:
 | 04 | ingestion registry: content-hash change tracking, incremental scrub | architect | review |
 | 05 | CLI: `anonymize` / `reconstitute` / `vault`                 | architect | review |
 | 06a | `PhaseResult` boundary scrub (deterministic) before it returns to Claude | architect | review |
-| 06b | executor→DeepSeek egress round-trip | architect | **deferred** (NER doesn't scale per-turn; see doc) |
+| 06b | executor→DeepSeek egress round-trip | architect | **won't-implement** — prototype (2026-08-07) proved it corrupts files (model replaces tokens with fabricated values); see doc |
 | 07 | `UserPromptSubmit` hook + `rexymcp init` `[privacy]` defaults + docs | architect | review |
 
 **Hybrid build (why this split):** the security-critical core — the reversible

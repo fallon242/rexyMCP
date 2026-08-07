@@ -26,12 +26,13 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
 - **① Return path to Claude** — every `execute_phase` / `continue_phase`
   `PhaseResult` is scrubbed of **structured** PII (deterministic detectors) before
   it crosses the MCP boundary to Claude. Automatic when `[privacy].enabled = true`.
-- **② Executor egress to a cloud model** — anonymizing the executor's outbound
-  prompts and reconstituting token→original on writes is **deferred** (see
-  `docs/dev/milestones/M44-pii-ingestion-gate/phase-06b-executor-egress.md`): a
-  model pass per turn is unbounded, and echo-back robustness is unproven. Until
-  it lands, use a **local** executor for PII-bearing repos, or pre-scrub inputs
-  with the CLI.
+- **② Executor egress to a cloud model** — **not automated, and won't be as
+  originally designed.** A 2026-08-07 prototype proved that tokenizing the
+  executor's view corrupts files: when the model validates/normalizes a tokenized
+  value it replaces the token with fabricated data (e.g. `Email_1` →
+  `person1@example.com`), losing the original. So for a PII-bearing repo, use a
+  **local** executor (no cloud egress ②) or pre-scrub inputs with the CLI. See
+  `docs/dev/milestones/M44-pii-ingestion-gate/phase-06b-executor-egress.md`.
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)
   or the `UserPromptSubmit` hook (best-effort; see below).
 
@@ -121,8 +122,9 @@ enabled = false                                 # opt-in; the gate is inert unti
   a miss is a leak).
 - **Vault = honeypot.** Encrypted and git-ignored, but it concentrates every
   original. Protect the vault dir and its key like a secret.
-- **Executor egress (②) is not yet automatic** — deferred (phase-06b). A cloud
-  executor over a PII-bearing repo is not protected by the return-path scrub
-  alone.
+- **Executor egress (②) is not automated** — a prototype proved the intended
+  round-trip corrupts files (the model replaces tokens with fabricated values), so
+  it was abandoned. A cloud executor over a PII-bearing repo is a documented
+  residual risk; use a local executor or pre-scrub with the CLI.
 - **This cannot retro-protect a chat.** PII already sent to Claude is already in
   the cloud. Scrub *before* sending.
