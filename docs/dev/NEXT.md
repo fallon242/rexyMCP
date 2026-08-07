@@ -4,24 +4,25 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: M43 phase-01 — reject unknown model-override keys; fix the
-`<think>` open tag.** **Status:** todo (drafted, awaiting dispatch).
-**Doc:** `docs/dev/milestones/M43-thinking-mode-round-trip/phase-01-reject-unknown-keys-and-fix-think-tag.md`
+**Active phase: M44 phase-01 — privacy foundation: `[privacy]` config,
+deterministic PII detectors, stable reversible tokenizer.** **Status:**
+in-progress (architect-built).
+**Doc:** `docs/dev/milestones/M44-pii-ingestion-gate/phase-01-privacy-foundation.md`
 
-Opened after a DeepSeek dispatch hard-failed on turn one with *"The
-`reasoning_content` in the thinking mode must be passed back to the API."*
-Three defects chain into it: `ModelOverride` silently accepts unknown keys,
-the streaming state machine opens a reasoning block with `</think>`, and
-`convert_messages` drops `reasoning_content` when replaying an assistant turn.
-Phase-01 is the two verified one-line fixes plus the tests neither had;
-phase-02 is the round-trip itself.
+M44 (PII Ingestion Gate) anonymizes every input via a local PII engine (Qwen3.5
+on the LAN, detection only) before it reaches Claude or the DeepSeek executor,
+keeping a reversible local encrypted vault. See
+[M44/README.md](milestones/M44-pii-ingestion-gate/README.md).
 
-⚠️ **Read `feat/executor-thinking-and-autocomplete` before landing phase-01.**
-That branch adds a real `thinking` config key and disables thinking as a
-*workaround*, its own doc comment noting the round-trip is "a requirement
-rexyMCP does not implement". M43 is the fix, not a competitor — but phase-01's
-`deny_unknown_fields` will start rejecting configs written for that branch, so
-sequence the merge deliberately.
+**M43 is parked, not blocked — it is NOT a prerequisite for M44.** Initially
+sequenced first on the belief that its `deny_unknown_fields` would gate M44's
+config; it does not. M43 adds `deny_unknown_fields` to `ModelOverride` only, while
+M44's `[privacy]` section lives on the top-level `Config` (which has no
+`deny_unknown_fields`). Land M43 whenever. Note before landing it: its phase-01
+doc has drifted — it claims `ModelOverride` has no `thinking` field, but `a2fdbe2`
+already merged `pub thinking: Option<String>` (`config.rs:305`), so its
+end-to-end step (expecting `thinking = "disabled"` to be *rejected*) would now
+fail, because `thinking` is a valid key. Reconcile that doc when landing M43.
 
 **Baseline:** 1761 tests (685 + 2 + 1074) at `a2fdbe2`.
 
