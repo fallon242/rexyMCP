@@ -4,6 +4,9 @@
 //! network). Classification errs toward cloud on ambiguity — misjudging a cloud
 //! host as local would leak, misjudging a local host as cloud only over-redacts.
 
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
 use crate::config::PrivacyConfig;
 
 /// True when `base_url`'s host is clearly local: `localhost`, a loopback/RFC-1918
@@ -23,6 +26,29 @@ pub fn should_redact_egress(privacy: &PrivacyConfig, base_url: &str) -> bool {
     match privacy.redact_executor_egress {
         Some(force) => force,
         None => !endpoint_is_local(base_url),
+    }
+}
+
+/// Refuse an edit to a PII-bearing file (M45 write-guard). A cloud executor only
+/// ever sees a file's **redacted** contents, so it must not overwrite one — it
+/// would replace real data with fabrication (the phase-06b failure). `edit_target`
+/// is the resolved `write_file`/`patch` target (`None` for non-edit calls);
+/// `pii_files` are the resolved paths the pre-scan found to contain PII (empty =
+/// protection off). `None` = allowed.
+pub fn pii_write_refusal(
+    edit_target: Option<&Path>,
+    pii_files: &HashSet<PathBuf>,
+) -> Option<String> {
+    let path = edit_target?;
+    if pii_files.contains(path) {
+        Some(format!(
+            "refusing to edit {}: it contains PII, and the executor is a cloud model that only \
+             sees its redacted contents. Edit this file manually, or run the phase on a local \
+             executor.",
+            path.display()
+        ))
+    } else {
+        None
     }
 }
 
@@ -141,5 +167,31 @@ mod tests {
             &privacy(true, Some(false)),
             "https://api.deepseek.com"
         ));
+    }
+
+    #[test]
+    fn write_guard_refuses_pii_file() {
+        let mut pii = HashSet::new();
+        pii.insert(PathBuf::from("/repo/data/users.json"));
+        assert!(pii_write_refusal(Some(Path::new("/repo/data/users.json")), &pii).is_some());
+    }
+
+    #[test]
+    fn write_guard_allows_clean_file() {
+        let mut pii = HashSet::new();
+        pii.insert(PathBuf::from("/repo/data/users.json"));
+        assert!(pii_write_refusal(Some(Path::new("/repo/src/main.rs")), &pii).is_none());
+    }
+
+    #[test]
+    fn write_guard_allows_non_edit_call() {
+        let pii = HashSet::new();
+        assert!(pii_write_refusal(None, &pii).is_none());
+    }
+
+    #[test]
+    fn write_guard_empty_set_never_refuses() {
+        let pii: HashSet<PathBuf> = HashSet::new();
+        assert!(pii_write_refusal(Some(Path::new("/repo/data/users.json")), &pii).is_none());
     }
 }
