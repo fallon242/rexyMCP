@@ -15,6 +15,7 @@ mod init;
 mod jobs;
 mod journal;
 mod log_query;
+mod privacy_cli;
 mod profile;
 mod profile_cli;
 mod resume;
@@ -445,6 +446,49 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Anonymize PII in a file or stdin (M44), printing the tokenized text
+    Anonymize {
+        /// Path to the config file
+        #[arg(long, default_value = "rexymcp.toml")]
+        config: PathBuf,
+        /// Target repository root (for the default vault dir)
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Override the vault directory
+        #[arg(long)]
+        vault: Option<PathBuf>,
+        /// Input file; omit or "-" for stdin
+        input: Option<String>,
+    },
+
+    /// Reconstitute PII tokens in a file or stdin back to originals (M44)
+    Reconstitute {
+        /// Path to the config file
+        #[arg(long, default_value = "rexymcp.toml")]
+        config: PathBuf,
+        /// Target repository root (for the default vault dir)
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Override the vault directory
+        #[arg(long)]
+        vault: Option<PathBuf>,
+        /// Input file; omit or "-" for stdin
+        input: Option<String>,
+    },
+
+    /// Report vault status: entry counts per PII kind (never prints originals)
+    Vault {
+        /// Path to the config file
+        #[arg(long, default_value = "rexymcp.toml")]
+        config: PathBuf,
+        /// Target repository root (for the default vault dir)
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Override the vault directory
+        #[arg(long)]
+        vault: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -542,6 +586,36 @@ async fn main() -> anyhow::Result<()> {
             init::run(&dir, force)?;
             Ok(())
         }
+        Commands::Anonymize {
+            config,
+            repo,
+            vault,
+            input,
+        } => {
+            privacy_cli::anonymize(privacy_cli::CliArgs {
+                config,
+                repo,
+                vault,
+                input,
+            })
+            .await
+        }
+        Commands::Reconstitute {
+            config,
+            repo,
+            vault,
+            input,
+        } => privacy_cli::reconstitute(privacy_cli::CliArgs {
+            config,
+            repo,
+            vault,
+            input,
+        }),
+        Commands::Vault {
+            config,
+            repo,
+            vault,
+        } => privacy_cli::vault_status(config, repo, vault),
         Commands::Serve { config } => {
             let cwd = std::env::current_dir()
                 .map(|p| p.display().to_string())
