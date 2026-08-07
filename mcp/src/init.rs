@@ -106,6 +106,17 @@ output_filter = true              # filter/truncate bash output to conserve cont
 
 [telemetry]
 # dir = "/path/to/shared/telemetry"  # cross-project PhaseRun telemetry store
+
+[privacy]
+# PII ingestion gate (M44). When enabled, `rexymcp anonymize` and the
+# execute_phase boundary scrub replace PII with reversible tokens kept in a local
+# encrypted vault (git-ignored). Detection is best-effort: deterministic detectors
+# (email/phone/SSN/card/IP/MAC) are reliable; the NER model (names/addresses) is
+# not — it reduces leak risk, it does not guarantee. See docs/privacy.md.
+enabled = false
+# engine_base_url = "http://localhost:8080/v1"  # local NER endpoint (detection only, stays on your LAN)
+# engine_model = "qwen3.5-9b"                    # small model served there; thinking must be off
+# vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault (encrypted, git-ignored)
 "#
     )
 }
@@ -253,6 +264,23 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         assert_ne!(content, "OLD");
         assert!(content.starts_with("# rexymcp.toml"));
+    }
+
+    #[test]
+    fn template_documents_privacy_section() {
+        let dir = TempDir::new().unwrap();
+        run(dir.path(), false).unwrap();
+        let path = dir.path().join("rexymcp.toml");
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(
+            content.contains("[privacy]"),
+            "generated config must document the [privacy] gate"
+        );
+        let cfg = Config::load(&path).expect("generated config must load");
+        assert!(
+            !cfg.privacy.enabled,
+            "the privacy gate must default to disabled (opt-in)"
+        );
     }
 
     #[test]
