@@ -11,6 +11,7 @@ pub mod detector;
 pub mod egress;
 pub mod gateway;
 pub mod ner;
+pub mod prescan;
 pub mod registry;
 pub mod tokenizer;
 pub mod vault;

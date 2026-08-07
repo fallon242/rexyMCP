@@ -61,7 +61,7 @@ Engaged iff `privacy.enabled && !endpoint_is_local(executor.base_url)`.
 | #  | Phase                                                         | Build     | Status |
 |----|--------------------------------------------------------------|-----------|--------|
 | 01 | `endpoint_is_local` classification + `[privacy]` egress config | architect | review ← active |
-| 02 | repo pre-scan → PII dictionary + PII-file set (registry-cached) | architect | todo |
+| 02 | repo pre-scan → PII dictionary + PII-file set (registry-cached) | architect | review |
 | 03 | `RedactingAiClient` outbound chokepoint (deterministic + dictionary) | architect | todo |
 | 04 | write-refuse guard for PII-bearing files                      | architect | todo |
 | 05 | wiring (engage for cloud endpoints) + config + docs + dogfood | architect | todo |
