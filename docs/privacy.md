@@ -26,13 +26,15 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
 - **① Return path to Claude** — every `execute_phase` / `continue_phase`
   `PhaseResult` is scrubbed of **structured** PII (deterministic detectors) before
   it crosses the MCP boundary to Claude. Automatic when `[privacy].enabled = true`.
-- **② Executor egress to a cloud model** — **not automated, and won't be as
-  originally designed.** A 2026-08-07 prototype proved that tokenizing the
-  executor's view corrupts files: when the model validates/normalizes a tokenized
-  value it replaces the token with fabricated data (e.g. `Email_1` →
-  `person1@example.com`), losing the original. So for a PII-bearing repo, use a
-  **local** executor (no cloud egress ②) or pre-scrub inputs with the CLI. See
-  `docs/dev/milestones/M44-pii-ingestion-gate/phase-06b-executor-egress.md`.
+- **② Executor egress to a cloud model** — **automated (M45), by irreversible
+  redact-on-read + a write-guard.** When the executor endpoint is a cloud host and
+  `[privacy]` is on, rexyMCP pre-scans the repo for PII, redacts every outbound
+  message to the executor to `[REDACTED:kind]` (irreversible — no token the model
+  can "correct" into fabricated data, the failure a reversible round-trip hit),
+  and refuses model writes to PII-bearing files (a cloud model only sees their
+  redacted contents). A local executor bypasses all of this. Best-effort:
+  names the pre-scan NER misses still egress. See
+  `docs/dev/milestones/M45-executor-egress-protection/`.
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)
   or the `UserPromptSubmit` hook (best-effort; see below).
 

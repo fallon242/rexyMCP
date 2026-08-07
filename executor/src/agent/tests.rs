@@ -136,6 +136,7 @@ fn deps<'a>(
     root: &'a Path,
 ) -> LoopDeps<'a> {
     LoopDeps {
+        pii_files: HashSet::new(),
         client,
         registry,
         tools: &[],
@@ -966,6 +967,7 @@ async fn injected_clock_sets_record_ts() {
     let client = MockAiClientScript::new(vec![vec![token("done")]]);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -1091,6 +1093,7 @@ async fn run_with_verifier(
     let registry = registry_over(scope);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client,
         registry: &registry,
         tools: &[],
@@ -1399,6 +1402,7 @@ async fn oscillation_across_alternating_reads_trips_hard_fail() {
     let verifier = MockFileVerifier::new(vec![]);
 
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -1474,6 +1478,7 @@ async fn novelty_samples_are_emitted_deduped_and_rearm_after_edit() {
     let verifier = MockFileVerifier::new(vec![]);
 
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -1545,6 +1550,7 @@ async fn run_low_novelty_churn(action: crate::config::NoveltyAction) -> (TempDir
     ]);
     let verifier = MockFileVerifier::new(vec![]);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -1636,6 +1642,7 @@ async fn cumulative_output_flood_trips_hard_fail() {
     let verifier = MockFileVerifier::new(vec![]);
 
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -2158,6 +2165,7 @@ async fn run_full_with_context_window(
     let registry = registry_over(scope);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client,
         registry: &registry,
         tools: &[],
@@ -2920,6 +2928,7 @@ fn deps_with_progress_simple<'a>(
     capture: &'a CaptureCallback,
 ) -> LoopDeps<'a> {
     LoopDeps {
+        pii_files: HashSet::new(),
         client,
         registry,
         tools: &[],
@@ -2997,6 +3006,7 @@ impl<'a> DepsBuilder<'a> {
     }
     fn build(self) -> LoopDeps<'a> {
         LoopDeps {
+            pii_files: HashSet::new(),
             client: self.client,
             registry: self.registry,
             tools: &[],
@@ -3187,6 +3197,7 @@ async fn callback_panic_is_not_caught() {
     }
 
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -3998,6 +4009,7 @@ async fn loop_emits_output_filtered_event_for_filtered_bash() {
     let result = execute_phase(
         &input(),
         LoopDeps {
+            pii_files: HashSet::new(),
             client: &client,
             registry: &registry,
             tools: &[],
@@ -4349,6 +4361,7 @@ async fn loop_seeds_task_updates_from_spec() {
     let registry = registry_over(scope);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -4416,6 +4429,7 @@ async fn loop_emits_no_task_updates_when_spec_absent() {
     let registry = registry_over(scope);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -4563,6 +4577,7 @@ async fn loop_emits_task_update_when_model_flips_task() {
     let registry = registry_with_update_task(scope, tasks);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5068,6 +5083,7 @@ async fn self_revert_of_edited_file_is_refused() {
     let result = execute_phase(
         &input(),
         LoopDeps {
+            pii_files: HashSet::new(),
             client: &client,
             registry: &registry,
             tools: &[],
@@ -5234,6 +5250,7 @@ async fn wall_clock_ceiling_trips_budget_exceeded() {
     let verifier = MockFileVerifier::new(vec![]);
     let clock = advancing_clock();
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5278,6 +5295,7 @@ async fn wall_clock_disabled_when_zero_completes() {
     let verifier = MockFileVerifier::new(vec![]);
     let clock = advancing_clock();
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5435,6 +5453,7 @@ async fn loop_returns_cancelled_when_signal_flipped_between_turns() {
     let scope = Scope::new(root.path()).unwrap();
     let budget = Budget::default();
     let deps = LoopDeps {
+        pii_files: HashSet::new(),
         client: &*client,
         registry: &registry_over(scope.clone()),
         tools: &[],
@@ -5497,6 +5516,7 @@ async fn loop_returns_cancelled_when_signal_flipped_mid_stream() {
     let scope = Scope::new(root.path()).unwrap();
     let budget = Budget::default();
     let deps = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry_over(scope),
         tools: &[],
@@ -5542,6 +5562,7 @@ async fn gen_time_recorded_with_advancing_clock() {
     let client = MockAiClientScript::new(vec![vec![token("done")]]);
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
+        pii_files: HashSet::new(),
         client: &client,
         registry: &registry,
         tools: &[],

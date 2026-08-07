@@ -7,7 +7,12 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use super::PiiKind;
+use super::ner::NerEngine;
+use super::prescan::{PiiIndex, build_pii_index};
+use super::registry::Registry;
 use crate::config::PrivacyConfig;
+use crate::error::Result;
 
 /// True when `base_url`'s host is clearly local: `localhost`, a loopback/RFC-1918
 /// IP, or a `.local` / `.lan` / `.internal` hostname. Every other host — any
@@ -50,6 +55,47 @@ pub fn pii_write_refusal(
     } else {
         None
     }
+}
+
+/// Walk `root` for text files to pre-scan, honoring `.gitignore` / `.ignore` (so
+/// `.git`, `target`, `.rexymcp`, … are skipped) and hidden files. Binary and
+/// oversized (>1 MiB) files are skipped. Paths are absolute (as `root` is),
+/// matching the loop's resolved edit targets.
+pub fn scan_repo_files(root: &Path) -> Vec<(PathBuf, String)> {
+    const MAX_BYTES: u64 = 1_048_576;
+    let mut out = Vec::new();
+    for entry in ignore::WalkBuilder::new(root).build().flatten() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let path = entry.path();
+        if std::fs::metadata(path).map(|m| m.len()).unwrap_or(u64::MAX) > MAX_BYTES {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            out.push((path.to_path_buf(), content));
+        }
+    }
+    out
+}
+
+/// Pre-scan the repo for PII: returns the outbound-redaction term dictionary +
+/// the PII-bearing file set. Errors if the `[privacy]` NER engine is unset (the
+/// caller may then degrade to deterministic-only live redaction). NOTE: index
+/// persistence across dispatches is a follow-up, so this currently scans every
+/// file on each dispatch (the registry marks hashes but the prior index is not
+/// persisted).
+pub async fn build_egress_index(
+    root: &Path,
+    privacy: &PrivacyConfig,
+) -> Result<(Vec<(String, PiiKind)>, HashSet<PathBuf>)> {
+    let ner = NerEngine::from_config(privacy)?;
+    let files = scan_repo_files(root);
+    let mut registry = Registry::load(&root.join(".rexymcp/egress-prescan.json"))?;
+    let index = build_pii_index(&files, &ner, &mut registry, &PiiIndex::empty()).await?;
+    let terms = index.redaction_terms();
+    let pii_files = index.files().cloned().collect();
+    Ok((terms, pii_files))
 }
 
 fn host_of(url: &str) -> &str {
@@ -193,5 +239,62 @@ mod tests {
     fn write_guard_empty_set_never_refuses() {
         let pii: HashSet<PathBuf> = HashSet::new();
         assert!(pii_write_refusal(Some(Path::new("/repo/data/users.json")), &pii).is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "live: needs Qwen at the [privacy] engine endpoint; run with --ignored"]
+    async fn live_build_egress_index_finds_pii() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("data.json"),
+            r#"{"owner": "John Smith", "email": "jane@acme.com"}"#,
+        )
+        .unwrap();
+        let privacy = PrivacyConfig {
+            enabled: true,
+            engine_base_url: Some("http://192.168.50.138:8080/v1".to_string()),
+            engine_model: Some("qwen3.5-9b".to_string()),
+            ..Default::default()
+        };
+
+        let (terms, files) = build_egress_index(dir.path(), &privacy).await.unwrap();
+
+        let term_strs: Vec<&str> = terms.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(
+            term_strs.iter().any(|t| t.contains("John")),
+            "expected a name term, got {term_strs:?}"
+        );
+        assert!(
+            term_strs.contains(&"jane@acme.com"),
+            "expected the email term, got {term_strs:?}"
+        );
+        assert!(
+            files.iter().any(|p| p.ends_with("data.json")),
+            "data.json must be flagged PII-bearing"
+        );
+    }
+
+    #[test]
+    fn scan_reads_text_files_and_skips_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("a.txt"), "hello alice").unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/b.txt"), "bob").unwrap();
+        std::fs::write(root.join(".ignore"), "ignored/\n").unwrap();
+        std::fs::create_dir_all(root.join("ignored")).unwrap();
+        std::fs::write(root.join("ignored/secret.txt"), "carol").unwrap();
+
+        let names: Vec<String> = scan_repo_files(root)
+            .iter()
+            .map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert!(names.contains(&"a.txt".to_string()));
+        assert!(names.contains(&"b.txt".to_string()));
+        assert!(
+            !names.iter().any(|n| n == "secret.txt"),
+            "an ignored file must be skipped: {names:?}"
+        );
     }
 }

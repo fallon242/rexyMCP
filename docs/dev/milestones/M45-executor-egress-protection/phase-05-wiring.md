@@ -1,7 +1,7 @@
 # Phase 5: Wiring (DEFERRED — focused follow-up)
 
 **Milestone:** M45 — Executor Egress Protection
-**Status:** todo (deferred — the invasive integration; do as its own focused PR)
+**Status:** review (05a plumbing + 05b dispatch integration done; live pre-scan verified)
 **Depends on:** phase-01, phase-02, phase-03, phase-04 (all built + committed)
 **Estimated diff:** large — core dispatch path + ~23 `LoopDeps` sites + file-walk
 
@@ -52,6 +52,56 @@ branch `m45-executor-egress-protection`.
 
 ## Update Log
 
-(None — not implemented. Deferred wiring spec.)
-
 <!-- entries appended below this line -->
+
+### Update — 2026-08-07 17:31 (complete)
+
+**Summary:** Wired the four components into the dispatch path, in two safe steps.
+**05a (dormant plumbing):** added `pii_files: HashSet<PathBuf>` to `LoopDeps` and
+`crate::privacy::egress::pii_write_refusal` to the pre-dispatch refusal chain;
+every construction site (1 prod + 21 tests) passes an empty set, so all 1827 tests
+passed unchanged. **05b (engagement):** added `privacy::egress::scan_repo_files`
+(gitignore-honoring walk) + `build_egress_index` (scan → NER pre-scan → terms +
+PII-file set); in `runner::run_phase`, on a real dispatch with the gate on and a
+cloud endpoint, it builds the index, wraps the client in `RedactingAiClient`, and
+threads the PII-file set through `Seams` → `LoopDeps`. A failed pre-scan degrades
+to deterministic-only live redaction with a `PhaseResult` warning. All existing
+tests bypass the new path (they inject a `test_client`), so behavior is unchanged
+for them.
+
+**Deviations:** (1) `run_phase` uses a local `ExecClient` enum to own the wrapped
+vs. plain client (avoids a conditional-move borrow error); (2) index persistence
+across dispatches is **not** done — each dispatch full-scans (registry marks
+hashes but the prior index is not persisted); a `scan_globs` knob + index
+persistence are the obvious follow-ups for large repos.
+
+**Acceptance criteria:** met (see below); the full live DeepSeek dispatch is the
+one manual check left (heavy / token cost).
+
+**Commands:**
+
+```
+$ cargo fmt --all --check      # clean
+$ cargo clippy --all-targets --all-features -- -D warnings   # Finished, clean
+$ cargo test 2>&1 | grep "^test result"
+test result: ok. 691 passed; ...    (mcp)
+test result: ok. 2 passed; ...      (readme_config_reference)
+test result: ok. 1135 passed; 0 failed; 3 ignored; ...  (executor lib)
+```
+
+Baseline (M45 branch) 1827 → 1828 (+1 `scan_reads_text_files_and_skips_ignored`;
+plus the `#[ignore]` live pre-scan test).
+
+**End-to-end verification:** Ran the live pre-scan against the real Qwen engine:
+
+```
+$ cargo test -p rexymcp-executor privacy::egress::tests::live_build_egress_index -- --ignored
+running 1 test
+test privacy::egress::tests::live_build_egress_index_finds_pii ... ok
+```
+
+`build_egress_index` scanned a fixture repo, Qwen's NER found "John Smith", the
+deterministic detector found "jane@acme.com", both landed in the redaction terms,
+and `data.json` was flagged PII-bearing. The remaining manual check is a full
+DeepSeek dispatch confirming (a) `[REDACTED:…]` in the session log and (b) a
+refused write to the PII file.
