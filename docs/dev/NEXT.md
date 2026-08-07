@@ -4,10 +4,13 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: M44 phase-01 — privacy foundation: `[privacy]` config,
-deterministic PII detectors, stable reversible tokenizer.** **Status:**
-in-progress (architect-built).
-**Doc:** `docs/dev/milestones/M44-pii-ingestion-gate/phase-01-privacy-foundation.md`
+**Active milestone: M44 — PII Ingestion Gate.** **Status:** phases 01–05, 06a,
+and 07 implemented and in review (architect-built, on branch
+`m44-pii-ingestion-gate`, 8 commits); **06b (executor→cloud-executor egress)
+deferred** — see its doc for the NER-scaling problem and prototype plan. The gate
+is usable via the CLI and auto-scrubs the `PhaseResult` return path. Ready for
+review / milestone close (baseline 1761 → 1806 tests).
+**Docs:** `docs/dev/milestones/M44-pii-ingestion-gate/` + `docs/privacy.md`.
 
 M44 (PII Ingestion Gate) anonymizes every input via a local PII engine (Qwen3.5
 on the LAN, detection only) before it reaches Claude or the DeepSeek executor,
