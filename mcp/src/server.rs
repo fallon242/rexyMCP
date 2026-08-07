@@ -243,6 +243,8 @@ pub(crate) async fn execute_phase_inner_with_client(
     .await
     .map_err(|e| e.to_string())?;
 
+    let result = crate::privacy_cli::scrub_phase_result(result, &cfg.privacy, &repo_path)
+        .map_err(|e| e.to_string())?;
     let capped = cap::cap_phase_result(result);
 
     let json = serde_json::to_value(&capped)
@@ -297,6 +299,8 @@ pub(crate) async fn continue_phase_inner(
     .await
     .map_err(|e| e.to_string())?;
 
+    let result = crate::privacy_cli::scrub_phase_result(result, &cfg.privacy, &repo_path)
+        .map_err(|e| e.to_string())?;
     let capped = cap::cap_phase_result(result);
 
     let json = serde_json::to_value(&capped)

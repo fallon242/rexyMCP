@@ -15,4 +15,7 @@ pub enum Error {
 
     #[error("internal: {0}")]
     Internal(String),
+
+    #[error("privacy: {0}")]
+    Privacy(String),
 }
