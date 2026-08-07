@@ -9,9 +9,13 @@ cloud-executor PII egress — via irreversible redact-on-read + a write-guard).
 **Status:** phases 01–04 built, tested, committed on branch
 `m45-executor-egress-protection` (endpoint classification, PII pre-scan /
 `PiiIndex`, `RedactingAiClient`, `pii_write_refusal`; 1806 → 1827 tests).
-**Phase-05 (wiring into the dispatch path) deferred** to a focused follow-up PR —
-the invasive core-loop integration (~23 `LoopDeps` sites + repo file-walk); the
-plan is in `phase-05-wiring.md`.
+**Phase-05 WIRED** (branch `m45-phase05-wiring`, 2 commits): 05a threaded
+`pii_files` through `LoopDeps` + the refusal chain (dormant, all tests unchanged);
+05b engages it at dispatch — `run_phase` pre-scans the repo, wraps the client in
+`RedactingAiClient`, and feeds the PII-file set to the write-guard when the gate
+is on and the executor endpoint is a cloud host. Egress protection is now
+automatic. Live pre-scan verified against Qwen (1827 → 1828 tests); a full
+DeepSeek dispatch dogfood is the one manual check left.
 
 **M44 — PII Ingestion Gate: MERGED** to `fallon242/master` (PR #1, 2026-08-07,
 merge `3915b1d`). Usable via the CLI + auto-scrubs the `PhaseResult` return path;
