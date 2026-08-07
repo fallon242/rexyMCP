@@ -105,3 +105,30 @@ deterministic detector found "jane@acme.com", both landed in the redaction terms
 and `data.json` was flagged PII-bearing. The remaining manual check is a full
 DeepSeek dispatch confirming (a) `[REDACTED:…]` in the session log and (b) a
 refused write to the PII file.
+
+### Update — 2026-08-07 17:49 (dogfood — live DeepSeek dispatch)
+
+Ran the full live dispatch against a fixture repo (DeepSeek executor, Qwen privacy
+engine, a `data/users.json` with a name + email + phone), `max_turns = 6`. All
+three properties were observed live:
+
+- **Write-guard fires.** The model's `write_file`/`patch` on the PII file was
+  refused — *"refusing to edit …/data/users.json: it contains PII, and the
+  executor is a cloud model that only sees its redacted contents."* Nothing was
+  written (`files_changed: []`).
+- **Deterministic redaction reaches DeepSeek.** A read-only follow-up phase had
+  the model quote the email/phone; its completion returned `email:
+  [REDACTED:email]`, `phone: [REDACTED:phone]` — direct proof the wrapper redacts
+  structured PII on the wire.
+- **NER (names) is best-effort — a leak observed.** The model reported the owner
+  as the real `"John Smith"`. Cause verified directly: Qwen's NER returned `[]`
+  for that exact file content (it *had* found the name in a near-identical earlier
+  run — pure model variance), so the name never entered the redaction dictionary.
+  This is the documented limitation caught in the act, not a defect. NOTE: the
+  session log stores **pre-redaction** content (the loop logs tool results before
+  the client-boundary redaction), so real PII in the log is expected and is not
+  what DeepSeek received — verify egress from the *model's own output*, as above.
+
+**Net:** the mechanism is correct — structured PII is reliably redacted and the
+write-guard reliably fires; unstructured PII (names/addresses) depends on the NER
+catching it and is **not guaranteed**, matching `docs/privacy.md`'s stated limits.
