@@ -8,6 +8,8 @@
 use serde::{Deserialize, Serialize};
 
 pub mod detector;
+pub mod gateway;
+pub mod ner;
 pub mod tokenizer;
 pub mod vault;
 
