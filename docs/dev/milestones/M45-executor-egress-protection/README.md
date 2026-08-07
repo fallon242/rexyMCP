@@ -64,7 +64,7 @@ Engaged iff `privacy.enabled && !endpoint_is_local(executor.base_url)`.
 | 02 | repo pre-scan → PII dictionary + PII-file set (registry-cached) | architect | review |
 | 03 | `RedactingAiClient` outbound chokepoint (deterministic + dictionary) | architect | review |
 | 04 | write-refuse guard for PII-bearing files (`pii_write_refusal` in `egress`) | architect | review |
-| 05 | wiring (engage for cloud endpoints) + config + docs + dogfood | architect | **deferred** — focused follow-up PR (invasive: core loop + ~23 LoopDeps sites); see doc |
+| 05 | wiring (engage for cloud endpoints) + config + docs + dogfood | architect | review (05a plumbing + 05b dispatch integration; live pre-scan verified) |
 
 ## Notes
 

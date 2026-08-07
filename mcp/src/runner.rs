@@ -100,6 +100,8 @@ struct Seams<'a> {
     verifier: &'a dyn FileVerifier,
     runner: &'a dyn CommandRunner,
     clock: &'a (dyn Fn() -> u64 + Send + Sync),
+    /// M45: PII-bearing files for the write-guard (empty = protection off).
+    pii_files: std::collections::HashSet<std::path::PathBuf>,
 }
 
 /// Non-seam inputs for the assembler.
@@ -308,7 +310,7 @@ async fn run_phase_with(
         governor: cfg.governor,
         task_tracking: cfg.executor.task_tracking,
         cancel: inp.cancel.clone(),
-        pii_files: std::collections::HashSet::new(),
+        pii_files: seams.pii_files.clone(),
     };
 
     let mut result = agent::execute_phase(&input, deps).await?;
@@ -377,9 +379,57 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         },
     );
 
-    let client: &dyn AiClient = match inp.test_client {
-        Some(c) => c,
-        None => &prod_client,
+    // M45 executor-egress protection: on a real dispatch (no test client) with the
+    // gate on and a cloud endpoint, pre-scan the repo for PII, wrap the client so
+    // outbound content is redacted, and collect the PII-file set for the
+    // write-guard. A failed pre-scan degrades to deterministic-only live redaction.
+    let redact = inp.test_client.is_none()
+        && rexymcp_executor::privacy::egress::should_redact_egress(
+            &inp.cfg.privacy,
+            &inp.cfg.executor.base_url,
+        );
+    let mut egress_terms = Vec::new();
+    let mut pii_files = std::collections::HashSet::new();
+    let mut egress_warning = None;
+    if redact {
+        match rexymcp_executor::privacy::egress::build_egress_index(inp.repo_path, &inp.cfg.privacy)
+            .await
+        {
+            Ok((terms, files)) => {
+                egress_terms = terms;
+                pii_files = files;
+            }
+            Err(e) => {
+                egress_warning = Some(format!(
+                    "executor-egress redaction engaged but the PII pre-scan failed ({e}); only \
+                     structured PII is redacted live and the write-guard is off"
+                ));
+            }
+        }
+    }
+
+    enum ExecClient {
+        Redacting(rexymcp_executor::privacy::redact::RedactingAiClient),
+        Prod(OpenAiClient),
+    }
+    let owned: Option<ExecClient> = if inp.test_client.is_some() {
+        None
+    } else if redact {
+        Some(ExecClient::Redacting(
+            rexymcp_executor::privacy::redact::RedactingAiClient::new(
+                Box::new(prod_client),
+                egress_terms,
+            ),
+        ))
+    } else {
+        Some(ExecClient::Prod(prod_client))
+    };
+    let client: &dyn AiClient = match &owned {
+        Some(ExecClient::Redacting(c)) => c,
+        Some(ExecClient::Prod(c)) => c,
+        None => inp
+            .test_client
+            .expect("owned is None only when test_client is Some"),
     };
 
     let verifier = rexymcp_executor::agent::verify::RealVerifier;
@@ -397,6 +447,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         verifier: &verifier,
         runner: &runner,
         clock: &clock,
+        pii_files,
     };
 
     let assembly = AssemblyInput {
@@ -417,7 +468,11 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         cancel: inp.cancel.clone(),
     };
 
-    run_phase_with(&assembly, &seams).await
+    let mut result = run_phase_with(&assembly, &seams).await?;
+    if let Some(warning) = egress_warning {
+        result.warnings.push(warning);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -619,6 +674,7 @@ mod tests {
         let clock = || 1234567890u64;
 
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -676,6 +732,7 @@ mod tests {
         let clock = || 1234567890u64;
 
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -732,6 +789,7 @@ mod tests {
         let clock = || 0u64;
 
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -804,6 +862,7 @@ mod tests {
         let clock = || 1234567890u64;
 
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -860,6 +919,7 @@ mod tests {
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
         let clock = || 1234567890u64;
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -938,6 +998,7 @@ mod tests {
         let clock = || 1234567890u64;
 
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -1066,6 +1127,7 @@ mod tests {
         let clock = || 1234567890u64;
 
         let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,

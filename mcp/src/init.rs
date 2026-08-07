@@ -117,6 +117,7 @@ enabled = false
 # engine_base_url = "http://localhost:8080/v1"  # local NER endpoint (detection only, stays on your LAN)
 # engine_model = "qwen3.5-9b"                    # small model served there; thinking must be off
 # vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault (encrypted, git-ignored)
+# redact_executor_egress = true                  # force executor-egress redaction on/off (M45); default: auto (redact iff the executor endpoint is a cloud host)
 "#
     )
 }
