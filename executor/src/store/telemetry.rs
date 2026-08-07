@@ -189,24 +189,45 @@ pub struct PhaseRun {
 /// at any other version (including pre-M35 records, which have none).
 pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
 
-/// Append one `PhaseRun` as a JSON line to `<telemetry_dir>/phase_runs.jsonl`,
-/// creating the directory if needed. Stamps `schema_version` at the write
-/// boundary so readers can version-gate. Returns the file path.
-pub fn append(telemetry_dir: &Path, run: &PhaseRun) -> std::io::Result<PathBuf> {
+/// Serialize `record`, stamp `schema_version` at the write boundary, and append
+/// it to `<telemetry_dir>/phase_runs.jsonl` as **one** buffered write.
+///
+/// The payload and its trailing newline are built into a single buffer and
+/// issued as one `write_all`, so a concurrent appender on the same `O_APPEND`
+/// file cannot land between a record and its newline. Writing them as two
+/// separate calls is what produced the spliced lines this milestone exists to
+/// fix.
+///
+/// Residual, documented rather than solved: `write_all` will issue more than one
+/// `write` syscall if the kernel returns a short count. For regular files of
+/// this size on Linux that does not occur in practice, and the alternative
+/// (raw `write` with a manual retry loop that cannot retry safely under
+/// `O_APPEND`) is worse.
+fn append_stamped<T: serde::Serialize>(
+    telemetry_dir: &Path,
+    record: &T,
+) -> std::io::Result<PathBuf> {
     use std::io::Write;
 
     std::fs::create_dir_all(telemetry_dir)?;
     let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(run).map_err(std::io::Error::other)?;
+    let mut value = serde_json::to_value(record).map_err(std::io::Error::other)?;
     value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
+    let mut line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
+    line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)?;
     file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
     Ok(path)
+}
+
+/// Append one `PhaseRun` as a JSON line to `<telemetry_dir>/phase_runs.jsonl`,
+/// creating the directory if needed. Stamps `schema_version` at the write
+/// boundary so readers can version-gate. Returns the file path.
+pub fn append(telemetry_dir: &Path, run: &PhaseRun) -> std::io::Result<PathBuf> {
+    append_stamped(telemetry_dir, run)
 }
 
 /// Read all `PhaseRun` records from a store file. Records with a missing or
@@ -390,20 +411,7 @@ pub const REVIEW_RECORD_TAG: &str = "review";
 /// (the same store as `PhaseRun`). Stamps `schema_version` at the write
 /// boundary. Returns the file path.
 pub fn append_review(telemetry_dir: &Path, review: &PhaseReview) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-
-    std::fs::create_dir_all(telemetry_dir)?;
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(review).map_err(std::io::Error::other)?;
-    value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    Ok(path)
+    append_stamped(telemetry_dir, review)
 }
 
 /// Read all `PhaseReview` records from a store file. Lines with a missing or
@@ -554,20 +562,7 @@ pub fn append_architect_activity(
     telemetry_dir: &Path,
     activity: &ArchitectActivity,
 ) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-
-    std::fs::create_dir_all(telemetry_dir)?;
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(activity).map_err(std::io::Error::other)?;
-    value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    Ok(path)
+    append_stamped(telemetry_dir, activity)
 }
 
 /// Read all `ArchitectActivity` records from a store file. Lines with a missing
@@ -690,20 +685,7 @@ pub fn append_architect_ledger(
     telemetry_dir: &Path,
     ledger: &ArchitectLedger,
 ) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-
-    std::fs::create_dir_all(telemetry_dir)?;
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let mut value = serde_json::to_value(ledger).map_err(std::io::Error::other)?;
-    value["schema_version"] = TELEMETRY_SCHEMA_VERSION.into();
-    let line = serde_json::to_string(&value).map_err(std::io::Error::other)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    Ok(path)
+    append_stamped(telemetry_dir, ledger)
 }
 
 /// Read all `ArchitectLedger` records from a store file. Lines with a missing
@@ -726,6 +708,84 @@ pub fn read_architect_ledger(path: &Path) -> std::io::Result<Vec<ArchitectLedger
         .filter_map(|v| serde_json::from_value::<ArchitectLedger>(v).ok())
         .filter(|l| l.record == ARCHITECT_LEDGER_RECORD_TAG)
         .collect())
+}
+
+/// Every record type in one pass over the store. Filtering is **identical** to
+/// the per-type readers, including one deliberate inconsistency between them —
+/// see the field docs.
+#[derive(Debug, Default)]
+pub struct StoreRecords {
+    /// `PhaseRun` records read from the store, gated on
+    /// `schema_version == TELEMETRY_SCHEMA_VERSION`. Identical to what `read`
+    /// (`:214`) returns. Pre-M35 records (no `schema_version` field) are
+    /// excluded per the M35 telemetry retirement decision (§35).
+    pub runs: Vec<PhaseRun>,
+    /// `schema_version == TELEMETRY_SCHEMA_VERSION` AND
+    /// `record == ARCHITECT_ACTIVITY_RECORD_TAG` — identical to
+    /// `read_architect_activities`.
+    pub activities: Vec<ArchitectActivity>,
+    /// `schema_version == TELEMETRY_SCHEMA_VERSION` AND
+    /// `record == ARCHITECT_LEDGER_RECORD_TAG` — identical to
+    /// `read_architect_ledger`.
+    pub ledgers: Vec<ArchitectLedger>,
+}
+
+/// Tiny header parsed from each JSONL line to dispatch on record type.
+/// Serde walks the line and discards unknown fields without allocating them,
+/// making this cheaper than a full `serde_json::Value`.
+#[derive(Deserialize)]
+struct RecordHead {
+    /// Absent on `PhaseRun` lines, which carry no discriminator.
+    #[serde(default)]
+    record: String,
+    /// Absent on pre-M35 lines.
+    #[serde(default)]
+    schema_version: u32,
+}
+
+/// Read the store once, dispatching each line on its `record` discriminator.
+/// A missing file yields `StoreRecords::default()`, matching the per-type
+/// readers' `NotFound` behavior. Malformed lines are skipped silently.
+pub fn read_all(path: &Path) -> std::io::Result<StoreRecords> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(StoreRecords::default()),
+        Err(e) => return Err(e),
+    };
+
+    let mut records = StoreRecords::default();
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        let head = match serde_json::from_str::<RecordHead>(line) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+
+        match head.record.as_str() {
+            ARCHITECT_LEDGER_RECORD_TAG => {
+                if head.schema_version == TELEMETRY_SCHEMA_VERSION
+                    && let Ok(l) = serde_json::from_str::<ArchitectLedger>(line)
+                {
+                    records.ledgers.push(l);
+                }
+            }
+            ARCHITECT_ACTIVITY_RECORD_TAG => {
+                if head.schema_version == TELEMETRY_SCHEMA_VERSION
+                    && let Ok(a) = serde_json::from_str::<ArchitectActivity>(line)
+                {
+                    records.activities.push(a);
+                }
+            }
+            "" => {
+                if head.schema_version == TELEMETRY_SCHEMA_VERSION
+                    && let Ok(r) = serde_json::from_str::<PhaseRun>(line)
+                {
+                    records.runs.push(r);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(records)
 }
 
 #[cfg(test)]
@@ -1898,6 +1958,253 @@ mod tests {
         assert!(
             (cost - expected).abs() < 1e-9,
             "got {cost}, expected {expected}"
+        );
+    }
+
+    // ---- read_all tests ----
+
+    fn write_phase_run_line(dir: &Path) {
+        let path = dir.join("phase_runs.jsonl");
+        // Truncate first so this helper is safe to call before append-style helpers.
+        std::fs::write(&path, "").unwrap();
+        append(dir, &sample()).unwrap();
+    }
+
+    fn write_legacy_phase_run_line(dir: &Path) {
+        // Writes an unstamped (pre-M35) PhaseRun line — no schema_version field.
+        let path = dir.join("phase_runs.jsonl");
+        let line = serde_json::to_string(&sample()).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(path, content + &line + "\n").unwrap();
+    }
+    fn write_activity_line(dir: &Path, schema_version: u32) {
+        let path = dir.join("phase_runs.jsonl");
+        let json = serde_json::json!({
+            "record": "architect_activity",
+            "schema_version": schema_version,
+            "ts": 1_717_000_000_000u64,
+            "activity": "review",
+            "phase_id": "phase-01",
+            "project_id": "proj-1"
+        });
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(
+            path,
+            content + &serde_json::to_string(&json).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    fn write_ledger_line(dir: &Path, schema_version: u32) {
+        let path = dir.join("phase_runs.jsonl");
+        let json = serde_json::json!({
+            "record": "architect_ledger",
+            "schema_version": schema_version,
+            "session_id": "sess-ledger",
+            "model": "test-model",
+            "skill": "test-skill",
+            "tokens": {
+                "input": 100u64,
+                "cache_creation": 0u64,
+                "cache_read": 0u64,
+                "output": 50u64
+            },
+            "messages": 1u64,
+            "last_ts": 1_717_000_000_000u64
+        });
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(
+            path,
+            content + &serde_json::to_string(&json).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    fn write_review_line(dir: &Path) {
+        let path = dir.join("phase_runs.jsonl");
+        let json = serde_json::json!({
+            "record": "review",
+            "schema_version": TELEMETRY_SCHEMA_VERSION,
+            "ts": 1_717_000_000_000u64,
+            "phase_id": "phase-01",
+            "verdict": "pass"
+        });
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(
+            path,
+            content + &serde_json::to_string(&json).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn read_all_collects_each_record_type_in_one_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phase_runs.jsonl");
+        // Write one of each: PhaseRun, activity, ledger, review
+        write_phase_run_line(dir.path());
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let records = read_all(&path).unwrap();
+        assert_eq!(records.runs.len(), 1);
+        assert_eq!(records.activities.len(), 1);
+        assert_eq!(records.ledgers.len(), 1);
+    }
+
+    #[test]
+    fn read_all_runs_are_schema_version_gated() {
+        let dir = tempfile::tempdir().unwrap();
+        // Write an unstamped (pre-M35) PhaseRun line.
+        write_legacy_phase_run_line(dir.path());
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+        assert!(
+            records.runs.is_empty(),
+            "PhaseRun without schema_version must be filtered out"
+        );
+    }
+
+    #[test]
+    fn read_all_activities_and_ledgers_are_schema_version_gated() {
+        let dir = tempfile::tempdir().unwrap();
+        write_activity_line(dir.path(), 0);
+        write_ledger_line(dir.path(), 0);
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+        assert!(
+            records.activities.is_empty(),
+            "activity with schema_version 0 must be filtered"
+        );
+        assert!(
+            records.ledgers.is_empty(),
+            "ledger with schema_version 0 must be filtered"
+        );
+    }
+
+    #[test]
+    fn read_all_does_not_parse_tagged_records_as_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+        assert!(
+            records.runs.is_empty(),
+            "tagged records must not deserialize as PhaseRun"
+        );
+    }
+
+    #[test]
+    fn read_all_matches_per_type_readers_on_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_phase_run_line(dir.path());
+        write_legacy_phase_run_line(dir.path());
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let path = dir.path().join("phase_runs.jsonl");
+        let records = read_all(&path).unwrap();
+
+        let activities = read_architect_activities(&path).unwrap();
+        let ledgers = read_architect_ledger(&path).unwrap();
+        let runs = read(&path).unwrap();
+
+        assert_eq!(
+            records.activities.len(),
+            activities.len(),
+            "activity count mismatch"
+        );
+        assert_eq!(
+            records.ledgers.len(),
+            ledgers.len(),
+            "ledger count mismatch"
+        );
+        assert_eq!(records.runs.len(), runs.len(), "runs count mismatch");
+        assert_eq!(
+            records.runs.len(),
+            1,
+            "only the stamped run should be counted, not the legacy one"
+        );
+
+        // Compare identifying fields
+        for (r, a) in records.activities.iter().zip(activities.iter()) {
+            assert_eq!(r.activity, a.activity, "activity field mismatch");
+        }
+        for (r, l) in records.ledgers.iter().zip(ledgers.iter()) {
+            assert_eq!(r.session_id, l.session_id, "ledger session_id mismatch");
+        }
+    }
+
+    #[test]
+    fn read_all_missing_file_returns_empty() {
+        let path = std::path::Path::new("/tmp/does-not-exist-phase-02-read-all.jsonl");
+        let records = read_all(path).unwrap();
+        assert!(records.runs.is_empty());
+        assert!(records.activities.is_empty());
+        assert!(records.ledgers.is_empty());
+    }
+
+    #[test]
+    fn read_all_skips_malformed_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phase_runs.jsonl");
+        std::fs::write(&path, "\nnot json at all\n").unwrap();
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+
+        let records = read_all(&path).unwrap();
+        assert_eq!(
+            records.ledgers.len(),
+            1,
+            "only the valid ledger should be present"
+        );
+        assert!(records.runs.is_empty());
+        assert!(records.activities.is_empty());
+    }
+
+    #[test]
+    fn append_is_atomic_under_concurrent_appenders() {
+        let dir = tempfile::tempdir().unwrap();
+        let telemetry_dir = dir.path().to_path_buf();
+
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 250;
+
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let d = telemetry_dir.clone();
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..PER_THREAD {
+                    append(&d, &sample()).unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let path = telemetry_dir.join("phase_runs.jsonl");
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        // Every line must be exactly one JSON object.
+        let mut malformed = 0usize;
+        for l in &lines {
+            if serde_json::from_str::<serde_json::Value>(l).is_err() {
+                malformed += 1;
+            }
+        }
+        assert_eq!(malformed, 0, "spliced/unparseable lines found");
+        assert_eq!(
+            lines.len(),
+            THREADS * PER_THREAD,
+            "every append must produce exactly one line"
         );
     }
 }

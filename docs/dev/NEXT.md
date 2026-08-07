@@ -39,6 +39,238 @@ fail, because `thinking` is a valid key. Reconcile that doc when landing M43.
 
 **Baseline:** 1761 tests (685 + 2 + 1074) at `a2fdbe2`.
 
+**M44 — Atomic JSONL Appends closed 2026-08-05 at one phase**
+(`approved_first_try`, zero bugs). All four telemetry append functions delegate to
+one `append_stamped` helper: one buffer, one `write_all`. Proven by mutation —
+restoring the two-write form splices **461 / 390 / 451** of 2,000 records across
+three runs, while the fixed code passes five consecutive runs. **Live in `serve`
+since 10:03**, verified by `strace` against a rebuilt pre-fix control (pre-fix
+writes `payload(282) + "\n"(1)`, fixed writes `payload(283)`, both yielding a
+byte-identical 283-byte file — which is exactly why the bug was invisible under a
+single writer). Note for future sessions: an `md5sum` comparison of the installed
+binary against a local `cargo build --release` **misleads** — `cargo install`
+embeds different build paths, so the hashes differ even when the code is
+identical. Retrospective in
+[M44/README.md § M44 retrospective](milestones/M44-atomic-jsonl-appends/README.md);
+`architecture.md` §44 done.
+
+**Phase 02 (reader visibility) was declined**, not deferred. By the time the design
+fork was posed, both halves were already closed: the cause was fixed, and the
+corpus was clean — M43's compaction had dropped all 209 malformed lines, and a
+census at close found **zero** malformed lines in the live store (891 lines) and in
+all three remaining backups. Its remaining value was detecting future *unknown*
+causes, against a fork with no cheap option. **Reopening trigger: a reader is found
+discarding input silently again** — that specific event, not a schedule.
+
+**Carried forward unfixed, named rather than scheduled:** the same
+`filter_map(|l| serde_json::from_str::<Value>(l).ok())` sites
+(`executor/src/store/telemetry.rs:223`, `:421`, `:585`, `:721`) also silently
+swallow **schema-mismatched** records, so a future field rename or type change
+would go equally quiet. If a numbers discrepancy ever appears with no obvious
+cause, look here first.
+
+**Calibration — a trend at two, not folded.** The executor misreported its own
+model in both M43 phase-05 ("Claude (Sonnet 4.5)") and M44 phase-01
+(`claude-opus-4-5-20251101`); the true model is `Qwen/Qwen3.6-27B-FP8` and the
+server-authored bookkeeping tail records it correctly, so telemetry is unaffected.
+If it recurs the fold is mechanical: stop asking the executor to write that field
+and let the server own it, as it already owns the completion tail.
+
+**The next milestone is a human decision — no auto-advance across the boundary.**
+No candidate is queued.
+
+---
+
+**Phase 01 drafted 2026-08-05.** All four telemetry append functions are
+byte-identical apart from the record type, so the fix is one private generic
+helper (`append_stamped`) that builds `line + "\n"` into a single buffer and
+issues one `write_all`; the four public functions become one-line delegations with
+unchanged signatures. A fix applied to three of four would leave the race live,
+hence the shared helper rather than four edits.
+
+**The deciding criterion is a mutation, not a green suite.** The phase's real
+content is `append_is_atomic_under_concurrent_appenders` — 8 threads × 250 appends
+into one `TempDir` store, asserting zero unparseable lines *and* exactly 2000
+lines (a splice destroys two records' framing but yields one line, so the count
+catches what the parse check might not). The test is deliberately **one-sided**:
+under the fixed code it cannot fail, so it will not flake; restoring the two-write
+form must turn it red, and the phase doc says in as many words not to report
+complete on a green suite alone. `thread::spawn` is pre-injected in full because
+**there is no threading precedent anywhere in this repo's tests**.
+
+One residual is documented rather than solved, in the helper's doc comment:
+`write_all` will issue more than one `write` syscall on a short count. For regular
+files of this size on Linux that does not occur, and the alternative is worse.
+Reader changes are explicitly out of scope — phase 02 owns them.
+
+**M44 — Atomic JSONL Appends opened 2026-08-05** with the user's sign-off, from
+the defect M43 phase-06 surfaced. A telemetry append is not atomic: all four
+append functions write payload and newline as two separate `write_all` calls on
+an `O_APPEND` handle, so a second appender can splice two records onto one line.
+209 such lines exist in the real store and **~418 ledger records are invisible
+today**, because all four read paths `filter_map` parse failures away in silence.
+Two phases planned: **01** one atomic write per append, proven by a test that
+*reproduces* the race rather than asserting code shape; **02** the open design
+question — what a reader should do with an unparseable line — so the next
+occurrence announces itself. Details in
+[M44/README.md](milestones/M44-atomic-jsonl-appends/README.md);
+`architecture.md` §44.
+
+**The M43 calibration fold was decided: not folded.** "A test that promises more
+than it asserts" stays recorded at three occurrences. Only the M37 instance
+actually shipped — the other two were caught at review by mutation testing — so
+the existing gate is working and a fold would mostly codify current practice.
+**Revisit if one slips *through* review**; that, not a fourth occurrence, is the
+signal.
+
+**M43 — Dashboard Idle CPU closed 2026-08-05.** Six phases, all done; 4
+`approved_first_try`, 2 `approved_after_1`, 3 bugs, zero escalations, zero
+architect takeovers. Idle CPU **62 % → 0.1 %** of one core, store growth
+**~53 KB/min → ~370 B/min**, and `rexymcp compact` rewrites the real store
+**108.7 MB → 482 KB** (99.56 %) behind a backup and an atomic rename.
+Retrospective in
+[M43/README.md § M43 retrospective](milestones/M43-dashboard-idle-cpu/README.md);
+`architecture.md` §43 marked done.
+
+**The next milestone is a human decision — no auto-advance across the boundary.**
+Three things are queued for that conversation:
+
+1. **Candidate phase 07 / next milestone — the JSONL appends are not atomic.**
+   A live bug, found while drafting 06: the four `telemetry` append functions
+   write payload and newline as two separate `write_all` calls on an `O_APPEND`
+   handle, so concurrent appenders interleave. 209 corrupt lines in the real
+   store, **~418 ledger records invisible right now**, hidden because every
+   reader `filter_map`s parse failures away. The fix is nearly free; the open
+   design question is whether readers should *count* malformed lines instead of
+   skipping them silently.
+2. **A calibration fold awaiting user sign-off.** "A test that promises more than
+   it asserts" is at three occurrences (M37 phase-06, M43 phase-05, M43
+   phase-06 ×2) — WORKFLOW's threshold. But two of the three were caught at
+   review by mutation testing, so the review practice is working and the gap is
+   upstream in what specs *ask for*. Options and the argument are in the M43
+   retrospective § "Candidate fold". **Not folded unilaterally.**
+3. **Housekeeping, not phase work:** the live store has not itself been compacted
+   (the command was verified against copies only); ~74 MB of `.bak*` files sit
+   beside it that nothing reads; and `~/.cargo/bin/rexymcp` predates phases
+   05–06, so `cargo install --path mcp` is needed to get the reconciled dashboard
+   figure and the `compact` command on PATH.
+
+**One occurrence, still held (not folded):** "a reader whose cost scales with
+total history, over a store designed to be appended to forever." M35 built the
+append-only store, M40 added the 60 s sweep, M8 reads it at 2 Hz — each locally
+reasonable. A second such interaction makes it a standing rule about append-only
+stores needing a bounded-read contract at design time.
+
+---
+
+**Phase 06 drafted 2026-08-04** — the milestone's only data-rewriting phase. A
+`rexymcp compact` subcommand rewrites `phase_runs.jsonl` to the records that
+still matter: simulated against the real store, **108.7 MB → ~0.48 MB**
+(291,768 → 865 lines, 0.44 %). Three things the spec makes load-bearing:
+selection is **by line, copied byte-for-byte** (never parse-and-re-serialize, or
+the compacted store is not the same data); a **tail-preserving atomic rename** so
+the user need not stop `serve`; and a **backup written before the rename**. The
+correctness criterion is that `rexymcp costs` reports identical figures before
+and after — with a positive control showing the bytes underneath changed by
+~290,000 lines, since "the numbers match" is also what a no-op produces.
+
+**Found while drafting 06 — the JSONL appends are not atomic.** 209 lines in the
+real store hold two concatenated JSON objects with no newline between them,
+because `append` and its three siblings write the payload and the `\n` as two
+separate `write_all` calls on an `O_APPEND` handle. Every reader
+`filter_map(...ok())`s them away silently, so ~418 ledger records are invisible
+today and nothing ever reported it. **Candidate phase 07**, deliberately kept out
+of 06 (a producer-side fix does not belong in the same review as a one-shot
+migration of user data). 06 drops those lines and reports the count; the backup
+retains them. Detail in the M43 README § "Found while drafting 06".
+
+**Phase 05 done and approved 2026-08-04** (`d14e649`, approval `4cabaea`,
+verdict `approved_first_try`). The `PhaseRun` arm of `read_all` now carries the
+`schema_version` gate, so the dashboard and `rexymcp costs` agree. Verified by
+mutation (reverting the gate fails exactly the three tests meant to catch it) and
+by an A/B in one session: the phase-04 binary reads $1460.26 from `costs` against
+$3461.30 on the dashboard, the phase-05 binary reads $1460.26 from both. One
+calibration nit held at first occurrence: the executor's Update Log entry
+self-reported "Claude (Sonnet 4.5)" — false, corrected at review; the
+server-authored bookkeeping tail records the true model, so telemetry is
+unaffected.
+
+**Phase 05 was drafted** after a design fork the user resolved. The
+dashboard and `rexymcp costs` disagree 2.4× because the `PhaseRun` arm of
+`read_all` has no `schema_version` gate; 05 adds it, and the dashboard Budget
+panel's Project column drops to match `costs`. One finding argued the other way
+and was weighed and rejected: the 357 pre-M35 records are **field-complete** (a
+key-by-key comparison against the 183 stamped ones found only `gen_time_s` and
+`schema_version` missing — full `tokens` objects included), so the gate discards
+readable data, not corrupt data. **The user affirmed `architecture.md` §35's
+"pre-M35 records go dark" waiver rather than amend it**, and declined a
+backfill-the-stamp alternative. No architecture.md edit is authorized. Diff is
+small (~10 production lines); most of the phase is test-fixture churn, because
+several `load_data_*` and `read_all_*` fixtures write unstamped run lines that
+the gate will now filter.
+
+**Phase 04 done and approved 2026-08-04** (`e1649ec` + `f022729`, approval
+`688d81e`, verdict `approved_after_1`, bug-04-1). The transcript build+wrap is
+memoized on a cheap fingerprint. Verified by an alternating A/B in one session:
+91 → 1 quiescent ticks against a large session log (**~91×**, criterion was
+≥ 2×), with the phase-03 row's own 91-vs-0 large/trivial gap as the positive
+control, plus a tmux `capture-pane` liveness check proving the cache actually
+invalidates. The bounce was an architect spec defect (memoizing a value that was
+already cheap), not an implementation fault — **third spec defect of this
+milestone**, and the one that carried the measurement-discipline fold.
+
+**Phase 03 done and approved 2026-08-04** (`acae94e`, approval `ba4127c`,
+verdict `approved_first_try`). Harvest reads the folded ledger once and appends
+only buckets that differ. Verified on the real 48-session corpus: 145 appended
+into an empty store, then 0 appended / 145 unchanged; and exactly 1 appended /
+144 unchanged after one message was added to one transcript. **Restart a running
+`rexymcp serve` to pick this up** — the live process still has the old harvest.
+
+**The measurement-discipline fold landed** (`b62ca68`): third occurrence in this
+milestone reached WORKFLOW's fold threshold, and with the user's sign-off
+`docs/dev/STANDARDS.md` gained **§ 1.1 "An end-to-end verification must prove it
+is live"** — every end-to-end check now carries a positive control, as a DoD
+checkbox. Not propagated to `plugin/templates/STANDARDS.md` (a product decision,
+still open). Phase 04's own verification is written to that rule.
+
+**Phase 02 done and approved 2026-08-04** (`ffe3d39`, approval `55c2c91`,
+verdict `approved_first_try`). `telemetry::read_all` reads the store once,
+dispatched on the `record` discriminator with no `serde_json::Value` round-trip;
+reload work fell 3.2× (~77 → ~24 ticks) in an alternating A/B against the
+phase-01 binary, with all nine `load_data_*` tests passing unmodified. The
+`≤ 70 ticks` criterion was superseded, not missed — an absolute threshold
+anchored to a render baseline that drifts (26 when specced, ~72 at review, 384
+once). **Second architect spec defect in this milestone with the same root: an
+end-to-end criterion stated in terms the phase does not control.** Two is a
+trend; candidate fold recorded in the M43 README, awaiting a third occurrence
+and user sign-off before touching `STANDARDS.md`.
+
+**Phase 03 was split from the original "bound growth" sketch** — the write-side
+guard (03, no migration surface) is separated from compacting the existing
+103 MB store (**06**, rewrites user data, needs its own review).
+
+**Phase 01 done and approved 2026-08-04** (`a2e9b43`, approval `24cdd94`,
+verdict `approved_first_try`). Idle cost is now independent of telemetry-store
+size — 103 MB and an empty dir both measure 4 %, down from a 62 % baseline. Two
+corrections landed with the approval: the phase doc's end-to-end command selected
+the `script` wrapper rather than the dashboard (so the executor's reported
+`idle CPU: 0%` was a false green from an idle process), and the milestone's
+opening claim that the render path is free was read off that same wrapper — it is
+in fact the whole residual 4 %, now phase 04. Phase 05 was added while drafting
+02: the dashboard's run reader has no `schema_version` gate where
+`telemetry::read` does, and the two disagree 2.4× on this project's totals.
+
+**M43 — Dashboard Idle CPU opened 2026-08-04** from a user report that `rexymcp
+dashboard --repo .` pins a core while `rexymcp serve` is idle, on long-lived
+projects only. Measured at **59 % of one core** idle on this repo, and **0 %**
+with telemetry pointed at an empty dir — the whole cost is the 103 MB
+`phase_runs.jsonl`, read unconditionally every 500 ms, three times per read, by a
+parser that walks every line twice. Three phases: 01 mtime-gated reload (drafted,
+awaiting dispatch), 02 single-pass telemetry read, 03 bound the file's growth.
+Phase 01 is dashboard-local, adds no dependency, and is independent of 02/03.
+Details and the measurement table in
+[M43/README.md](milestones/M43-dashboard-idle-cpu/README.md); architecture.md §43.
+
 **M41 — Serve Liveness & Run Durability closed 2026-07-24.** Three phases, all
 architect-implemented (no dispatch, no `PhaseRun`) — commits `87c6c15`, `c7234cf`,
 `f67acde`, plus the `docs:` close. `serve` waits on `running.waiting()` and logs

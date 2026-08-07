@@ -3,7 +3,8 @@
 //! Continuously refreshes a `ratatui` terminal with a header band (Session ·
 //! Budget · Compactions) above a body (Activity · Files).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use rexymcp_executor::store::sessions::event::SessionRecord;
 use rexymcp_executor::store::telemetry::{self, PhaseRun};
@@ -40,6 +41,46 @@ pub struct DashboardData {
     pub top_skill: Option<crate::costs::SkillCost>,
 }
 
+/// Cheap change-detection stamp for the files `load_data` reads. Comparing two
+/// stamps costs a `read_dir` plus a handful of `stat` calls; reloading costs a
+/// full read + parse of a telemetry store that reaches hundreds of megabytes on
+/// long-lived projects.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct DataFingerprint {
+    /// Resolved session log: path, byte length, mtime. `None` when no log
+    /// resolves (no sessions dir, or no log matching the `session` needle).
+    session: Option<(PathBuf, u64, SystemTime)>,
+    /// `<telemetry_dir>/phase_runs.jsonl`: byte length, mtime. `None` when
+    /// telemetry is unconfigured or the file does not exist yet.
+    telemetry: Option<(u64, SystemTime)>,
+}
+
+/// Stamp the current state of `load_data`'s inputs. Stats only — never reads
+/// or parses file contents.
+pub(crate) fn fingerprint(
+    repo: &Path,
+    session: Option<&str>,
+    telemetry_dir: Option<&Path>,
+) -> DataFingerprint {
+    let session = status::resolve_session_log(repo, session)
+        .ok()
+        .and_then(|path| {
+            let meta = std::fs::metadata(&path).ok()?;
+            let mtime = meta.modified().ok()?;
+            Some((path, meta.len(), mtime))
+        });
+
+    let telemetry = telemetry_dir
+        .map(|d| d.join("phase_runs.jsonl"))
+        .and_then(|path| {
+            let meta = std::fs::metadata(&path).ok()?;
+            let mtime = meta.modified().ok()?;
+            Some((meta.len(), mtime))
+        });
+
+    DataFingerprint { session, telemetry }
+}
+
 /// Load the latest session data. Pure, testable.
 /// `project_id` is the UUID from the watched repo's `[project] id`; filters
 /// telemetry to runs belonging to this project. `None` → project savings is `(0,0)`.
@@ -50,24 +91,15 @@ pub fn load_data(
     project_id: Option<&str>,
     architect: &rexymcp_executor::config::ArchitectConfig,
 ) -> DashboardData {
-    let phase_runs: Vec<PhaseRun> = telemetry_dir.map(read_phase_runs).unwrap_or_default();
+    let store = telemetry_dir
+        .map(|dir| telemetry::read_all(&dir.join("phase_runs.jsonl")).unwrap_or_default())
+        .unwrap_or_default();
+    let phase_runs: Vec<PhaseRun> = store.runs;
 
     match project_id {
         Some(pid) => {
-            let folded_activities = match telemetry_dir {
-                Some(dir) => telemetry::fold_activities(
-                    telemetry::read_architect_activities(&dir.join("phase_runs.jsonl"))
-                        .unwrap_or_default(),
-                ),
-                _ => Vec::new(),
-            };
-            let ledgers = match telemetry_dir {
-                Some(dir) => telemetry::fold_ledger(
-                    telemetry::read_architect_ledger(&dir.join("phase_runs.jsonl"))
-                        .unwrap_or_default(),
-                ),
-                _ => Vec::new(),
-            };
+            let folded_activities = telemetry::fold_activities(store.activities);
+            let ledgers = telemetry::fold_ledger(store.ledgers);
             let project_costs = costs::scope_costs(&phase_runs, &ledgers, architect, pid, None);
             let project_escalation_count = folded_activities
                 .iter()
@@ -113,8 +145,6 @@ pub fn load_data(
             }
         }
         None => {
-            let _folded_activities: Vec<rexymcp_executor::store::telemetry::ArchitectActivity> =
-                Vec::new();
             let project_costs = ScopeCosts::default();
             let project_escalation_count = 0;
             match status::load_records(repo, session) {
@@ -168,20 +198,6 @@ pub fn run_dashboard(
     );
     ratatui::restore();
     result
-}
-
-/// Parse `<telemetry_dir>/phase_runs.jsonl`, returning one `PhaseRun` per
-/// valid line; silently skips empty lines and malformed JSON.
-fn read_phase_runs(telemetry_dir: &Path) -> Vec<PhaseRun> {
-    let path = telemetry_dir.join("phase_runs.jsonl");
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
 }
 
 /// Returns the milestone **directory name** (e.g. `"M17-dashboard-polish-3"`)
@@ -381,10 +397,10 @@ mod tests {
         std::fs::create_dir_all(&sessions).unwrap();
         let pid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
         let run1 = format!(
-            r#"{{"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
+            r#"{{"schema_version":1,"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
         );
         let run2 = format!(
-            r#"{{"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":2000,"output_tokens":800}}}}"#
+            r#"{{"schema_version":1,"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":2000,"output_tokens":800}}}}"#
         );
         let telemetry_dir = dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();
@@ -421,13 +437,15 @@ mod tests {
         let this_pid = "11111111-1111-1111-1111-111111111111";
         let other_pid = "22222222-2222-2222-2222-222222222222";
         let this_run = format!(
-            r#"{{"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{this_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
+            r#"{{"schema_version":1,"ts":1,"model":"t","generation_params":{{}},"phase_id":"p1","project_id":"{this_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":1000,"output_tokens":500}}}}"#
         );
         let other_run = format!(
-            r#"{{"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{other_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":9000,"output_tokens":4000}}}}"#
+            r#"{{"schema_version":1,"ts":2,"model":"t","generation_params":{{}},"phase_id":"p2","project_id":"{other_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":9000,"output_tokens":4000}}}}"#
         );
-        // Legacy record without project_id must be excluded.
-        let legacy_run = r#"{"ts":3,"model":"t","generation_params":{},"phase_id":"p3","tags":[],"status":"complete","escalated":false,"gates":{},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{"input_tokens":500,"output_tokens":200}}"#;
+        // Legacy record without schema_version must be excluded by the gate.
+        let legacy_run = format!(
+            r#"{{"ts":3,"model":"t","generation_params":{{}},"phase_id":"p3","project_id":"{this_pid}","tags":[],"status":"complete","escalated":false,"gates":{{}},"parse_failure_rate":0.0,"repairs_per_call":0.0,"verifier_retries":0,"tool_success_rate":1.0,"turns":1,"wall_clock_s":1.0,"tokens":{{"input_tokens":500,"output_tokens":200}}}}"#
+        );
         let telemetry_dir = dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();
         std::fs::write(
@@ -445,11 +463,11 @@ mod tests {
         );
         assert_eq!(
             data.project_costs.executor_in, 1000,
-            "project costs must exclude runs from other project UUIDs and legacy records"
+            "project costs must exclude runs from other project UUIDs and records excluded by the schema_version gate"
         );
         assert_eq!(
             data.project_costs.executor_out, 500,
-            "project costs must exclude runs from other project UUIDs and legacy records"
+            "project costs must exclude runs from other project UUIDs and records excluded by the schema_version gate"
         );
     }
 
@@ -692,5 +710,132 @@ mod tests {
         // Coarse id does NOT match (prefix "phase-06-" matches no file)
         let coarse = resolve_milestone(dir.path(), Some("phase-06"));
         assert_eq!(coarse, None);
+    }
+
+    // --- fingerprint tests ---
+
+    #[test]
+    fn fingerprint_is_stable_across_calls_when_nothing_changes() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log = sessions.join("session-phase-01-test.jsonl");
+        std::fs::write(
+            &log,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "test line\n").unwrap();
+
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_telemetry_grows() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log = sessions.join("session-phase-01-test.jsonl");
+        std::fs::write(
+            &log,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "line1\n").unwrap();
+
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+
+        // Append a line — length changes
+        use std::io::Write;
+        let path = telemetry_dir.join("phase_runs.jsonl");
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(f, "line2").unwrap();
+
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_session_log_grows() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log = sessions.join("session-phase-01-test.jsonl");
+        std::fs::write(
+            &log,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "line1\n").unwrap();
+
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+
+        // Append a record — length changes
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        writeln!(f, "{{}}").unwrap();
+
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_session_needle_selects_a_different_log() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let log_a = sessions.join("session-phase-01-aaa.jsonl");
+        let log_b = sessions.join("session-phase-02-bbb.jsonl");
+        std::fs::write(
+            &log_a,
+            serde_json::to_string(&rec(100, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &log_b,
+            serde_json::to_string(&rec(200, 0, start_event())).unwrap(),
+        )
+        .unwrap();
+
+        let fp_a = fingerprint(dir.path(), Some("aaa"), None);
+        let fp_b = fingerprint(dir.path(), Some("bbb"), None);
+        assert_ne!(fp_a, fp_b);
+    }
+
+    #[test]
+    fn fingerprint_session_is_none_without_sessions_dir() {
+        let dir = TempDir::new().unwrap();
+        // No sessions dir created at all
+        let fp = fingerprint(dir.path(), None, None);
+        assert!(fp.session.is_none());
+    }
+
+    #[test]
+    fn fingerprint_telemetry_is_none_when_file_absent() {
+        let dir = TempDir::new().unwrap();
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        // No phase_runs.jsonl yet
+        let fp1 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert!(fp1.telemetry.is_none());
+
+        // Write the file — None → Some is itself an invalidation
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), "data\n").unwrap();
+        let fp2 = fingerprint(dir.path(), None, Some(&telemetry_dir));
+        assert!(fp2.telemetry.is_some());
     }
 }

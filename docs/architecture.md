@@ -1232,6 +1232,110 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+44. **M44 — Atomic JSONL appends** *(done 2026-08-05 at one phase; opened the same
+    day from a defect found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
+    four append functions (`executor/src/store/telemetry.rs:195`, `:392`, `:553`,
+    `:689`) write the JSON payload and its trailing newline as **two separate
+    `write_all` calls** on an `O_APPEND` handle. `O_APPEND` makes each individual
+    write atomic against other appenders, but with two of them a second writer can
+    land between payload and newline, splicing two records onto one line —
+    `{...A...}{...B...}\n`. The concurrent writers are real and routine: the M40
+    sweep inside `serve` re-appends the whole ledger every 60 s while a finishing
+    phase run appends its `PhaseRun` and the architect appends a `review`. The real
+    store carries **209 such lines** in one contiguous band, and — the worse half —
+    **every reader hides them**: all four read paths
+    `filter_map(|l| serde_json::from_str::<Value>(l).ok())` (`:223`, `:421`, `:585`,
+    `:721`), so ~418 ledger records are invisible today and nothing ever reported
+    it. The defect was found only by accident, while simulating an unrelated
+    migration. Two phases: **01** builds payload + newline into one buffer and
+    issues a single `write_all` in all four functions, proven by a test that
+    *reproduces* the race (spliced lines before the fix, none after) rather than
+    asserting the shape of the code; **02** answers the open design question —
+    what a reader should do with a line it cannot parse — so the next occurrence
+    announces itself. Sequenced after M43 deliberately: compaction first shrinks
+    the corpus (108.7 MB → 482 KB), and a producer-side fix does not belong in the
+    same review as a one-way migration of user data. The existing 209 lines are
+    **not** repaired here — M43's compaction drops them and its backup retains
+    them; the ledger state is already correct because harvest re-derives it from
+    the transcripts by last-write-wins.
+    **Closed at one phase, `approved_first_try`.** All four functions delegate to a
+    single private `append_stamped` helper (one buffer, one `write_all`); the fix is
+    single-sourced because a fix applied to three of four would leave the race live.
+    Proven by mutation, not by a green suite: restoring the two-write form splices
+    **461 / 390 / 451** of 2,000 records across three runs, while the fixed code
+    passes five consecutive runs. **Live in `serve` since 10:03**, verified by
+    `strace` against a rebuilt pre-fix control — pre-fix writes
+    `payload(282) + "\n"(1)`, fixed writes `payload(283)`, and both produce a
+    byte-identical 283-byte file, which is precisely why the bug was invisible under
+    a single writer. (An `md5sum` comparison would have *misled* here: `cargo
+    install` embeds different build paths than a local release build.) **Phase 02
+    (reader visibility) was declined** with the user's decision: by the time the
+    fork was posed, the cause was fixed and the corpus was clean — M43's compaction
+    had already dropped all 209 malformed lines, and a census at close found zero
+    malformed lines in the live store and every remaining backup. Its value was
+    reduced to detecting future *unknown* causes, against a fork with no cheap
+    option (no `tracing`/`log` crate, the executor library emits no diagnostics, the
+    dashboard reads at 2 Hz, and the literal criterion spans ~13 production plus
+    ~44 test call sites). Reopening trigger: a reader found discarding input
+    silently again. **Carried forward unfixed:** the same `filter_map(...ok())`
+    sites also swallow *schema-mismatched* records, so a future field rename would
+    go equally quiet — named, not scheduled. Retrospective in
+    [M44/README.md § M44 retrospective](dev/milestones/M44-atomic-jsonl-appends/README.md).
+43. **M43 — Dashboard idle CPU** *(done 2026-08-05; opened 2026-08-04 from a user report)*.
+    `rexymcp dashboard --repo .` pins a core even while `rexymcp serve` is idle,
+    and only on long-lived projects. Measured on this repo: **59 % of one core**
+    sustained with the dashboard untouched, and **0 %** with `[telemetry] dir`
+    pointed at an empty directory — so the entire cost is `phase_runs.jsonl`, and
+    nothing in the render path is implicated. Three factors multiply. (1) The
+    refresh is **unconditional**: `event_loop::run_loop`
+    (`mcp/src/dashboard/event_loop.rs:29`) calls `load_data` at the top of every
+    500 ms tick with no change detection, so idle and busy cost the same. (2) Each
+    `load_data` reads the store **three times** (`mcp/src/dashboard/mod.rs:53`,
+    `:59`, `:66`), and two of those — `read_architect_activities` /
+    `read_architect_ledger` (`executor/src/store/telemetry.rs:576`, `:712`) —
+    parse every line **twice**, once into an owned `serde_json::Value` and once out
+    of it, to read a `schema_version` they could match on the raw line; measured
+    ~200 ms per pass against the real 103 MB file, so ≥ 600 ms of work scheduled
+    every 500 ms, which the loop can never outrun. (3) The store is **99.95 %
+    redundant**: 278,226 of its 278,836 lines are `architect_ledger` records, because
+    the M40 sweep (`mcp/src/sweep.rs`) re-appends the entire ledger every 60 s while
+    any transcript changes, and `fold_ledger`
+    (`executor/src/store/telemetry.rs:666`) then collapses them back to ~143 by
+    last-write-wins. Three phases: **01** gates the reload on a stat-only
+    fingerprint of the files `load_data` reads (removes the idle cost outright, and
+    is independent of the rest); **02** collapses the three reads and five parse
+    passes into one read dispatched on the `record` discriminator; **03** bounds the
+    file's growth at the write side. The `resolve_milestone` double directory walk
+    and the per-frame session-log re-highlight were both **measured out** of scope
+    rather than assumed in. The defect class — a reader whose cost scales with total
+    history over a store designed to be appended to forever — is held as one
+    occurrence for calibration, not folded.
+    **Closed at six phases**, not three: **04** memoizes the per-tick transcript
+    build+wrap (added at phase-01 review, when correcting the measurement showed
+    the render path was the whole residual cost — the "0 % with telemetry removed"
+    row above was read off a `script` wrapper, not the dashboard, and the claim
+    that nothing in the render path is implicated was wrong); **05** reconciles the
+    dashboard's ungated `PhaseRun` read with `telemetry::read`'s
+    `schema_version` gate, which had made the dashboard and `rexymcp costs`
+    disagree 2.4× (resolved toward §35's waiver, with the user declining a
+    backfill even though the 357 pre-M35 records proved field-complete); **06**
+    adds `rexymcp compact`, a human-run command that rewrote the real store
+    108.7 MB → 482 KB (99.56 %) behind a backup and an atomic rename, verified
+    invisible to consumers by identical `costs` figures either side. Outcome:
+    idle cost **62 % → 0.1 %** of one core, growth **~53 KB/min → ~370 B/min**.
+    The milestone's dominant failure mode was **architect** spec defects, not
+    model error — three end-to-end criteria stated in terms the phase did not
+    control — which is the fold **`STANDARDS.md` § 1.1** ("an end-to-end
+    verification must prove it is live", `b62ca68`). Both bounces occurred on a
+    fully green tree, where a plain re-dispatch no-ops; both were fixed on the
+    first re-dispatch after a loud bounce-fix header set the bar at a measurement
+    or a mutation rather than at the gates. Retrospective in
+    [M43/README.md § M43 retrospective](dev/milestones/M43-dashboard-idle-cpu/README.md).
+    One live defect found while drafting 06 and **carried forward unfixed**: the
+    four `telemetry` append functions write payload and newline as two separate
+    `write_all` calls on an `O_APPEND` handle, so concurrent appenders interleave —
+    209 corrupt lines in the real store, ~418 ledger records silently invisible
+    because every reader `filter_map`s parse failures away. Candidate phase 07.
 42. **M42 — Bookkeeping format hygiene** *(done 2026-07-24; opened and closed the
     same day from GitHub issue #4)*. The server-authored bookkeeping tail — the
     completion Update Log entry and the milestone README status row — is written

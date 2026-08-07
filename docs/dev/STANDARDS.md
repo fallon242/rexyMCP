@@ -34,7 +34,8 @@ the phase's Update Log — never silently mark a phase done.
       been **verified end-to-end against that real artifact** — not just against
       a unit-test fake — and the actual output is quoted in the completion
       Update Log entry under "End-to-end verification." A green `{TEST_COMMAND}`
-      run that exercises a `TempDir`-scoped fake is **not** by itself sufficient.
+      run that exercises a `TempDir`-scoped fake is **not** by itself sufficient,
+      and neither is a result that would look the same if nothing ran — see §1.1.
 - [ ] `{BUILD_COMMAND}` succeeds with **zero new warnings**.
 - [ ] `{LINT_COMMAND}` passes.
 - [ ] `{FORMAT_COMMAND}` passes.
@@ -51,6 +52,47 @@ the phase's Update Log — never silently mark a phase done.
       explicitly requires it. Otherwise leave it alone.
 - [ ] Phase doc's Update Log filled in (see WORKFLOW.md).
 - [ ] One conventional commit per logical change (see §6).
+
+### 1.1 An end-to-end verification must prove it is live
+
+An end-to-end check has to be able to **fail**. If the number you report is also
+the number you would get when nothing ran, you have not verified anything — you
+have observed silence and called it success.
+
+So every end-to-end verification carries a **positive control**: an observation,
+in the same session, that would come out differently if the measurement were not
+live.
+
+- [ ] The end-to-end check includes a positive control, and its result is quoted
+      alongside the headline number in the Update Log.
+
+In practice:
+
+- **Seed a known-good starting state** so the first observation *must* be
+  non-zero. Harvesting into an empty store must append records; only then does a
+  second harvest appending none mean anything.
+- **Prefer a difference measured in one session** — before/after, or A/B against
+  the previous binary — over an absolute number carried in from another
+  environment. Absolute thresholds silently depend on a baseline you do not
+  control.
+- **Assert the subject exists and survived.** Confirm the process you sampled is
+  the one under test (`/proc/<pid>/comm`, a pidfile, `$!` — never a `pgrep -f`
+  substring that a wrapper like `script`/`sh -c`/`timeout` also matches), that it
+  was still alive at the end of the window, and that the file you measured is the
+  one the binary actually writes.
+- **Check exit status.** A command that errors produces no output and changes no
+  files, which reads identically to a clean pass on any "should be zero" metric.
+
+If the phase doc's stated criterion cannot be given a positive control, say so in
+the Update Log and report what you measured instead — do not report a bare zero
+as a pass.
+
+> Folded 2026-08-04 after three consecutive failures of exactly this kind in
+> M43, each of which reported success while measuring nothing: a pid that was the
+> `script` wrapper rather than the dashboard (reads 0 % by construction), a delta
+> against a render baseline that drifted 26 → 72 → 384 between sessions, and a
+> line count on a file the binary never writes. In all three the executor
+> reported faithfully; the criterion was the defect.
 
 ---
 

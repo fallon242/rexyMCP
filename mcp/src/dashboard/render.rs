@@ -21,6 +21,41 @@ pub(crate) struct ViewState {
     pub(crate) spinner: Option<usize>,
     pub(crate) filter: FilterState,
     pub(crate) budget_display: BudgetDisplay,
+    pub(crate) generation: u64,
+}
+
+/// Memoizes the Activity pane's build + wrap across ticks.
+///
+/// `transcript_lines` + `wrap_lines_hanging` process every record and are
+/// re-run on every 500 ms tick, even though their inputs — the records, the
+/// filter, and the wrap width — change only on a reload, a filter toggle, or a
+/// terminal resize. The spinner changes every tick but does not reach this
+/// pane, so it is deliberately **not** part of the key.
+#[derive(Default)]
+pub(crate) struct TranscriptCache {
+    key: Option<(u64, ActivityFilter, usize)>,
+    wrapped: Vec<Line<'static>>,
+}
+
+impl TranscriptCache {
+    /// Wrapped transcript lines for this generation/filter/width, rebuilding
+    /// only when the key differs from the cached one.
+    pub(crate) fn get(
+        &mut self,
+        generation: u64,
+        records: &[rexymcp_executor::store::sessions::event::SessionRecord],
+        filter: &ActivityFilter,
+        wrap_width: usize,
+        indent: usize,
+    ) -> &[Line<'static>] {
+        let key = (generation, filter.clone(), wrap_width);
+        if self.key.as_ref() != Some(&key) {
+            self.wrapped =
+                wrap_lines_hanging(&transcript_lines(records, filter), wrap_width, indent);
+            self.key = Some(key);
+        }
+        &self.wrapped
+    }
 }
 
 /// Clamp a scroll offset so it can't run past the last line.
@@ -176,6 +211,7 @@ pub(crate) fn render_dashboard(
     now_ms: u64,
     state: &ViewState,
     rates: BudgetRates,
+    cache: &mut TranscriptCache,
 ) -> usize {
     if let Some(ref err) = data.error {
         let error_pane = panel(
@@ -297,20 +333,33 @@ pub(crate) fn render_dashboard(
             ),
             activity_area,
         );
-        total_wrapped = wrap_lines_hanging(
-            &transcript_lines(&data.records, &filter_state.filter),
+        let total_len = cache
+            .get(
+                state.generation,
+                &data.records,
+                &filter_state.filter,
+                wrap_width,
+                INDENT,
+            )
+            .len();
+        total_wrapped = total_len;
+    } else {
+        let all = cache.get(
+            state.generation,
+            &data.records,
+            &filter_state.filter,
             wrap_width,
             INDENT,
-        )
-        .len();
-    } else {
-        let transcript = transcript_lines(&data.records, &filter_state.filter);
-        let wrapped = wrap_lines_hanging(&transcript, wrap_width, INDENT);
-        total_wrapped = wrapped.len();
+        );
+        total_wrapped = all.len();
         let viewport = activity_area.height.saturating_sub(2);
         let scroll = visible_offset(state.follow, state.offset, total_wrapped, viewport);
+        let start = (scroll as usize).min(total_wrapped);
+        let end = start.saturating_add(viewport as usize).min(total_wrapped);
+        let visible: Vec<Line<'static>> = all[start..end].to_vec();
+
         frame.render_widget(
-            Paragraph::new(wrapped).scroll((scroll, 0)).block(
+            Paragraph::new(visible).block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Activity [f=filter] "),
@@ -347,6 +396,7 @@ pub(crate) fn render_dashboard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rexymcp_executor::store::sessions::event::{SessionEvent, SessionRecord};
 
     #[test]
     fn header_band_height_fits_tallest_plus_borders() {
@@ -544,6 +594,118 @@ mod tests {
             world_span.style.fg,
             Some(Color::Blue),
             "'world' should carry blue style"
+        );
+    }
+
+    // --- TranscriptCache tests ---
+
+    fn rec(ts: u64, turn: usize, event: SessionEvent) -> SessionRecord {
+        SessionRecord { ts, turn, event }
+    }
+
+    fn start_event() -> SessionEvent {
+        SessionEvent::SessionStart {
+            session_id: "test-session".into(),
+            model: "test-model".into(),
+            phase: "phase-01".into(),
+        }
+    }
+
+    fn progress_event(turn: usize, stage: &str) -> SessionEvent {
+        SessionEvent::Progress {
+            turn,
+            stage: stage.into(),
+            files_changed: vec![],
+            message: format!("turn={turn} stage={stage} +0/-0 files=0"),
+        }
+    }
+
+    #[test]
+    fn transcript_cache_matches_the_uncached_result() {
+        let records = vec![rec(100, 0, start_event())];
+        let filter = ActivityFilter::default();
+        let expected = wrap_lines_hanging(&transcript_lines(&records, &filter), 40, 4);
+        let mut cache = TranscriptCache::default();
+        let got = cache.get(0, &records, &filter, 40, 4);
+        assert_eq!(
+            got,
+            expected.as_slice(),
+            "cache must produce the same output as the uncached path"
+        );
+    }
+
+    #[test]
+    fn transcript_cache_rebuilds_when_generation_changes() {
+        let records_a = vec![rec(100, 0, start_event())];
+        let records_b = vec![
+            rec(100, 0, start_event()),
+            rec(200, 1, progress_event(1, "verify")),
+        ];
+        let filter = ActivityFilter::default();
+        let mut cache = TranscriptCache::default();
+        let _r0 = cache.get(0, &records_a, &filter, 40, 4);
+        let r1 = cache.get(1, &records_b, &filter, 40, 4);
+        assert!(
+            r1.len() > 1,
+            "generation bump with different records must rebuild the cache"
+        );
+    }
+
+    #[test]
+    fn transcript_cache_rebuilds_when_width_changes() {
+        let records = vec![rec(
+            100,
+            0,
+            progress_event(
+                0,
+                "a-very-long-stage-name-that-will-definitely-need-to-wrap-when-the-width-is-narrow",
+            ),
+        )];
+        let filter = ActivityFilter::default();
+        let mut cache = TranscriptCache::default();
+        let r_wide_len = cache.get(0, &records, &filter, 80, 4).len();
+        let r_narrow_len = cache.get(0, &records, &filter, 20, 4).len();
+        assert!(
+            r_narrow_len > r_wide_len,
+            "narrower width must wrap to strictly more lines"
+        );
+    }
+
+    #[test]
+    fn transcript_cache_rebuilds_when_filter_changes() {
+        let records = vec![
+            rec(100, 0, start_event()),
+            rec(200, 1, progress_event(1, "verify")),
+        ];
+        let filter_all = ActivityFilter {
+            progress: true,
+            ..ActivityFilter::default()
+        };
+        let filter_default = ActivityFilter::default();
+        let mut cache = TranscriptCache::default();
+        let r_all_len = cache.get(0, &records, &filter_all, 40, 4).len();
+        let r_default_len = cache.get(0, &records, &filter_default, 40, 4).len();
+        assert!(
+            r_all_len > r_default_len,
+            "enabling progress filter must produce more lines"
+        );
+    }
+
+    #[test]
+    fn transcript_cache_returns_stale_content_for_an_unchanged_generation() {
+        let records_a = vec![rec(100, 0, start_event())];
+        let records_b = vec![
+            rec(100, 0, start_event()),
+            rec(200, 1, progress_event(1, "verify")),
+            rec(300, 2, progress_event(2, "parse")),
+        ];
+        let filter = ActivityFilter::default();
+        let mut cache = TranscriptCache::default();
+        let r_first_len = cache.get(0, &records_a, &filter, 40, 4).len();
+        let r_second_len = cache.get(0, &records_b, &filter, 40, 4).len();
+        assert_eq!(
+            r_first_len, r_second_len,
+            "same generation must return the cached result even with different records"
         );
     }
 }
