@@ -112,7 +112,7 @@ cargo test -p rexymcp-executor privacy::ner::tests::live_qwen -- --ignored --noc
 ## Authorizations
 
 - One live-LLM `#[ignore]` test hitting the `[privacy]` engine endpoint
-  (`http://192.168.50.138:8080/v1`, `qwen3.5-9b`).
+  (`http://192.168.1.10:8080/v1`, `local-ner-model`).
 - No new dependencies.
 - New files: `executor/src/privacy/{ner,gateway}.rs`.
 - No `docs/architecture.md` edit.
@@ -164,7 +164,7 @@ Post-phase-02 baseline was 1785; now 1793 (+8 hermetic: 5 `ner`, 3 `gateway`).
 The 3rd ignored test is the live Qwen check below.
 
 **End-to-end verification:** Ran the live `#[ignore]` test against the real Qwen
-engine (`http://192.168.50.138:8080/v1`, `qwen3.5-9b`):
+engine (`http://192.168.1.10:8080/v1`, `local-ner-model`):
 
 ```
 $ cargo test -p rexymcp-executor privacy::ner::tests::live_qwen -- --ignored --nocapture

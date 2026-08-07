@@ -795,8 +795,8 @@ max_turns = 50
             f,
             r#"[privacy]
 enabled = true
-engine_base_url = "http://192.168.50.138:8080/v1"
-engine_model = "qwen3.5-9b"
+engine_base_url = "http://localhost:8080/v1"
+engine_model = "local-ner-model"
 "#
         )
         .unwrap();
@@ -804,7 +804,7 @@ engine_model = "qwen3.5-9b"
 
         let cfg = Config::load(&path).unwrap();
         assert!(cfg.privacy.enabled);
-        assert_eq!(cfg.privacy.engine_model.as_deref(), Some("qwen3.5-9b"));
+        assert_eq!(cfg.privacy.engine_model.as_deref(), Some("local-ner-model"));
     }
 
     #[test]

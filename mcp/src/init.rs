@@ -108,16 +108,20 @@ output_filter = true              # filter/truncate bash output to conserve cont
 # dir = "/path/to/shared/telemetry"  # cross-project PhaseRun telemetry store
 
 [privacy]
-# PII ingestion gate (M44). When enabled, `rexymcp anonymize` and the
-# execute_phase boundary scrub replace PII with reversible tokens kept in a local
-# encrypted vault (git-ignored). Detection is best-effort: deterministic detectors
-# (email/phone/SSN/card/IP/MAC) are reliable; the NER model (names/addresses) is
-# not — it reduces leak risk, it does not guarantee. See docs/privacy.md.
+# Use a LOCAL LLM to suppress (redact) certain PII before it reaches the ARCHITECT
+# (Claude) or a CLOUD-BASED EXECUTOR (e.g. DeepSeek). The local model detects PII
+# on your LAN — the PII never leaves your network — and rexyMCP redacts the
+# detected artifacts from everything the cloud models would otherwise see.
+# Opt-in: choose the local LLM below. The engine URL/model come ONLY from this
+# section; nothing is hardcoded. If [privacy] is omitted (or enabled = false), the
+# architect and cloud executors run normally, with no PII suppression.
+# Detection is best-effort: deterministic detectors (email/phone/SSN/card/IP/MAC)
+# are reliable; the NER model (names/addresses) is not. See docs/privacy.md.
 enabled = false
-# engine_base_url = "http://localhost:8080/v1"  # local NER endpoint (detection only, stays on your LAN)
-# engine_model = "qwen3.5-9b"                    # small model served there; thinking must be off
+# engine_base_url = "http://localhost:8080/v1"  # your local PII-detection LLM endpoint (stays on your LAN)
+# engine_model = "local-ner-model"              # the model id your endpoint serves; a small local model, thinking off
 # vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault (encrypted, git-ignored)
-# redact_executor_egress = true                  # force executor-egress redaction on/off (M45); default: auto (redact iff the executor endpoint is a cloud host)
+# redact_executor_egress = true                  # force PII suppression to a cloud executor on/off (M45); default: auto (suppress iff the executor endpoint is a cloud host)
 # scan_globs = ["data/**", "fixtures/**"]         # M46: limit the egress pre-scan to these repo-relative globs (default: scan everything, gitignore-honored)
 "#
     )

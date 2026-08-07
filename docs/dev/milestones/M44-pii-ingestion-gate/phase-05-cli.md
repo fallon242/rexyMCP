@@ -78,7 +78,7 @@ Read before starting:
 ## End-to-end verification
 
 Run the real binary against a scratch config pointed at the live Qwen engine
-(`http://192.168.50.138:8080/v1`, `qwen3.5-9b`) and a scratch vault dir; quote the
+(`http://192.168.1.10:8080/v1`, `local-ner-model`) and a scratch vault dir; quote the
 transcript in the completion Update Log — anonymize → reconstitute round-trips the
 original, and `vault` shows the counts.
 

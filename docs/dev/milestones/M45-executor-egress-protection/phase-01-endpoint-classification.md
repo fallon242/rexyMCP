@@ -44,7 +44,7 @@ So only clearly-local hosts count as local; unknown hostnames are cloud.
 
 - [ ] `cargo build` / `clippy -D warnings` / `fmt --check` / `test` all pass.
 - [ ] `endpoint_is_local` is true for `localhost`, `127.0.0.1`, `::1`,
-      `192.168.50.138`, `10.0.0.5`, `172.20.1.1` (incl. with `:port` / scheme /
+      `192.168.1.10`, `10.0.0.5`, `172.20.1.1` (incl. with `:port` / scheme /
       `[ipv6]`), and false for `api.deepseek.com`, `8.8.8.8`, `172.32.0.1`.
 - [ ] `should_redact_egress`: disabled → false; enabled+cloud → true;
       enabled+local → false; force `Some(true)` overrides local → true; force

@@ -163,11 +163,11 @@ mod tests {
         for url in [
             "http://localhost:1234/v1",
             "http://127.0.0.1:8080/v1",
-            "http://192.168.50.138:8080/v1",
+            "http://192.168.1.10:8080/v1",
             "http://10.0.0.5/v1",
             "http://172.20.1.1:11434/v1",
             "http://[::1]:8080/v1",
-            "http://qwen.local:8080/v1",
+            "http://ner.local:8080/v1",
         ] {
             assert!(endpoint_is_local(url), "expected local: {url}");
         }
@@ -228,7 +228,7 @@ mod tests {
         ));
         assert!(!should_redact_egress(
             &privacy(true, None),
-            "http://192.168.50.138:8080/v1"
+            "http://192.168.1.10:8080/v1"
         ));
     }
 
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "live: needs Qwen at the [privacy] engine endpoint; run with --ignored"]
+    #[ignore = "live: set REXYMCP_PRIVACY_ENGINE_URL + REXYMCP_PRIVACY_ENGINE_MODEL; run with --ignored"]
     async fn live_build_egress_index_finds_pii() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -283,8 +283,14 @@ mod tests {
         .unwrap();
         let privacy = PrivacyConfig {
             enabled: true,
-            engine_base_url: Some("http://192.168.50.138:8080/v1".to_string()),
-            engine_model: Some("qwen3.5-9b".to_string()),
+            engine_base_url: Some(
+                std::env::var("REXYMCP_PRIVACY_ENGINE_URL")
+                    .expect("set REXYMCP_PRIVACY_ENGINE_URL to run this live test"),
+            ),
+            engine_model: Some(
+                std::env::var("REXYMCP_PRIVACY_ENGINE_MODEL")
+                    .expect("set REXYMCP_PRIVACY_ENGINE_MODEL to run this live test"),
+            ),
             ..Default::default()
         };
 
