@@ -83,8 +83,9 @@ The PII engine reduces leak risk; it does not eliminate it. Two rules follow:
 | 03 | Qwen NER engine + gateway (deterministic ∪ NER → tokenize → vault) | architect | review |
 | 04 | ingestion registry: content-hash change tracking, incremental scrub | architect | review |
 | 05 | CLI: `anonymize` / `reconstitute` / `vault`                 | architect | review |
-| 06 | boundary enforcement: DeepSeek round-trip + `PhaseResult` scrub | architect | todo |
-| 07 | `UserPromptSubmit` hook + `rexymcp init` `[privacy]` defaults + docs | → Qwen executor | todo |
+| 06a | `PhaseResult` boundary scrub (deterministic) before it returns to Claude | architect | review |
+| 06b | executor→DeepSeek egress round-trip | architect | **deferred** (NER doesn't scale per-turn; see doc) |
+| 07 | `UserPromptSubmit` hook + `rexymcp init` `[privacy]` defaults + docs | architect | todo |
 
 **Hybrid build (why this split):** the security-critical core — the reversible
 tokenizer (01), vault encryption (02), and the boundary round-trip (06) — is

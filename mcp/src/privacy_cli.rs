@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rexymcp_executor::config::{Config, PrivacyConfig};
+use rexymcp_executor::phase::PhaseResult;
 use rexymcp_executor::privacy::gateway::Gateway;
 use rexymcp_executor::privacy::ner::NerEngine;
 use rexymcp_executor::privacy::vault::Vault;
@@ -81,6 +82,29 @@ pub fn vault_status(config: PathBuf, repo: PathBuf, vault: Option<PathBuf>) -> R
     Ok(())
 }
 
+/// Deterministically scrub structured PII (email/phone/SSN/card/IP/MAC) from a
+/// `PhaseResult` before it crosses the MCP boundary to Claude, recording the
+/// reversible mapping in the vault. NER (names/addresses) is deliberately *not*
+/// run here: a model pass over an arbitrarily large diff is unbounded and
+/// context-limited — that is phase-06b. Structural fields (paths, status, line
+/// numbers) do not match the deterministic patterns, so they pass through. A
+/// disabled `[privacy]` gate is a no-op.
+pub fn scrub_phase_result(
+    result: PhaseResult,
+    privacy: &PrivacyConfig,
+    repo: &Path,
+) -> Result<PhaseResult> {
+    if !privacy.enabled {
+        return Ok(result);
+    }
+    let vault_dir = resolve_vault_dir(privacy, repo, None);
+    let mut vault = Vault::open(&vault_dir)?;
+    let json = serde_json::to_string(&result).context("serialize PhaseResult for scrub")?;
+    let scrubbed = vault.map_mut().anonymize_text(&json);
+    vault.save()?;
+    serde_json::from_str(&scrubbed).context("re-parse scrubbed PhaseResult")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +131,54 @@ mod tests {
         let cfg = PrivacyConfig::default();
         let dir = resolve_vault_dir(&cfg, Path::new("/repo"), None);
         assert_eq!(dir, PathBuf::from("/repo/.rexymcp/vault"));
+    }
+
+    fn result_with_diff(diff: &str) -> PhaseResult {
+        use rexymcp_executor::phase::Artifacts;
+        PhaseResult::complete(Artifacts {
+            files_changed: vec![],
+            diff: diff.to_string(),
+            command_outputs: Default::default(),
+            update_log: String::new(),
+            log_path: None,
+            completion_summary: String::new(),
+        })
+    }
+
+    #[test]
+    fn scrub_disabled_returns_result_unchanged() {
+        let privacy = PrivacyConfig::default();
+        let out = scrub_phase_result(
+            result_with_diff("email jane@acme.com"),
+            &privacy,
+            Path::new("/x"),
+        )
+        .unwrap();
+        assert_eq!(out.diff, "email jane@acme.com");
+    }
+
+    #[test]
+    fn scrub_tokenizes_structured_pii_and_vault_reconstitutes() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault_dir = dir.path().join("vault");
+        let privacy = PrivacyConfig {
+            enabled: true,
+            vault_dir: Some(vault_dir.clone()),
+            ..Default::default()
+        };
+        let out = scrub_phase_result(
+            result_with_diff("contact jane@acme.com now"),
+            &privacy,
+            Path::new("/x"),
+        )
+        .unwrap();
+        assert!(!out.diff.contains("jane@acme.com"));
+        assert!(out.diff.contains("Email_1"));
+
+        let vault = Vault::open(&vault_dir).unwrap();
+        assert_eq!(
+            vault.map().reconstitute(&out.diff),
+            "contact jane@acme.com now"
+        );
     }
 }
