@@ -1,7 +1,7 @@
 # Phase 01: Identical-repetition argument normalization
 
 **Milestone:** M45 — Executor Work-Preservation Guards
-**Status:** in-progress
+**Status:** review
 **Depends on:** none
 **Estimated diff:** ~170 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -465,3 +465,108 @@ test governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1062 filtered out; finished in 0.00s
 
 ```
+
+### Update — ts=1786302111168 (complete, server-authored)
+
+**Summary:** All tasks complete. Here's the summary:
+
+**What I built:** Added `normalize_arguments` to `executor/src/governor/hard_fail.rs` — a recursive function that trims and collapses internal whitespace in string leaves of `serde_json::Value` arguments. Updated `check_identical_repetition` to compare through this normalizer so whitespace-varied repeated calls (e.g., re-issued `patch` with reflowed `old_str`) are now detected as identical.
+
+**Deviations from spec:** The `identical_repetition_fires_on_whitespace_varied_arguments` test was rewritten to use direct string array variants for `old_str` (rather than parsing JSON strings with whitespace differences) — the original approach parsed the JSON first, which already normalized the whitespace before the arguments reached the detector, making the mutation test ineffective. The `normalize_arguments_leaves_non_string_leaves_unchanged` test used `std::f64::consts::PI` instead of `3.14` to avoid a clippy `approx_constant` warning.
+
+**E2E result:** All gates pass (fmt, clippy, tests: 1068 passed, 0 failed). Mutation test confirmed: neutered normalizer causes `identical_repetition_fires_on_whitespace_varied_arguments` to fail (exit=101), restored normalizer passes (exit=0). Paste verified byte-identical (PASTE MATCH). `raw-compare-count=0` confirms the old raw comparison is gone.
+
+**Executor:** Qwen/Qwen3.6-27B-FP8
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp-executor v0.9.1 (/home/matt/src/rexyMCP/executor)
+   Compiling rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.62s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+
+
+TEST
+_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1068 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.09s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-4e85b51f198fbe9f)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-4bde71b966d323ae)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/M45-executor-work-preservation-guards/README.md` — +1 -1
+- `docs/dev/milestones/M45-executor-work-preservation-guards/phase-01-identical-repetition-normalization.md` — +109 -1
+- `executor/src/governor/hard_fail.rs` — +160 -2
+
+**Commit:** f3e2ef30ef4039e8ef0cab9db0bb405f87472a8e
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
