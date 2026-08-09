@@ -136,7 +136,8 @@ pub fn evaluate(
 }
 
 /// Identical repetition: the last `threshold` tool calls are all the same
-/// `(tool, arguments)` pair. Fires when `threshold` identical calls are seen.
+/// `(tool, arguments)` pair, with string-leaf whitespace normalized before
+/// comparison. Fires when `threshold` identical calls are seen.
 /// Read-only repetitions are exempt — left to `check_read_only_stall`.
 fn check_identical_repetition(
     recent: &VecDeque<ToolCallSnapshot>,
@@ -151,9 +152,10 @@ fn check_identical_repetition(
     }
     let last_n: Vec<_> = recent.iter().rev().take(threshold).collect();
     let first = &last_n[0];
+    let first_args = normalize_arguments(&first.arguments);
     let all_identical = last_n
         .iter()
-        .all(|c| c.tool == first.tool && c.arguments == first.arguments);
+        .all(|c| c.tool == first.tool && normalize_arguments(&c.arguments) == first_args);
     if !all_identical {
         return None;
     }
@@ -161,6 +163,26 @@ fn check_identical_repetition(
         tool: first.tool.clone(),
         consecutive_count: threshold as u32,
     })
+}
+
+/// Normalize tool-call arguments for identical-repetition comparison: every
+/// string leaf is trimmed and its internal whitespace runs collapsed to a single
+/// space, recursively through objects and arrays. Non-string leaves are returned
+/// unchanged. Object key order needs no handling — `serde_json::Map` is a
+/// `BTreeMap` (the `preserve_order` feature is off), so `Value` equality already
+/// ignores insertion order.
+fn normalize_arguments(value: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(s) => Value::String(s.split_whitespace().collect::<Vec<_>>().join(" ")),
+        Value::Array(items) => Value::Array(items.iter().map(normalize_arguments).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), normalize_arguments(v)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 fn check_verifier_persistence(counts: &[usize], threshold: usize) -> Option<HardFailSignal> {
@@ -1361,6 +1383,142 @@ mod tests {
             matches!(signal, HardFailSignal::NoProgressStall { .. }),
             "expected NoProgressStall, got {:?}",
             signal
+        );
+    }
+
+    // — normalize_arguments tests —
+
+    #[test]
+    fn normalize_arguments_collapses_whitespace_in_string_leaves() {
+        let input = serde_json::json!("  a   b\nc ");
+        let output = normalize_arguments(&input);
+        assert_eq!(output, serde_json::json!("a b c"));
+    }
+
+    #[test]
+    fn normalize_arguments_recurses_through_objects_and_arrays() {
+        let input = serde_json::json!({
+            "outer": {
+                "inner": "  hello   world  ",
+                "list": ["  a  ", "  b  \n  c  "]
+            }
+        });
+        let output = normalize_arguments(&input);
+        assert_eq!(
+            output,
+            serde_json::json!({
+                "outer": {
+                    "inner": "hello world",
+                    "list": ["a", "b c"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn normalize_arguments_leaves_non_string_leaves_unchanged() {
+        let input = serde_json::json!({
+            "num": 42,
+            "pi": std::f64::consts::PI,
+            "flag": true,
+            "nothing": null
+        });
+        let output = normalize_arguments(&input);
+        assert_eq!(output, input);
+    }
+
+    // — whitespace-varied identical-repetition tests —
+
+    #[test]
+    fn identical_repetition_fires_on_whitespace_varied_arguments() {
+        let mut recent = VecDeque::new();
+        // The old_str values differ only in whitespace (leading/trailing spaces,
+        // internal runs of spaces, newlines). After normalization they are all
+        // "fn foo() {}".
+        let old_strs = [
+            "fn foo() {}",
+            "  fn foo() {}",
+            "fn foo() {}  ",
+            "fn  foo()  {}",
+            "fn\nfoo() {}",
+            "  fn   foo()   {}  ",
+        ];
+        for old_str in &old_strs {
+            recent.push_back(ToolCallSnapshot {
+                tool: "patch".to_string(),
+                arguments: serde_json::json!({
+                    "path": "x.rs",
+                    "old_str": old_str,
+                    "new_str": "fn bar() {}",
+                }),
+                succeeded: true,
+            });
+        }
+        let signal = evaluate(&recent, &[], None, &GovernorConfig::default())
+            .expect("identical repetition must fire on whitespace-varied arguments");
+        assert!(
+            matches!(
+                signal,
+                HardFailSignal::IdenticalToolCallRepetition {
+                    ref tool,
+                    consecutive_count: 6
+                } if tool == "patch"
+            ),
+            "expected IdenticalToolCallRepetition for patch, got {:?}",
+            signal
+        );
+    }
+
+    #[test]
+    fn identical_repetition_ignores_non_whitespace_argument_differences() {
+        let mut recent = VecDeque::new();
+        let contents = [
+            "fn a() {}",
+            "fn b() {}",
+            "fn c() {}",
+            "fn d() {}",
+            "fn e() {}",
+            "fn f() {}",
+        ];
+        for content in &contents {
+            recent.push_back(ToolCallSnapshot {
+                tool: "write_file".to_string(),
+                arguments: serde_json::json!({
+                    "path": "x.rs",
+                    "content": content,
+                }),
+                succeeded: true,
+            });
+        }
+        assert!(
+            evaluate(&recent, &[], None, &GovernorConfig::default()).is_none(),
+            "substantively different content must not trigger identical repetition"
+        );
+    }
+
+    #[test]
+    fn identical_repetition_still_exempts_read_only_window() {
+        let mut recent = VecDeque::new();
+        let paths = [
+            "a.txt",
+            " a.txt",
+            "a.txt ",
+            "  a.txt  ",
+            "a\n.txt",
+            "a .txt",
+        ];
+        for path in &paths {
+            recent.push_back(ToolCallSnapshot {
+                tool: "read_file".to_string(),
+                arguments: serde_json::json!({
+                    "path": path,
+                }),
+                succeeded: true,
+            });
+        }
+        assert!(
+            evaluate(&recent, &[], None, &GovernorConfig::default()).is_none(),
+            "read-only window must still be exempt even with whitespace-varied args"
         );
     }
 }

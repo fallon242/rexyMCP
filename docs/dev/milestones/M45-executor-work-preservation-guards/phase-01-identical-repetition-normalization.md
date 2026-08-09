@@ -1,7 +1,7 @@
 # Phase 01: Identical-repetition argument normalization
 
 **Milestone:** M45 — Executor Work-Preservation Guards
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~170 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -357,3 +357,111 @@ Log.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-09 18:44 (started)
+
+**Executor:** Claude (Sonnet)
+**Action:** Started phase 01 — implementing `normalize_arguments` and 6 new tests in `hard_fail.rs`.
+
+### Update — 2026-08-09 18:44 (end-to-end verification)
+
+```
+=== [1] gates ===
+fmt exit=0
+clippy exit=0
+    Checking rexymcp-executor v0.9.1 (/home/matt/src/rexyMCP/executor)
+    Checking rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.18s
+test exit=0
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1068 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+
+   Doc-tests executor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== [2] new + existing detector tests ===
+exit=0
+   Compiling rexymcp-executor v0.9.1 (/home/matt/src/rexyMCP/executor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.49s
+     Running unittests src/lib.rs (target/debug/deps/executor-300152e5d9c0cc60)
+
+running 8 tests
+test governor::hard_fail::tests::describe_identical_repetition ... ok
+test governor::hard_fail::tests::identical_repetition_exempts_read_only_window ... ok
+test governor::hard_fail::tests::identical_repetition_window_is_threshold_not_deque_length ... ok
+test governor::hard_fail::tests::identical_repetition_still_exempts_read_only_window ... ok
+test governor::hard_fail::tests::identical_repetition_still_fires_for_write_tool ... ok
+test governor::hard_fail::tests::identical_repetition_ignores_non_whitespace_argument_differences ... ok
+test governor::hard_fail::tests::detects_identical_repetition ... ok
+test governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied_arguments ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1062 filtered out; finished in 0.00s
+
+exit=0
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/executor-300152e5d9c0cc60)
+
+running 3 tests
+test governor::hard_fail::tests::normalize_arguments_collapses_whitespace_in_string_leaves ... ok
+test governor::hard_fail::tests::normalize_arguments_leaves_non_string_leaves_unchanged ... ok
+test governor::hard_fail::tests::normalize_arguments_recurses_through_objects_and_arrays ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1067 filtered out; finished in 0.00s
+
+=== [3] raw comparison is gone ===
+raw-compare-count=0
+=== [4] MUTATED: normalizer neutered ===
+grep-fixed-form=0
+grep-mutated-form=1
+exit=101
+running 8 tests
+test governor::hard_fail::tests::describe_identical_repetition ... ok
+test governor::hard_fail::tests::identical_repetition_still_exempts_read_only_window ... ok
+test governor::hard_fail::tests::identical_repetition_window_is_threshold_not_deque_length ... ok
+test governor::hard_fail::tests::identical_repetition_exempts_read_only_window ... ok
+test governor::hard_fail::tests::identical_repetition_still_fires_for_write_tool ... ok
+test governor::hard_fail::tests::identical_repetition_ignores_non_whitespace_argument_differences ... ok
+test governor::hard_fail::tests::detects_identical_repetition ... ok
+test governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied_arguments ... FAILED
+
+failures:
+
+---- governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied_arguments stdout ----
+
+thread 'governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied_arguments' (3759654) panicked at executor/src/governor/hard_fail.rs:1458:14:
+identical repetition must fire on whitespace-varied arguments
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied_arguments
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 1062 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p rexymcp-executor --lib`
+=== [5] RESTORED ===
+grep-fixed-form=1
+grep-mutated-form=0
+exit=0
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.51s
+     Running unittests src/lib.rs (target/debug/deps/executor-300152e5d9c0cc60)
+
+running 8 tests
+test governor::hard_fail::tests::describe_identical_repetition ... ok
+test governor::hard_fail::tests::identical_repetition_exempts_read_only_window ... ok
+test governor::hard_fail::tests::identical_repetition_still_exempts_read_only_window ... ok
+test governor::hard_fail::tests::identical_repetition_window_is_threshold_not_deque_length ... ok
+test governor::hard_fail::tests::identical_repetition_ignores_non_whitespace_argument_differences ... ok
+test governor::hard_fail::tests::identical_repetition_still_fires_for_write_tool ... ok
+test governor::hard_fail::tests::detects_identical_repetition ... ok
+test governor::hard_fail::tests::identical_repetition_fires_on_whitespace_varied_arguments ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1062 filtered out; finished in 0.00s
+
+```
