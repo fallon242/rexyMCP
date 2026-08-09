@@ -186,13 +186,20 @@ a. **Write a bug report** at
    ## What should happen
    <Concrete. Reference the architecture doc section or phase spec requirement.>
 
-   ## How to fix
-   <Specific instruction: file path, what to change, expected result.>
+   ## Root cause
+   <Why it happens — the mechanism, not the patch. Cite file:line.>
 
-   ## Verification
-   - [ ] <command produces expected output>
+   ## Definition of done
+   - [ ] <command produces expected output — run it and confirm it FAILS
+         against the current tree before dispatching>
    - [ ] <test_name passes>
    ```
+
+   A `## How to fix` section is **optional, and admissible only when you have
+   actually run the fix** (WORKFLOW.md § "State the symptom, the root cause
+   and the DoD — not the fix"). Otherwise state the constraint the solution
+   must satisfy and let the executor — which holds the compiler, linter, and
+   tests — choose the edit.
 
    Choose severity per `WORKFLOW.md` § "Severity meanings":
    - **blocker** — phase cannot be merged in this state.
@@ -202,6 +209,15 @@ a. **Write a bug report** at
 
 b. **Flip the phase doc's `Status:` line** from `review` back to
    `in-progress` (with a note referencing the bug).
+
+b-bis. **Refresh the phase doc's acceptance criteria** so the outstanding work
+   is expressed *there*, and **run each new criterion to confirm it fails
+   against the current tree** (re-pin any count the fix will change to its new
+   exact value). This is the load-bearing step: the executor evaluates the
+   phase doc — not the bug doc — to decide whether there is work to do, and a
+   phase doc whose criteria all still pass certifies itself as finished; the
+   re-dispatch then honestly returns `complete` with an empty diff. See
+   WORKFLOW.md § "The bounce sequence — four steps, in order, none optional".
 
 c. **Update the milestone README's phase-table row** to `in-progress`.
 

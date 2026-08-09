@@ -6,6 +6,16 @@ Single source of truth for which phase is active. The principal engineer
 
 **Active phase: none.**
 
+**Next up (proposed, 2026-08-09): M45 — Executor Work-Preservation Guards**
+([README](milestones/M45-executor-work-preservation-guards/README.md)) — git
+self-revert hard-block + identical-call normalization, spun out of DaemonEye's
+M12 upstream-folds proposal (`docs/daemoneye-proposed-upstream-folds.md`, whose
+Disposition section records what was folded vs. deferred). The same folds were
+applied to both `plugin/templates/WORKFLOW.md` and this repo's own
+`docs/dev/WORKFLOW.md` (bug template now Root cause / Definition of done; the
+bounce sequence; seven new calibration sections). Phases not yet drafted;
+`architecture.md` §Status entry pending at activation.
+
 **M44 — Atomic JSONL Appends closed 2026-08-05 at one phase**
 (`approved_first_try`, zero bugs). All four telemetry append functions delegate to
 one `append_stamped` helper: one buffer, one `write_all`. Proven by mutation —
