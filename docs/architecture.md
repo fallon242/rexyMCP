@@ -1232,6 +1232,35 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+45. **M45 — Executor work-preservation guards** *(opened 2026-08-09 from
+    DaemonEye's M12 upstream-folds proposal, §4)*. The proposal asked for three
+    runtime guards; **two were already shipped**, and re-verifying that at
+    milestone open is most of what this entry records. The git self-revert
+    guard landed in **M22 phase-05** — `destructive_restore_refusal`
+    (`executor/src/agent/tools.rs:107`) refuses `git checkout <path>` /
+    `git restore <path>` / `git checkout HEAD -- <path>` against the session's
+    edited set and `git stash` push forms while that set is non-empty, as a
+    model-visible `ToolResult` naming the fix-forward remedy; the wholesale
+    forms were already blocked in `security/bash_classify.rs`. The read-only
+    stall landed in **M37**. The proposal's draft "current state" missed both
+    because it inspected only the bash classifier, not the agent loop where §4
+    of this document puts the guard — a reminder that a proposal's claims about
+    the tree are claims, and get re-derived at activation. What is genuinely
+    open is **identical-repetition normalization**:
+    `governor/hard_fail.rs:154` compares raw `serde_json::Value` arguments, so a
+    mutating loop varying only by whitespace never trips
+    `identical_call_threshold` (one such loop ran 529 turns downstream). Note
+    argument *ordering* is not part of the gap — `serde_json` is built without
+    `preserve_order`, so `Map` is a `BTreeMap` and `Value` equality already
+    ignores it. **Phase 01** normalizes string-leaf whitespace before comparing,
+    proven by a both-directions mutation pair. **Phase 02** carries a
+    dependency ask added at milestone open: `rmcp` 2.2 → 3.1.2, a major-version
+    migration across 45 call sites including the `tool_router`/`tool` macros and
+    a hand-written `ServerHandler`. A companion `generic-array` 0.14.9 bump was
+    **dropped as unreachable, not deferred** — `crypto-common 0.1.7` pins
+    `generic-array = "=0.14.7"` exactly and is the last release in its line, so
+    the bump waits on `termwiz` moving to the `sha2` 0.11 stack; neither a
+    direct dependency nor a `[patch.crates-io]` entry can force it.
 44. **M44 — Atomic JSONL appends** *(done 2026-08-05 at one phase; opened the same
     day from a defect found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
     four append functions (`executor/src/store/telemetry.rs:195`, `:392`, `:553`,

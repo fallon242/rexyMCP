@@ -4,17 +4,38 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase:
+[M45 / phase-01 — identical-repetition argument normalization](milestones/M45-executor-work-preservation-guards/phase-01-identical-repetition-normalization.md)**
+(`todo`, drafted 2026-08-09, not yet dispatched).
 
-**Next up (proposed, 2026-08-09): M45 — Executor Work-Preservation Guards**
-([README](milestones/M45-executor-work-preservation-guards/README.md)) — git
-self-revert hard-block + identical-call normalization, spun out of DaemonEye's
-M12 upstream-folds proposal (`docs/daemoneye-proposed-upstream-folds.md`, whose
-Disposition section records what was folded vs. deferred). The same folds were
-applied to both `plugin/templates/WORKFLOW.md` and this repo's own
-`docs/dev/WORKFLOW.md` (bug template now Root cause / Definition of done; the
-bounce sequence; seven new calibration sections). Phases not yet drafted;
-`architecture.md` §Status entry pending at activation.
+**M45 — Executor Work-Preservation Guards opened 2026-08-09**
+([README](milestones/M45-executor-work-preservation-guards/README.md)), spun out
+of DaemonEye's M12 upstream-folds proposal
+(`docs/daemoneye-proposed-upstream-folds.md`). **Re-verification at open cut the
+milestone roughly in half:** two of the proposal's three runtime asks are already
+shipped — the **git self-revert guard in M22 phase-05**
+(`executor/src/agent/tools.rs:107` `destructive_restore_refusal`, covering
+`git checkout <path>` / `git restore <path>` / `git checkout HEAD -- <path>` /
+`git stash` push against the session's edited set, as a model-visible
+`ToolResult`) and the **read-only stall in M37**. The proposal's draft
+"current state" missed the former because it inspected only
+`security/bash_classify.rs`, not the agent loop where `architecture.md` §M4 puts
+the guard. What remains: phase-01 (identical-repetition whitespace
+normalization) and phase-02 (`rmcp` 2.2 → 3.1.2, not yet drafted).
+`architecture.md` §45 entry added at activation.
+
+**`generic-array` 0.14.9 was requested at open and dropped as unreachable**, not
+deferred: `crypto-common 0.1.7` pins `generic-array = "=0.14.7"` exactly and is
+the last release in the 0.1.x line, so nothing in this workspace can force the
+bump — not a direct dependency, not `[patch.crates-io]`. It waits on `termwiz`
+moving to the `sha2` 0.11 / `crypto-common` 0.2 stack. Reopening trigger:
+`cargo tree -i generic-array` showing a dependent that is not `crypto-common
+0.1.x`. Evidence in the M45 README's Notes.
+
+The earlier folds from the same proposal landed in both
+`plugin/templates/WORKFLOW.md` and `docs/dev/WORKFLOW.md` (bug template now Root
+cause / Definition of done; the bounce sequence; seven new calibration
+sections).
 
 **M44 — Atomic JSONL Appends closed 2026-08-05 at one phase**
 (`approved_first_try`, zero bugs). All four telemetry append functions delegate to
@@ -53,8 +74,8 @@ server-authored bookkeeping tail records it correctly, so telemetry is unaffecte
 If it recurs the fold is mechanical: stop asking the executor to write that field
 and let the server own it, as it already owns the completion tail.
 
-**The next milestone is a human decision — no auto-advance across the boundary.**
-No candidate is queued.
+**The M44 → M45 boundary was crossed on human sign-off (2026-08-09)**, with the
+scope narrowed and the `rmcp` upgrade added at the user's direction.
 
 ---
 
