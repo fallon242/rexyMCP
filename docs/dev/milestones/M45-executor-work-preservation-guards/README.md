@@ -4,7 +4,8 @@
 loops, and the MCP server's `rmcp` dependency moves to the current major
 version.
 
-**Status:** in-progress (opened 2026-08-09)
+**Status:** done (opened and closed 2026-08-09, two phases, both
+`approved_first_try`)
 
 **Depends on:** none (builds on M22's self-revert guard and M37's governor
 calibration)
@@ -57,7 +58,7 @@ the agent loop, where the design (`docs/architecture.md` §M4) actually puts it.
   not asserted.
 - Substantively different arguments still compare as distinct: a repeated
   `write_file` whose `content` genuinely differs does **not** trip the detector.
-- `rmcp` is on 3.x (currently `2.2` in `mcp/Cargo.toml`), the server builds
+- `rmcp` is on 3.x (was `2.2` in `mcp/Cargo.toml` at open), the server builds
   clean under `-D warnings`, and every existing `mcp` test passes unmodified.
 
 ## Architecture references
@@ -149,3 +150,66 @@ this itself, since landing a dependency change is an enumerated STOP; and the
 running `serve` process does **not** hot-swap a rebuilt binary, so the upgrade
 only reaches the live MCP server after a deliberate reinstall + restart, which
 the phase leaves to the human.
+
+## M45 retrospective
+
+**Closed 2026-08-09 at two phases, both `approved_first_try`, zero bugs filed,
+zero bounces, zero escalation assists.**
+
+| Phase | Tags | Turns | Tokens | Peak ctx | Verdict |
+|---|---|---|---|---|---|
+| 01 identical-repetition-normalization | feature, size=s | 106 | 3.5M | 28% | approved_first_try |
+| 02 rmcp-3-migration | refactor, size=s | 53 | 977k | 12% | approved_first_try |
+
+**The milestone shrank by more than half at open, and that was the main
+result.** Of the three runtime guards DaemonEye's proposal asked for, two were
+already shipped here — the git self-revert guard in M22 phase-05 and the
+read-only stall in M37. The proposal's "current state (verified)" section had
+checked `security/bash_classify.rs` and concluded the guard was missing; the
+guard actually lives one layer up in the agent loop, exactly where
+`architecture.md` §M4 says it does. Re-deriving those claims against the tree
+before drafting cost minutes and removed two of three exit criteria. **A
+proposal inherited from another project is a claim about this tree, not a
+finding about it.**
+
+The same shape recurred inside the milestone: phase-02's estimate of "45
+`rmcp::` sites, a major-version migration" was a count of *mentions*. Building a
+throwaway `git archive` copy of `HEAD` against 3.1.2 and reading the compiler's
+error list turned that into 5 edits in 2 files, and re-sized the phase from l to
+s. Both are instances of patterns already folded into `WORKFLOW.md` — § "Derive
+every spec fact from its source" and § "A sweep's scope is its convertible
+sites, not its matches" — so they reinforce existing guidance rather than
+warranting new text.
+
+**Calibration: no folds warranted.** Three observations recorded as data, none
+at the threshold:
+
+1. **Throwaway-build sizing for dependency migrations.** Compiling a scratch
+   copy against the new version converts an estimate into an enumeration, and
+   makes every worked example in the spec admissible under § "State the symptom,
+   the root cause and the DoD" (the architect really did run it). One
+   occurrence; if a second dependency migration repeats it, it is worth a short
+   subsection.
+2. **Pre-injection density vs. cost.** Phase-02 carried verbatim replacements
+   from a verified probe and landed in 53 turns / 977k tokens; phase-01, specced
+   from behavior rather than from ran code, took 106 turns / 3.5M. Suggestive,
+   but n=2 across different phase kinds — not a measurement.
+3. **Server-authored completion entries head themselves `### Update —
+   ts=<epoch-ms>`** where the `WORKFLOW.md` template specifies
+   `YYYY-MM-DD HH:MM` (both phases). Server bookkeeping, so no phase can fix it
+   from the doc side; a one-line runtime fix whenever the area is next touched.
+
+**Dropped, not deferred:** the `generic-array` 0.14.9 bump requested at open. It
+cannot resolve — `crypto-common 0.1.7` pins it at `=0.14.7` and is the last
+release in its line. Reopening trigger and full evidence in the Notes above.
+
+**Carried forward:** rmcp 3.1.2 is on disk but **not** in the running MCP
+server. A live `rexymcp serve` does not hot-swap a rebuilt binary, so the
+upgrade reaches the server only after a deliberate reinstall + restart. Until
+that happens, the tool surface Claude Code talks to is still the 2.2 build.
+
+**Process note:** the `/rexymcp:auto` loop ran phase-01 end-to-end unattended
+and then stopped on its `blocker` condition at phase-02, correctly refusing to
+land a `Cargo.toml` change on its own. The human cleared the gate with
+`/rexymcp:architect next`. The stop cost one round trip and behaved exactly as
+designed.

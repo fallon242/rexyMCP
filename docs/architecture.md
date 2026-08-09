@@ -1232,8 +1232,8 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-45. **M45 — Executor work-preservation guards** *(opened 2026-08-09 from
-    DaemonEye's M12 upstream-folds proposal, §4)*. The proposal asked for three
+45. **M45 — Executor work-preservation guards** *(done 2026-08-09 at two phases;
+    opened the same day from DaemonEye's M12 upstream-folds proposal, §4)*. The proposal asked for three
     runtime guards; **two were already shipped**, and re-verifying that at
     milestone open is most of what this entry records. The git self-revert
     guard landed in **M22 phase-05** — `destructive_restore_refusal`
@@ -1261,6 +1261,20 @@ The project plan. Each entry becomes a milestone with its own
     `generic-array = "=0.14.7"` exactly and is the last release in its line, so
     the bump waits on `termwiz` moving to the `sha2` 0.11 stack; neither a
     direct dependency nor a `[patch.crates-io]` entry can force it.
+    **Closed at two phases, both `approved_first_try`, zero bugs and zero
+    bounces** (01: 106 turns; 02: 53 turns). Phase 02's cost was measured rather
+    than estimated: a throwaway `git archive` copy of `HEAD` built against 3.1.2
+    reduced "45 `rmcp::` sites, major-version migration" to **5 edits in 2
+    files**, re-sizing the phase from l to s — the "45" had been a count of
+    mentions, not of breakages. Its finish condition was a live stdio handshake
+    rather than the unit suite, because every test mocks the transport and none
+    would notice a server that stopped speaking MCP; `serverInfo.version` is
+    rmcp's own crate version, which `get_info` never sets, so it reads `2.2.0`
+    until the dependency genuinely moves. **rmcp 3.1.2 is on disk but not in the
+    running server** — a live `serve` does not hot-swap a rebuilt binary, so the
+    upgrade reaches the MCP tool surface only after a deliberate reinstall and
+    restart. Retrospective in
+    [M45/README.md § M45 retrospective](dev/milestones/M45-executor-work-preservation-guards/README.md).
 44. **M44 — Atomic JSONL appends** *(done 2026-08-05 at one phase; opened the same
     day from a defect found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
     four append functions (`executor/src/store/telemetry.rs:195`, `:392`, `:553`,

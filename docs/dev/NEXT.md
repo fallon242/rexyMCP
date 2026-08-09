@@ -4,12 +4,43 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase:
-[M45 / phase-02 — migrate the MCP server to rmcp 3.1.2](milestones/M45-executor-work-preservation-guards/phase-02-rmcp-3-migration.md)**
-— `done` 2026-08-09, `approved_first_try`. **All M45 phases are now `done`; the
-milestone is not closed.** Closing it (retrospective, calibration folds, setting
-this pointer to "none") is a separate human-gated step — run
-`/rexymcp:architect`.
+**Active phase: none.**
+
+**M45 — Executor Work-Preservation Guards closed 2026-08-09 at two phases**,
+both `approved_first_try`, zero bugs, zero bounces, zero assists (phase-01: 106
+turns / 3.5M tokens; phase-02: 53 turns / 977k). Retrospective in
+[M45/README.md § M45 retrospective](milestones/M45-executor-work-preservation-guards/README.md);
+`architecture.md` §45 done.
+
+**The milestone lost two of its three exit criteria at open, and that was the
+main finding.** DaemonEye's proposal asked for three runtime guards; the git
+self-revert guard was already shipped (M22 phase-05,
+`executor/src/agent/tools.rs:107`) and the read-only stall was already shipped
+(M37). The proposal's "verified" current-state had inspected
+`security/bash_classify.rs` and missed the guard one layer up in the agent loop,
+where `architecture.md` §M4 puts it. **An inherited proposal is a claim about
+this tree, not a finding about it** — re-deriving cost minutes and saved
+re-implementing working code.
+
+**Calibration: no folds.** Three observations held as data, none at threshold —
+throwaway-build sizing for dependency migrations (1×); pre-injection density vs.
+turn cost (n=2, suggestive only); and server-authored completion entries heading
+themselves `ts=<epoch-ms>` instead of the `WORKFLOW.md` date format (2×, a
+runtime fix, not a doc fold). Details in the retrospective.
+
+**Action outstanding for the human: rmcp 3.1.2 is on disk but not in the running
+server.** A live `rexymcp serve` does not hot-swap a rebuilt binary, so the MCP
+tools Claude Code talks to are still the 2.2 build until a deliberate reinstall
+(`cargo install --path mcp`) and restart. Best done between sessions — a restart
+drops the in-memory run registry.
+
+**`generic-array` 0.14.9 was dropped as unreachable, not deferred** —
+`crypto-common 0.1.7` pins it at `=0.14.7` and is the last release in its line.
+Reopening trigger: `cargo tree -i generic-array` showing a dependent that is not
+`crypto-common 0.1.x`.
+
+**The next milestone is a human decision — no auto-advance across the boundary.**
+No candidate is queued.
 
 **M45 / phase-01 — identical-repetition argument normalization: done
 2026-08-09**, `approved_first_try`, zero bugs, 106 executor turns on
