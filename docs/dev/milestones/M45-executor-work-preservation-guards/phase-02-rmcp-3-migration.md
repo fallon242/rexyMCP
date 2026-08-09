@@ -1,7 +1,7 @@
 # Phase 02: Migrate the MCP server to rmcp 3.1.2
 
 **Milestone:** M45 — Executor Work-Preservation Guards
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=refactor, size=s
@@ -395,3 +395,50 @@ Nothing else. In particular this does **not** authorize touching
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-09 21:29 (started)
+
+**Executor:** rexyMCP executor
+
+Implementing the rmcp 2.2 → 3.1.2 migration per spec.
+
+### Update — 2026-08-09 21:30 (end-to-end verification)
+
+```
+=== [1] dependency version ===
+17:rmcp = { version = "3.1.2", features = ["server", "macros", "transport-io"] }
+name = "rmcp"
+version = "3.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+=== [2] gates ===
+fmt exit=0
+clippy exit=0
+    Checking rexymcp-executor v0.9.1 (/home/matt/src/rexyMCP/executor)
+    Checking rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.35s
+test exit=0
+test result: ok. 711 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.08s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1068 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== [3] build the real binary ===
+build exit=0
+   Compiling rmcp v3.1.2
+   Compiling rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.04s
+=== [4] live stdio MCP handshake ===
+handshake exit=0
+serverInfo="serverInfo":{"name":"rmcp","version":"3.1.2"}
+tool-count=10
+tool-names:
+continue_phase
+execute_phase
+executor_health
+executor_log_search
+executor_log_tail
+get_run_status
+get_turn
+model_profile
+model_scorecard
+stop_phase
+```

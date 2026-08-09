@@ -1172,10 +1172,13 @@ fn list_tools_carries_output_schemas_for_hand_rolled_tools() {
 
 #[test]
 fn structured_result_carries_matching_text_block() {
-    let result = structured_result(&SpawnedRun {
+    let response = structured_result(&SpawnedRun {
         run_id: "r-1".to_string(),
     })
     .unwrap();
+    let rmcp::model::CallToolResponse::Complete(result) = response else {
+        panic!("structured_result must produce a Complete response");
+    };
     let expected = serde_json::json!({ "run_id": "r-1" });
     assert_eq!(
         result.structured_content.as_ref(),
