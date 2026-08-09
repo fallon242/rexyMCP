@@ -4,8 +4,9 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none** — M45 phase-01 is `done`; phase-02 is **blocked on human
-authorization** (see below).
+**Active phase:
+[M45 / phase-02 — migrate the MCP server to rmcp 3.1.2](milestones/M45-executor-work-preservation-guards/phase-02-rmcp-3-migration.md)**
+(`todo`, drafted 2026-08-09, not yet dispatched).
 
 **M45 / phase-01 — identical-repetition argument normalization: done
 2026-08-09**, `approved_first_try`, zero bugs, 106 executor turns on
@@ -14,18 +15,25 @@ independent re-run, not by reading the pasted transcript: the E2E block and the
 both-directions mutation pair were re-executed at review and matched. The
 milestone's remaining exit criterion is phase-02.
 
-**M45 / phase-02 (`rmcp` 2.2 → 3.1.2) — STOPPED for the human, not drafted.**
-The `/rexymcp:auto` loop halted here on its `blocker` stop condition: the loop is
-not permitted to land a dependency change (`Cargo.toml` / `Cargo.lock` are
-edit-gated, and "add a dependency" is an enumerated STOP). There is a second,
-operational reason: landing the upgrade means rebuilding and reinstalling
-`rexymcp`, and a running `serve` process does **not** hot-swap a rebuilt binary —
-so an autonomous run could sever the very dispatch channel it is running on.
-**The migration itself is fully derived and verified** — 5 edits in 2 files, all
-gates green in a throwaway probe. The complete worked fix is in the
-[M45 README Notes](milestones/M45-executor-work-preservation-guards/README.md).
-Resume by authorizing the dependency bump; the phase doc can then be drafted from
-the README's three enumerated breaking classes.
+**M45 / phase-02 (`rmcp` 2.2 → 3.1.2) — drafted 2026-08-09 on human
+authorization.** The `/rexymcp:auto` loop had halted here on its `blocker` stop
+condition (landing a dependency change is an enumerated STOP); the human
+advanced past that gate with `/rexymcp:architect next`. The phase doc authorizes
+the `rmcp` version line and the resulting `Cargo.lock` update, and nothing else.
+
+The migration was **measured, not estimated**: a throwaway `git archive` copy of
+`HEAD` built against 3.1.2 and driven to green, so all five replacements in the
+spec are code that was actually compiled and tested. Cost is 5 edits in 2 files;
+the tool macros, `serve_server`, `QuitReason`, `ErrorData`, `Parameters` and
+`schema_for_type` all compile unchanged, and `schemars` stays at `1.0`. The
+falsifiable finish condition is a live stdio handshake: `serverInfo.version` is
+rmcp's own crate version, which the server never sets itself, so it reads
+`2.2.0` until the dependency really changes.
+
+**Landing it does not reach the live MCP server.** A running `rexymcp serve`
+does not hot-swap a rebuilt binary — the upgrade takes effect only after a
+deliberate reinstall and restart, which the phase deliberately leaves to the
+human.
 
 **M45 — Executor Work-Preservation Guards opened 2026-08-09**
 ([README](milestones/M45-executor-work-preservation-guards/README.md)), spun out

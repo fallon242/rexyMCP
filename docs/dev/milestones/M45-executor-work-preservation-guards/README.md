@@ -70,7 +70,7 @@ the agent loop, where the design (`docs/architecture.md` §M4) actually puts it.
 | #  | Phase                                                                                              | Status |
 |----|----------------------------------------------------------------------------------------------------|--------|
 | 01 | identical-repetition-normalization ([phase-01](phase-01-identical-repetition-normalization.md))     | done        |
-| 02 | rmcp 3.1.2 migration (not yet drafted)                                                              | —      |
+| 02 | rmcp-3-migration ([phase-02](phase-02-rmcp-3-migration.md))                                         | todo        |
 
 ## Notes
 
@@ -141,7 +141,11 @@ With those applied the probe went fully green — `cargo test` **1068 + 711 + 2
 passed, 0 failed**, and `cargo clippy --all-targets --all-features -- -D
 warnings` clean. **This is a size=s phase, not a size=l migration.**
 
-**Not yet drafted or dispatched — it needs an explicit human authorization**,
-because it edits `Cargo.toml` / `Cargo.lock` (a hard rule) and because landing it
-requires rebuilding and reinstalling `rexymcp`, which a running `serve` process
-does **not** hot-swap. See NEXT.md.
+**Drafted 2026-08-09 as [phase-02](phase-02-rmcp-3-migration.md)** with the
+dependency edit authorized in its § Authorizations (narrowly: the `rmcp` version
+line and the resulting `Cargo.lock` update, nothing else). Two operational notes
+for whoever closes it: the `/rexymcp:auto` loop stopped rather than dispatching
+this itself, since landing a dependency change is an enumerated STOP; and the
+running `serve` process does **not** hot-swap a rebuilt binary, so the upgrade
+only reaches the live MCP server after a deliberate reinstall + restart, which
+the phase leaves to the human.
