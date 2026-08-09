@@ -53,6 +53,17 @@ diagnostic it couldn't resolve, lost track of state, or otherwise stopped
 without producing a clean `PhaseResult`. The escalation question is **what
 changes** so the next attempt succeeds.
 
+**On a `NoProgressStall`, run the project's gates against the partial tree
+yourself before picking a lever** — build, lint, tests. A stall is usually a
+nearly-finished phase: the executor writes most of the work, then loops
+re-reading instead of running a gate. The minute of gate-running decides the
+lever (if the missing piece is small, resume with the diagnosis; if the
+missing piece is the very edit it stalled on, the stall itself is the wall)
+and it finds defects nothing else will — the executor stalled *before* running
+any gate, so its partial work is unverified by construction and the briefing
+cannot show what's broken in it. Do not treat the stall as evidence the work
+is bad; the design is typically right and what's missing is integration.
+
 Three levers, in order of preference:
 
 ### Refined re-dispatch — the default for weak models

@@ -204,3 +204,43 @@ Where a fold lands, keep DaemonEye's `*(Folded <date> after <what>, on PE
 sign-off …)*` note form but **rewrite the specifics** — upstream readers have
 no idea what "M12 phase-06a" is. What generalises is the mechanism and the
 occurrence count, not the phase numbers.
+
+---
+
+## Disposition — 2026-08-09, decided with the project owner
+
+Analysis re-verified every cited fact (drift numbers, `tasks.rs:55` seeding,
+`executor_contract.md:160-164` shell-edit ban) before folding. Decisions:
+
+**Folded into `plugin/templates/WORKFLOW.md`:** §2 (mutation pairs as `patch`
+Spec tasks + the seeded capture task, as calibration § "The E2E block" plus a
+tightened template E2E section); §3a verbatim-condensed; § "A pasted
+transcript is a claim" whole, including §3b and the paste-fidelity check;
+the bounce sequence; § "State the symptom, the root cause and the DoD — not
+the fix" — **and, going further than this proposal's step 7, the bug-report
+template's `## How to fix`/`## Verification` sections were replaced by
+`## Root cause`/`## Definition of done`** (owner decision: transfer authority
+to the executor; `How to fix` is now optional and admissible only when the
+architect has run the fix). Also folded condensed: satisfiable-criteria,
+count-criteria, coverage-mutation-proof, sweep-scope (carrying a generic
+last-use-import note in place of the Rust-specific trait section), and the
+delete-heavy/additive phase split. All fold notes rewritten to mechanism +
+occurrence count, DaemonEye phase numbers filed off.
+
+**Folded into `plugin/skills/escalate/SKILL.md`:** the NoProgressStall
+diagnose-the-tree-first rule (the acting agent at stall time reads the skill,
+not the target repo's WORKFLOW).
+
+**Declined (owner decision):** §5's recurring-stall takeover counter-case —
+left as-is for now; it is the one item that reduces executor opportunity, and
+the preferred long-term fix is runtime loop-breaking, not policy.
+
+**Deferred to M45** (`docs/dev/milestones/M45-executor-work-preservation-guards/`):
+the runtime feature requests from § "Executor self-sabotage" — git self-revert
+hard-block (the unblocked `checkout <file>` / `HEAD --` / `restore` / `stash`
+forms) and identical-call normalization. The read-only-stall ask already
+landed in M37 and is noted as such there.
+
+**Left alone, as proposed:** upstream's `## How to fix`/`## Verification`
+headings are gone by supersession, not by pull-back; the Rust trait-import
+section was not folded standalone.

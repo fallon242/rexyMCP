@@ -183,8 +183,24 @@ hermetic fakes (temp directory, mocked AI client, fixture replay).
 Unit tests with hermetic fakes can pass while the real artifact the phase ships
 is broken. For every acceptance criterion that references a real artifact (a
 checked-in file, a CLI behavior, a binary entrypoint, a config the running binary
-loads), verify against that real artifact before reporting complete, and quote
-the actual output in the completion Update Log.
+loads), verify against that real artifact before reporting complete.
+
+**Capture mechanically, never by hand.** Redirect each command's output to a
+file and paste that file's contents. Do not retype a transcript, reconstruct
+one from memory, summarise results into prose, or copy lines from the phase doc
+or a previous Update Log entry.
+
+**The evidence goes in its own Update Log entry** titled
+`### Update — <date> (end-to-end verification)`. The server-authored
+`(complete)` entry never satisfies this — its command tails prove the gates
+ran, not that the acceptance criteria were exercised against real artifacts.
+**One entry per dispatch:** a bounced, re-dispatched phase needs a new entry
+for the round that changed the code; an earlier round's entry describes a tree
+that no longer exists.
+
+<The architect writes the exact commands here as one runnable block, and seeds
+the capture as the phase's final `## Spec` task — see WORKFLOW.md § "The E2E
+block: runnable, complete, and seeded as a Spec task".>
 
 If the phase ships **no** runtime-loadable real artifact (a pure internal
 refactor, a new private type, a test-only helper), write:
@@ -291,11 +307,41 @@ When the executor marks a phase **review**, the architect:
 2. Runs the commands themselves to confirm they actually pass.
 3. Spot-checks the tests are real (not passing via assertion omission).
 4. Either **approves** (flips to `done`, updates the milestone README's phase
-   table) or **rejects** (writes bug reports in the milestone's `bugs/`
-   directory and flips the phase back to `in-progress`).
+   table) or **rejects** (runs the full bounce sequence below — writing the bug
+   report is only its first step).
 5. **Records a structured review verdict** (below) — at every approval, not just
    when something went wrong. This is the supervision label for model evaluation
    *and* the substrate for human project review. One write, two consumers.
+
+### The bounce sequence — four steps, in order, none optional
+
+A rejection is not "file a bug and flip the status." It is these four, and the
+third is the one that determines whether the re-dispatch does anything:
+
+1. **Write the bug report** in the milestone's `bugs/` directory.
+2. **Flip the phase doc's `Status:`** back to `in-progress`, naming the bug.
+3. **Refresh the phase doc's acceptance criteria** so the outstanding work is
+   expressed *there*, and **run each new criterion to confirm it fails against
+   the current tree**. Any count the fix will change is re-pinned to its new
+   exact value ("more than N" is satisfied by what is already on disk;
+   "exactly N+1" is not).
+4. **Update the milestone README row** and record the bounce in telemetry.
+
+**Step 3 is the load-bearing one, and it is the one that gets skipped.** The
+executor evaluates the *phase doc* to decide whether there is work to do; it
+does not evaluate the bug doc for that purpose. After a rejection, the phase
+doc's criteria describe the tree the executor already built — so they all
+pass, the doc certifies itself as finished, and the honest reading of it is
+"complete, nothing to do." The bug report is where the diagnosis lives; the
+acceptance criteria are where *doneness* lives. A bug doc is a supplement,
+never a substitute.
+
+*(Folded 2026-08-09 from DaemonEye, a downstream rexyMCP project. Two
+empty-diff re-dispatches traced to stale criteria, including one where a loud
+bug-doc header, a do-not-touch list, and enumerated edits were all present and
+still insufficient: that round returned `complete` with an empty diff in 31
+turns; the next round, with four criteria confirmed failing, did the work in
+82. The executor's report was honest each time; the spec lied.)*
 
 ### Review verdict
 
@@ -331,13 +377,18 @@ File at `docs/dev/milestones/M<n>-<slug>/bugs/bug-<phase>-<n>.md`.
 ## What should happen
 <Concrete. Reference the architecture doc section or phase spec requirement.>
 
-## How to fix
-<Specific instruction: file path, what to change, expected result.>
+## Root cause
+<Why it happens — the mechanism, not the patch. Cite file:line.>
 
-## Verification
-- [ ] <command produces expected output>
+## Definition of done
+- [ ] <command produces expected output — run it and confirm it FAILS against
+      the current tree before dispatching>
 - [ ] <test_name passes>
 ```
+
+A `## How to fix` section is **optional, and admissible only when the architect
+has actually run the fix** — see § "State the symptom, the root cause and the
+DoD — not the fix".
 
 ### Severity meanings
 
@@ -345,6 +396,39 @@ File at `docs/dev/milestones/M<n>-<slug>/bugs/bug-<phase>-<n>.md`.
 - **major** — must fix before done; correctness or contract violation.
 - **minor** — should fix; style, naming, a missing-but-not-critical test.
 - **nit** — optional preference; executor may decline with reasoning.
+
+### State the symptom, the root cause and the DoD — not the fix
+
+**The three required bug-report sections are What's wrong, Root cause, and
+Definition of done. A `How to fix` section is optional, and admissible only
+when the architect has actually run the fix.** Otherwise, describe the
+constraint the solution has to satisfy and let the executor choose the edit.
+
+This inverts the older instinct — prescribe the patch and lean on the executor
+to type it — because prescription is where architects are least reliable: a
+prescribed fix is a *system fact*, a claim that this edit applied to this tree
+produces that result, and it is authored from reasoning about code rather than
+from running it. The failure mode is specific: **a prescribed fix is trusted
+precisely because it is specific.** A vague instruction gets sanity-checked
+against the code; a confident code block gets typed in. The more precise the
+prescription, the more damage a wrong one does — and precision is not evidence
+of correctness when the author never executed it.
+
+What the executor is reliably good at, given a correct root cause, is finding
+the edit. It has the compiler, the linter, the test suite and the actual tree;
+the architect has none of those at spec-writing time. Give it the diagnosis and
+the finish line.
+
+**When you do include a worked example, it must be quoted from code that
+exists** (per § "Derive every spec fact from its source"). Quoting an existing
+pattern is evidence; authoring a new one is a guess wearing the costume of
+evidence — and the executor cannot tell them apart.
+
+*(Folded 2026-08-09 from DaemonEye, after four wrong prescribed fixes in one
+milestone: two the executor implemented faithfully and the phase bounced; one
+it correctly refused and the finding was withdrawn; one was an impossible
+instruction that burned an entire dispatch before the governor stopped it. In
+every case the executor's behavior was correct given what it was told.)*
 
 ---
 
@@ -761,6 +845,15 @@ unordered required-field cascade struck out and needed a takeover; an
 unordered derive-graph cascade struck out, then a refined re-dispatch pinning
 the leaf-first order landed clean first-try.)*
 
+**Split delete-heavy rewrites away from additive work.** A phase that both adds
+a new module *and* rips out an old path is where executors thrash — reverting
+their own uncommitted work or looping on read-only checks. Split it: an
+additive phase (new code, nothing deleted) followed by a rewire phase (delete +
+wire). The additive half does not trigger the pathology, and if the rewire half
+fails, the additive code is already safely on disk. *(Proven twice downstream:
+both times the split contained the blast radius — the additive files survived
+and only the delete-heavy file needed reconstruction.)*
+
 ### Post-write formatting is a runtime concern, not a spec concern
 
 When a formatter (`ruff format`, `gofmt`, `rustfmt`, etc.) is part of the
@@ -846,3 +939,321 @@ language, inform the user with a resolution plan before shipping a feature that
 would only degrade; (4) pin the missing-binary runtime behavior in the phase doc
 as a named advisory, per the rule above. Record the feature's toolchain
 dependencies in the phase doc (Pre-flight or a "Toolchain dependencies" line).
+
+### Give the executor a condition it can check, not an instruction it can agree with
+
+When a requirement keeps going unmet, the reflex is to state it more clearly.
+That reflex is wrong often enough to be worth naming: if the executor can
+satisfy a phase's tracked work and still miss the requirement, no amount of
+rewording closes the gap, because nothing in its own loop ever evaluates the
+requirement. **Change what it can check, not how you said it.**
+
+Two shapes that work, both proven:
+
+- **Make it a tracked task.** Only `## Spec` is seeded into the executor's
+  task list (`executor/src/agent/tasks.rs` matches a heading of exactly
+  `## Spec` and parses that section alone). A requirement stated in any other
+  section is invisible to the "have I finished?" check the executor actually
+  runs, so it finishes every task it is tracking and reports complete in good
+  faith. Move the requirement into `## Spec` as a numbered task.
+- **Give it a self-check with a falsifiable output.** A command the executor
+  runs against its own work that prints `PASS`/`FAIL` — extract the pasted
+  transcript and diff it against the artifact; grep the mutated line to prove
+  the mutation applied; state the exact test count the run must report. Then
+  make that output an acceptance criterion.
+
+And **run the check against a known-bad input before you spec it.** A detector
+that cannot fail is worth exactly as much as a mutation that cannot fail.
+
+*(Folded 2026-08-09 from DaemonEye — two occurrences, and what makes them
+worth generalising is the controlled contrast with what failed first. A
+missing end-to-end entry drew three rounds of increasingly specific prose
+about how to write the block, and stayed missing; making the capture a
+`## Spec` task fixed it immediately, both times it was used. A retyped
+transcript drew a remedy aimed at artifact size — 2,555 lines shrunk to 56 so
+it could be pasted whole — and it was retyped from memory anyway; a
+`PASTE MATCH` self-check fixed it on the first try, byte-identical. Both
+wording fixes failed; both structural fixes worked first try. The wording was
+already good, and the effort spent on it bought nothing.)*
+
+### The E2E block: runnable, complete, and seeded as a Spec task
+
+Three architect rules make the phase-doc template's § "End-to-end
+verification" actually produce evidence:
+
+**1. Give the commands as one runnable block, never as prose.** Write the
+exact shell the executor should run — output redirected to an artifact file,
+`exit=$?` markers included. Where a result's success case produces *no* output
+(a grep that finds nothing, a diff over identical inputs), the exit marker is
+the whole proof. And **everything the entry must contain has to be produced
+*by the block***: evidence named in prose outside the fence, or a manual step
+inside it (`# make the edit by hand, then:`), is a gap the executor can only
+fill with narrative, because narrative is the only thing left to fill it with.
+
+**2. Mutation pairs are `## Spec` tasks, not shell edits inside the block.**
+The executor contract **forbids in-place shell edits** — `sed -i`, `perl -i`,
+and `>`/`tee` redirects into a source file are banned outright, and `bash`
+refuses them (`executor/templates/executor_contract.md`, the do-not list). A
+mutation pair written as a shell one-liner is therefore **unrunnable as
+specified**: the executor either silently substitutes its `patch` tool — and
+the marker `echo`s sitting between the banned commands go missing from the
+transcript — or it narrates across the seam. Write each pair as three numbered
+tasks in `## Spec`:
+
+1. **Apply** — a `patch` on the pinned line, given as a worked example with
+   the exact `old_str` and `new_str`, then a marker `echo` appended to the
+   artifact file and the mutated test run appended after it.
+2. **Restore** — the inverse `patch`, then its marker and the restored run.
+3. **Prove it applied** — a `grep -c` of the mutated text after *each*
+   direction, appended to the artifact. **Not optional**: a `patch` whose
+   `old_str` no longer matches fails loudly, but one that matches the *wrong*
+   line does not, and a mutation that silently did not apply certifies a
+   vacuous guard.
+
+Marker `echo`s and test runs are ordinary shell and stay legal; only the
+*edit* moves to the `patch` tool. **Never spec `git checkout <file>` as the
+restore** when the file holds the round's own uncommitted work — it discards
+it. And per § "Derive every spec fact from its source", run the mutation
+commands yourself before writing them into the spec.
+
+**3. Seed the capture as the phase's last numbered task in `## Spec`.** The
+E2E section is not seeded into the executor's task list — only `## Spec` is —
+so a perfect block placed only there does not get run, and the executor
+reports complete in good faith. The task's shape:
+
+> ### Task N — Capture the end-to-end evidence
+>
+> Run the block in § End-to-end verification **verbatim and unmodified**, then
+> paste the resulting artifact file into a new Update Log entry headed
+> `### Update — <date> (end-to-end verification)`. The server-authored
+> `(complete)` entry does not satisfy this.
+
+Keep the block itself in § End-to-end verification — the task points at it.
+The obligation is what gets tracked, not a duplicate of the commands.
+
+*(Folded 2026-08-09 from DaemonEye, where this was the single largest failure
+class: ten of one milestone's fourteen bounces and two of its four architect
+takeovers were the missing-evidence requirement alone — and it was never a
+capability problem; in each case the executor had run the commands and its
+claims held up when checked. What separated producing runs from
+non-producing ones, consistently: a literal runnable block vs. prose, an
+explicit "the server (complete) entry does not count," and — decisively — the
+capture existing as a seeded task. Three phases carried increasingly precise
+block-writing guidance and produced no entry; the only rounds that produced
+one were the rounds where the capture was an enumerated `## Spec` task. The
+shell-edit prohibition went unnoticed for three phases because the executor's
+silent `patch` substitution grades green.)*
+
+### A pasted transcript is a claim, not evidence
+
+**At review, re-run every command in the phase doc's End-to-end section and
+diff the result against what was pasted.** Reading a transcript for
+plausibility is not verification: a fabricated transcript is *built* to read
+as plausible, and the gate set cannot see it — nothing an executor writes into
+a markdown file affects a build.
+
+The three shapes this takes, all observed downstream:
+
+- **Paraphrase in place of a quote.** The entry describes what the command
+  showed instead of showing it. Cheapest to spot: grep the entry for the
+  command string and an exit-code marker; if neither is there, no transcript
+  was pasted.
+- **A splice inside an otherwise-real transcript.** The dangerous one: 24 real
+  lines and one copied from a neighbouring file with a field swapped. No
+  reading of the block reveals the bad line — only re-running and diffing.
+- **Results asserted in the completion summary** while the Update Log holds
+  only a progress stub.
+
+**A true claim in a hand-made transcript is still a failure.** In every
+observed case the underlying behavior was correct — what was missing was the
+evidence chain, which is the only part that survives to the next reader.
+Approving on "the claims check out" trains the next transcript to be written
+rather than captured.
+
+**A completion summary is a claim too, including its deviations line.** That
+line has been wrong in both directions: "Deviations from spec: None" while an
+unrelated tool's user-visible text had been rewritten, and a reported removal
+of a binding that never existed in the file. Neither caused a regression;
+neither was catchable by reading the summary carefully. Read the diff, not the
+narrative, and treat an undeclared change and a fabricated one as the same
+class of finding. (Recorded against a majority of *accurate* self-reports in
+the same milestone — the point is not that executors lie, it is that accuracy
+is unknowable from the text and cheap to establish from the diff.)
+
+Two rules follow:
+
+- **Executor:** capture mechanically (§ "End-to-end verification" in the phase
+  template). Never hand-assemble.
+- **Reviewer:** re-run and diff. "The transcript looks right" is inadmissible;
+  "I re-ran it and it matched" is the finding — the check that matters is the
+  one the author cannot fake by writing more convincingly.
+
+**Give the executor a paste-fidelity check it can run itself.** Telling it to
+paste verbatim is not enough, and neither is making the artifact small (a
+56-line artifact has been retyped from memory). Add a final `## Spec` task
+that extracts the pasted block back out of the phase doc and diffs it against
+the artifact, printing `PASTE MATCH` / `PASTE MISMATCH`, and make `PASTE
+MATCH` an acceptance criterion. On a mismatch the `diff` names the retyped
+lines, so the executor fixes them from the file instead of guessing.
+
+```bash
+D=docs/dev/milestones/M<n>-<slug>/phase-NN-<slug>.md
+START=$(grep -n '^### Update .*(end-to-end verification)' $D | tail -1 | cut -d: -f1)
+tail -n +$START $D | awk '/^```/{n++; next} n==1' > /tmp/pasted-NN.txt
+diff /tmp/pasted-NN.txt /tmp/e2e-NN.txt && echo "PASTE MATCH" || echo "PASTE MISMATCH"
+```
+
+**Anchor the search to the heading, not a bare substring** — the phrase
+"end-to-end verification" also appears in the spec's own prose and in the
+server-authored `(complete)` entry, which is appended *after* the executor's
+check runs; a bare-substring grep re-run at review extracts the wrong block
+and reads a false `PASTE MISMATCH`. And run the check against a known-bad
+entry before speccing it.
+
+*(Folded 2026-08-09 from DaemonEye: three transcript-fabrication occurrences
+in one milestone — paraphrase, splice, prose-only — each costing a full
+dispatch-and-review round trip, the splice caught only because that reviewer
+happened to re-run; then two consecutive retyped-transcript bounces in a later
+milestone, resolved on the first outing of the self-check above,
+byte-identical. Same mechanism as § "Give the executor a condition it can
+check": what moves the executor is a condition it can evaluate.)*
+
+### Coverage claims are inadmissible without mutation proof
+
+**Never write "test X guards line Y" in a spec, a review, or an Update Log
+unless the claim has been demonstrated by mutation** — break the line, watch
+that test fail, restore it, watch it pass, and quote the pair. The usual
+mechanism behind a false coverage claim is a **fixture default**: a shared
+`make_*` helper that initialises a field to the value the assertion checks for
+makes every assertion on that field tautological, and no gate can see it.
+
+Rules that follow:
+
+- **A spec must not name the discriminating test.** Naming it plants the
+  conclusion; the executor then reports what the spec suggested rather than
+  what it observed. Require the demonstration instead.
+- **"The tests pass" is admissible. "The tests would catch a regression here"
+  is not** — unless the mutation pair is quoted alongside it.
+- **When reviewing a phase whose deliverable *is* coverage, re-run the
+  mutations independently.** A claimed mutation check is not one.
+
+**Confirm the property is observable before pinning it** — otherwise the spec
+asks for a test that cannot exist, and what comes back passes on unrelated
+grounds. When a spec names a branch, describe a sequence that *reaches* it,
+not merely the value it returns (two branches returning the same value make
+the assertion prove nothing about which ran). When a spec pins an observable
+property, verify it is observable at all (ordering a serializer discards
+cannot be asserted through the serializer). The tell in every case is that
+the mutation does not fail the test — which is why the mutation must be run,
+and run by the reviewer.
+
+**A guard's premise must be demonstrated, not described.** A test for a guard
+or exclusion passes trivially whenever the input would have produced the same
+result by another path. The shape is always a negative assertion ("returns
+`None`", "the row is absent") paired with a fixture that is *inert* rather
+than *near-miss*: seeding a non-empty fixture is not sufficient — **the
+fixture must be one the input would otherwise match**, and the spec should say
+why the seed is reachable. A comment stating the intent is not the
+demonstration; require the both-directions mutation pair, not the rationale.
+
+**When a test depends on fixture ordering, assert the order in the test.** A
+fixture built so "A is tried first, fails, and B is used" only tests the
+fallback if A really comes first — and when that order is decided by something
+the author reasoned about rather than ran (a ranking function, a sort, a hash
+iteration), it is a system fact like any other and wrong often enough to
+matter. One line converts a silent false pass into a loud self-describing
+failure: assert the premise (`assert_eq!(hits.first()…, Some(expected),
+"fixture precondition: …")`) before asserting the behavior.
+
+*(Folded 2026-08-09 from DaemonEye, where this family recurred across four
+milestones: three false coverage claims before the rule existed; three
+unobservable-property specs, all architect-authored; three vacuous guards
+caught only by a reviewer running the mutation; and one false ordering premise
+that cost a full dispatch — the executor could not make the required mutation
+fail and stalled after ~45 consecutive runs of that one test, which is the
+pathology working correctly, refusing to certify an unfalsifiable guard.)*
+
+### Every acceptance criterion must be satisfiable, and its mechanics pinned
+
+Before dispatch, **re-read every acceptance criterion against the body of your
+own spec — and against what the executor is permitted to do** — and confirm
+the spec does not instruct the executor to violate it. The recurring failures:
+
+- **Contradiction.** A criterion requires a count to stay fixed while the
+  spec's own tasks change it, or requires a file to show no changes while the
+  Test plan puts that phase's new tests in it. Green is impossible; the
+  executor does the work correctly and then burns its remaining turns fighting
+  the criterion until the governor fires.
+- **Under-specification.** A criterion asks the executor to prove a property
+  of its own diff without naming a baseline — but the executor commits as it
+  works, so a bare `git diff` says nothing about committed work. **Pin the
+  baseline commit and the exact command.**
+- **A mechanism the harness forbids.** If the criterion depends on a
+  particular mechanism (restore this file, edit in place with `sed -i`),
+  **name the mechanism and confirm the executor contract permits it** — a
+  refinement built around a command the shell guard blocks is not a
+  refinement. Include these workflow docs themselves in that check: a
+  criterion form prescribed here can still be one the contract bans.
+
+*(Folded 2026-08-09 from DaemonEye: two `NoProgressStall` hard-fails caused by
+unsatisfiable criteria — sixty read-only turns each, the implementation
+correct both times — then two further breaches after the rule existed, one of
+them a rule in the workflow docs themselves prescribing a shell-edit form the
+executor contract bans. The criterion was checked against the tree and never
+against the rest of its own spec.)*
+
+### Run every count criterion; never derive it
+
+A phase doc that pins a count (`grep -c … returns 4`) is making a claim about
+the tree. **Run the command and paste its answer; never compute the number by
+reasoning about the code.** Two corollaries:
+
+- **Text-based greps count prose.** A doc comment, an assertion message, or a
+  phrase in the spec you are writing will match. When a count comes back
+  higher than expected, look for prose before assuming code.
+- **The instrument can be blind.** A single-line grep cannot see a multi-line
+  split or the same call on a differently-named variable — both report clean
+  while real sites remain. Before pinning a criterion, ask what the instrument
+  *cannot* see; where the type system can enforce the property instead,
+  prefer that and retire the grep.
+
+**Re-run the block before dispatch, not only at drafting.** A number correct
+when the phase was written goes stale as soon as an earlier phase edits the
+file. Numbers age; re-run, don't trust — and a phase doc that lists line
+numbers should say they are current-as-of-drafting and point at the command
+that re-derives them.
+
+*(Folded 2026-08-09 from DaemonEye: four derived miscounts — one reporting
+success against an unmet goal — two blind instruments, and a fifth miscount
+from staleness in a phase drafted under the rule; meanwhile running the counts
+caught an error in roughly a third of the phases that did it.)*
+
+### A sweep's scope is its convertible sites, not its matches
+
+When a phase applies one mechanical change to every instance of a pattern — a
+call wrapped in an adapter, an API migrated, a symbol renamed — the match
+count is where scoping **starts**, not where it ends. A hit can be real,
+correctly matched, and still not convertible: its enclosing context may not
+admit the change (in Rust, e.g., a sync enclosing fn for an `async`
+conversion, or a `Drop` impl), it may already be in the target form, or its
+expression may extend past the line a slice boundary was drawn on.
+
+The remedy is cheap: **write the classifier, not just the counter.** For every
+hit, report its enclosing function and whether that context admits the
+conversion; then put the unconvertible ones in the phase doc **by name**, as a
+do-not-convert list with the reason for each. That table buys two things — the
+executor does not spend turns discovering the compiler error and then "fixing"
+it by widening scope, and the finish condition becomes an exact residue ("the
+scan reports 4, and all four are on the list") instead of an unreachable zero.
+
+**Sites needing a restructure go in a restructure phase**, not bundled into a
+mechanical sweep: the phase looks uniform, gets sized as uniform, and then one
+site consumes the run. And when a sweep exhausts a symbol's last use, **say
+what happens to its import** — count the remaining uses *after* the planned
+conversions, and either authorise the deletion explicitly or name the
+surviving uses, so the executor neither trips a strict-lint gate on a dead
+import nor deletes a live one on pattern-momentum.
+
+*(Folded 2026-08-09 from DaemonEye: five mis-scoped sites across one sweep
+milestone, plus two hard-fails on the exhausted-import case, where build and
+strict clippy disagree about whether an unused test-module import matters.)*
