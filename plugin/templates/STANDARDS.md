@@ -33,7 +33,10 @@ the phase's Update Log — never silently mark a phase done.
       (a checked-in file, a CLI behavior, a config the running binary loads) has
       been **verified end-to-end against that real artifact** — not just against
       a unit-test fake — and the actual output is quoted in the completion
-      Update Log entry under "End-to-end verification." A green `{TEST_COMMAND}`
+      Update Log entry under "End-to-end verification," **captured
+      mechanically** (redirect the command's output to a file and paste that
+      file — never retyped, reconstructed from memory, or summarised into
+      prose). A green `{TEST_COMMAND}`
       run that exercises a temp-directory-scoped fake is **not** by itself sufficient.
 - [ ] `{BUILD_COMMAND}` succeeds with **zero new warnings**.
 - [ ] `{LINT_COMMAND}` passes.
