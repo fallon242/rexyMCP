@@ -6,7 +6,10 @@ Single source of truth for which phase is active. The principal engineer
 
 **Active phase:
 [M45 / phase-02 — migrate the MCP server to rmcp 3.1.2](milestones/M45-executor-work-preservation-guards/phase-02-rmcp-3-migration.md)**
-(`todo`, drafted 2026-08-09, not yet dispatched).
+— `done` 2026-08-09, `approved_first_try`. **All M45 phases are now `done`; the
+milestone is not closed.** Closing it (retrospective, calibration folds, setting
+this pointer to "none") is a separate human-gated step — run
+`/rexymcp:architect`.
 
 **M45 / phase-01 — identical-repetition argument normalization: done
 2026-08-09**, `approved_first_try`, zero bugs, 106 executor turns on

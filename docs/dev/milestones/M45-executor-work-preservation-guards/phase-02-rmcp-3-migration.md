@@ -1,7 +1,7 @@
 # Phase 02: Migrate the MCP server to rmcp 3.1.2
 
 **Milestone:** M45 — Executor Work-Preservation Guards
-**Status:** review
+**Status:** done
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=refactor, size=s
@@ -546,3 +546,35 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 966f1b7f67aa984085aae64a89074ee9eca16e41
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-09
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** Qwen/Qwen3.6-27B-FP8 (53 turns)
+- **Scope deviations:** none. The committed source diff is byte-identical to the
+  five replacements pinned in § Spec; nothing in § Out of scope was touched
+  (`mcp/src/main.rs`, `executor/`, the workspace `Cargo.toml`, `rustfmt.toml`,
+  `clippy.toml`, `.github/workflows/*` all unchanged). `Cargo.lock`'s delta was
+  checked by name+version set: `rmcp` / `rmcp-macros` 2.2.0 → 3.1.2 plus five
+  pure transitive additions (`base64 0.23.1`, `darling{,_core,_macro} 0.24.0`,
+  `syn 3.0.3`), and **zero** unrelated packages changed version — i.e. exactly
+  the automatic consequence § Authorizations permits, with no blanket update.
+- **Verification:** gates re-run independently (fmt/build/clippy/test, separate
+  invocations) — all green, counts unchanged at 711 / 2 / 1068 as the criterion
+  required. The § End-to-end block was re-run and diffed against the pasted
+  transcript: the only differences are cargo cache lines and one test
+  wall-clock (6.08s vs 6.05s). The executor's transcript shows
+  `Compiling rmcp v3.1.2` where the re-run was warm-cached, which corroborates
+  that the paste was captured from a real first build rather than assembled.
+  The live stdio handshake was driven independently: `serverInfo` reports
+  `{"name":"rmcp","version":"3.1.2"}` — rmcp's own crate version, which this
+  server never sets — and `tools/list` returns exactly the 10 expected tools.
+  Task 8 was re-run rather than taken from the completion summary's claim, and
+  printed `PASTE MATCH` against a byte-identical 1332-byte artifact.
+- **Calibration:** none folded. One observation recorded, not acted on: the
+  server-authored completion entry heads itself `### Update — ts=1786311358119`
+  (raw epoch-ms) where WORKFLOW's template specifies `YYYY-MM-DD HH:MM`. It
+  appears identically in phase-01, so it is server bookkeeping rather than an
+  executor or phase defect, and no phase can fix it from the doc side. Two
+  occurrences = a trend; if a third appears it is a one-line runtime fix.
