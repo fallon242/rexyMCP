@@ -56,8 +56,12 @@ A bunch of recent change that need to be called out because they change some cor
   from your recorded corpus (`calibrate-governor` surfaces the `max_read_only_run`
   distribution to set it). This is all still WIP and needs tuning. Getting lower
   tier models to work reliably is still a challenge. 
-- **Under-the-hood upkeep.** The MCP server moved to the rmcp v2 stack, plus the
-  usual round of cleanup and reliability fixes. 
+- **Under-the-hood upkeep.** The MCP server moved to the **rmcp v3 stack**
+  (3.1.2 — the MCP `2026-07-28` spec line), plus the usual round of cleanup and
+  reliability fixes. The tool surface is unchanged; if you're upgrading an
+  existing checkout, note that a *running* `rexymcp serve` does not hot-swap a
+  rebuilt binary — reinstall (`cargo install --path mcp`) and restart it, or
+  your client keeps talking to the old build. 
 
 ## An architecture-defined, milestone-based workflow — run autonomously
 
@@ -593,7 +597,7 @@ close.
 
 ## The CLI
 
-`rexymcp` is one binary with seventeen subcommands. Flags are all long-form; there
+`rexymcp` is one binary with eighteen subcommands. Flags are all long-form; there
 are no short aliases.
 
 ### Command reference
@@ -617,6 +621,7 @@ are no short aliases.
 | `rexymcp review` | Record an Architect review verdict as a `PhaseReview` annotation (folds into the run's telemetry). Usually invoked by `/rexymcp:review`. | `--config`, `--phase-id`, `--verdict` (required); `--phase-doc`, `--project-id`, `--failure-class` (repeatable), `--bounces`, `--bugs-filed`, `--warnings`, `--telemetry-path` |
 | `rexymcp journal` | Append an `ArchitectActivity` record (`draft`/`dispatch`/`review`/`assist`/`takeover`/`boundary`) to the telemetry store — the substrate the `/rexymcp:auto` loop uses to meter its own work. Usually invoked by the loop skill. | `--config`, `--phase-id` (required); `--phase-doc`, `--project-id`, `--milestone`, `--activity`, `--outcome`, `--model` |
 | `rexymcp harvest` | Read Claude Code's local session transcripts and join **real** per-class token/cost onto journal activities by time window (fills the architect-cost rows; **harvested, never estimated**). Claude Code only; other clients keep counts + durations. | `--config` (required) |
+| `rexymcp compact` | Rewrite the telemetry store (`phase_runs.jsonl`), keeping only the records that still matter — the maintenance path for a store that has grown large over many milestones. Preview first with `--dry-run`. | `--config` (required), `--telemetry-path`, `--dry-run` |
 
 **Calibration tiers** set how much hand-holding the Architect provides and how
 many retries the Executor gets before escalation fires:
@@ -746,7 +751,7 @@ answer to that constraint:
 | Challenge | rexyMCP's answer |
 |---|---|
 | Small models emit malformed tool calls — trailing commas, fenced JSON, near-miss key names | **Forgiving parser** recognizes six output formats (Hermes, fenced/loose JSON, YAML, XML-variant, plain text) and applies repair transforms (fuzzy name match, param aliasing, type coercion, default-fill, JSON repair, string-escape) before giving up — and when it must give up, it feeds *model-visible* feedback instead of silently aborting the turn |
-| The model loops, retrying the same broken edit | **Governor loop detector** trips on N identical consecutive tool calls (default 6) — plus an A,B,A,B oscillation detector and a windowed cumulative-output flood detector (M26) — and converts it to a `hard_fail` briefing before it burns the turn budget. An optional wall-clock ceiling terminates a wedged run |
+| The model loops, retrying the same broken edit | **Governor loop detector** trips on N identical consecutive tool calls (default 6) — plus an A,B,A,B oscillation detector and a windowed cumulative-output flood detector (M26) — and converts it to a `hard_fail` briefing before it burns the turn budget. "Identical" is judged on **whitespace-normalized** arguments (M45), so a loop that re-issues the same edit with the indentation or a line break shuffled still trips instead of slipping past on a cosmetic difference; arguments that differ substantively stay distinct. An optional wall-clock ceiling terminates a wedged run |
 | A truncated tool call drops a required arg and the raw serde error is a dead end | **Recovery-oriented tool errors**: instead of surfacing `missing field \`path\``, the tool names the missing field, echoes what *was* supplied, and hands back an example call shape + next step (M28); a no-op `patch` returns the file's current text, location, and occurrence count (M24) — the model gets something to act on rather than a wall |
 | Correct code dies in the bookkeeping tail — the model can't reliably fill in the Update Log / Status flip | **Server-authored bookkeeping** (M27): on a clean `complete`, the *server* writes the phase's Status flip and a baseline Update Log entry from data it already holds (splicing in the summary the model returned) and makes a separate `docs:` commit. The executor's job ends at green code |
 | The model stalls in the tail — emits an empty or mid-`<think>`-truncated completion, or re-submits a no-op edit, instead of finishing | **Stall recovery** (M22–M24): an empty completion or a `finish_reason="length"` truncation is routed to a cause-specific recovery nudge rather than mis-read as "done" (consecutive empties escalate to a no-reasoning directive); a no-op `patch` (identical `old_str`/`new_str`) returns the file's current text + location and an occurrence count instead of a dead-end error; dedicated governor stalls (empty-completion, stuck-gate-feedback) cap the loop as the backstop |
