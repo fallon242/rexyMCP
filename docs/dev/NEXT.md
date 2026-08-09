@@ -4,9 +4,28 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase:
-[M45 / phase-01 — identical-repetition argument normalization](milestones/M45-executor-work-preservation-guards/phase-01-identical-repetition-normalization.md)**
-(`todo`, drafted 2026-08-09, not yet dispatched).
+**Active phase: none** — M45 phase-01 is `done`; phase-02 is **blocked on human
+authorization** (see below).
+
+**M45 / phase-01 — identical-repetition argument normalization: done
+2026-08-09**, `approved_first_try`, zero bugs, 106 executor turns on
+`Qwen/Qwen3.6-27B-FP8` (code `f3e2ef3`, approval `8b16f41`). Reviewed by
+independent re-run, not by reading the pasted transcript: the E2E block and the
+both-directions mutation pair were re-executed at review and matched. The
+milestone's remaining exit criterion is phase-02.
+
+**M45 / phase-02 (`rmcp` 2.2 → 3.1.2) — STOPPED for the human, not drafted.**
+The `/rexymcp:auto` loop halted here on its `blocker` stop condition: the loop is
+not permitted to land a dependency change (`Cargo.toml` / `Cargo.lock` are
+edit-gated, and "add a dependency" is an enumerated STOP). There is a second,
+operational reason: landing the upgrade means rebuilding and reinstalling
+`rexymcp`, and a running `serve` process does **not** hot-swap a rebuilt binary —
+so an autonomous run could sever the very dispatch channel it is running on.
+**The migration itself is fully derived and verified** — 5 edits in 2 files, all
+gates green in a throwaway probe. The complete worked fix is in the
+[M45 README Notes](milestones/M45-executor-work-preservation-guards/README.md).
+Resume by authorizing the dependency bump; the phase doc can then be drafted from
+the README's three enumerated breaking classes.
 
 **M45 — Executor Work-Preservation Guards opened 2026-08-09**
 ([README](milestones/M45-executor-work-preservation-guards/README.md)), spun out

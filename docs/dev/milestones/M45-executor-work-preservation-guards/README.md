@@ -99,14 +99,49 @@ moving to the `sha2` 0.11 / `crypto-common` 0.2 line, at which point the bump
 happens for free on a `cargo update`. **Reopening trigger:** `cargo tree -i
 generic-array` showing a dependent that is not `crypto-common 0.1.x`.
 
-**Phase 02 (`rmcp` 2.2 → 3.1.2) is a major-version migration and needs its own
-phase.** Resolution is confirmed feasible — `cargo add -p rexymcp rmcp@3.1.2
---features server,macros,transport-io --dry-run` succeeds — but the blast radius
-is 45 `rmcp::` sites across `mcp/src/server.rs`, `mcp/src/main.rs`, and
-`mcp/src/server_tests.rs`, including the `#[rmcp::tool_router]` / `#[rmcp::tool]`
-macros, a hand-written `ServerHandler` impl, `schema_for_type` /
-`schema_for_output`, and `rmcp::serve_server` + `QuitReason`. Per WORKFLOW
-§ "Verify external APIs against live docs" the phase doc must carry a Pre-flight
-step pointing at the live 3.x docs and the 2.x→3.x migration notes, with the
-architect's sketch explicitly subordinate to them. Draft it after phase-01
-closes, so the 3.x surface is fetched once against a settled tree.
+**Phase 02 (`rmcp` 2.2 → 3.1.2): blast radius measured, not estimated
+(2026-08-09).** The earlier "45 `rmcp::` sites, major-version migration" note was
+a count of *mentions*, which is not a count of *breakages* — per WORKFLOW § "A
+sweep's scope is its convertible sites, not its matches". Measured by building a
+throwaway `git archive` copy of `HEAD` with `rmcp = "3.1.2"`, the real cost is
+**5 edits in 2 files**. Every other surface compiles unchanged:
+`#[rmcp::tool_router]` / `#[rmcp::tool]`, `serve_server`, `QuitReason`,
+`ErrorData`, `Parameters`, `Json`, `ToolCallContext`, `schema_for_type`,
+`RequestContext` / `RoleServer` / `Peer`, and `MaybeSendFuture` — all same paths,
+same signatures. `schemars` stays at `1.0` in both versions, so no cascade there.
+
+The three breaking classes, all mechanical:
+
+1. **`ServerHandler::call_tool` now returns `CallToolResponse`, not
+   `CallToolResult`** (SEP-2663 MRTR: the response became a 3-variant enum —
+   `Complete` / `InputRequired` / `Task`). `impl From<CallToolResult> for
+   CallToolResponse` exists (`rmcp-3.1.2/src/model/mrtr.rs:115`), so the fix is
+   the return type on `call_tool` (`mcp/src/server.rs:676`) plus
+   `structured_result` (`:189`) returning the enum and appending `.into()` to
+   its `Ok(...)`. Both existing `structured_result` call sites then need no
+   change, and the `router.call(ctx).await` fall-through already returns the new
+   type.
+2. **`ListToolsResult` gained three required fields** (`result_type`, `ttl_ms`,
+   `cache_scope` — SEP-2322 / SEP-2549). Do **not** hand-fill them: the
+   generated `ListToolsResult::with_all_items(tools)` constructor
+   (`rmcp-3.1.2/src/model.rs:1624`) sets `result_type: Some(ResultType::COMPLETE)`
+   and the rest `None`, which is the correct default; assign `next_cursor`
+   afterwards (`mcp/src/server.rs:819`).
+3. **`schema_for_output::<T>()` returns `Arc<Map<String, Value>>` directly**, no
+   longer a `Result` — the two `match … { Ok(schema) => …, Err(_) => tool }`
+   blocks (`mcp/src/server.rs:843`, `:855`) collapse to a direct
+   `tool.with_raw_output_schema(…)` call.
+
+Plus one test fix: `structured_result_carries_matching_text_block`
+(`mcp/src/server_tests.rs:1173`) must destructure
+`CallToolResponse::Complete(result)` before reading `structured_content` /
+`content` / `is_error`.
+
+With those applied the probe went fully green — `cargo test` **1068 + 711 + 2
+passed, 0 failed**, and `cargo clippy --all-targets --all-features -- -D
+warnings` clean. **This is a size=s phase, not a size=l migration.**
+
+**Not yet drafted or dispatched — it needs an explicit human authorization**,
+because it edits `Cargo.toml` / `Cargo.lock` (a hard rule) and because landing it
+requires rebuilding and reinstalling `rexymcp`, which a running `serve` process
+does **not** hot-swap. See NEXT.md.
