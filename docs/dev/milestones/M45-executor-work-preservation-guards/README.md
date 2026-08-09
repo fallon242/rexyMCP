@@ -69,7 +69,7 @@ the agent loop, where the design (`docs/architecture.md` §M4) actually puts it.
 
 | #  | Phase                                                                                              | Status |
 |----|----------------------------------------------------------------------------------------------------|--------|
-| 01 | identical-repetition-normalization ([phase-01](phase-01-identical-repetition-normalization.md))     | review        |
+| 01 | identical-repetition-normalization ([phase-01](phase-01-identical-repetition-normalization.md))     | done        |
 | 02 | rmcp 3.1.2 migration (not yet drafted)                                                              | —      |
 
 ## Notes
