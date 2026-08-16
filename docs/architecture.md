@@ -1232,6 +1232,31 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+46. **M46 — Token-first accounting** *(in-progress; opened 2026-08-16)*.
+    Retire dollar-denominated accounting and reporting; tokens become the
+    sole accounting currency. Every `$` in the system was derived at read
+    time (token counts × config rates) and **no dollar value was ever
+    persisted** — `PhaseRun`/`ArchitectLedger` are all-token, so this is a
+    presentation + config change with no storage migration
+    (`TELEMETRY_SCHEMA_VERSION` stays 1). Deleted: `known_model_rates`, the
+    `ModelOverride`/`ArchitectConfig` `*_per_mtok` fields (per the M38
+    "documented-but-ignored knobs actively mislead" precedent — hard
+    removal, no shims), `metrics::token_cost`, `ArchitectLedger::cost` and
+    the three cache-rate multipliers, the dollars branch of `ledger_lines`,
+    and `costs --json`'s dollar fields (a loud breaking change). Enhanced in
+    the same stroke, because pricing was the *only* reader of the M39 token
+    split: a derived **cache-hit ratio** on `costs` and the dashboard, the
+    dashboard `b` key repurposed to cycle token views (totals ⇄ cache
+    split — the ledger's 5m/1h cache-creation fields get their first
+    visible surface), a token-native by-skill table, and the dead
+    tokens-mode `Net:` row reassigned to cache reporting. M38's discount
+    concept ("saved"/Net) retires with dollars; M39's settled cache-pricing
+    caveat is mooted (its subject is deleted), not re-litigated; M40's
+    tokens-mode alignment invariant survives verbatim. Architect
+    tokens-by-milestone stays out of scope (the ledger has no milestone
+    key; transcripts prune ~30d) — recorded as a future candidate. Four
+    planned phases, presentation-first then plumbing:
+    `docs/dev/milestones/M46-token-first-accounting/README.md`.
 45. **M45 — Executor work-preservation guards** *(done 2026-08-09 at two phases;
     opened the same day from DaemonEye's M12 upstream-folds proposal, §4)*. The proposal asked for three
     runtime guards; **two were already shipped**, and re-verifying that at

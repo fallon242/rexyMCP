@@ -4,7 +4,22 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none.**
+**Active phase: none — M46 is open, phase-01 not yet drafted.**
+
+**M46 — Token-First Accounting opened 2026-08-16 on human instruction** (the
+milestone-boundary gate after M45 was crossed by the user asking for this
+milestone by name). Scope: retire dollar-denominated accounting/reporting
+entirely; tokens become the sole accounting currency, with token reporting
+enhanced (cache-hit ratio, cache-split view, token-native by-skill table) so
+nothing observable is lost. The de-risking finding from the milestone-open
+survey: **no dollar value was ever persisted** — every `$` was derived at
+read time from token counts × config rates, so this is a presentation +
+config change, not a storage migration. Four planned phases
+(presentation-first, then plumbing), design decisions and the full surface
+map in
+[M46/README.md](milestones/M46-token-first-accounting/README.md);
+`architecture.md` § Status #46 added. Draft phase-01 with
+`/rexymcp:architect next`.
 
 **M45 — Executor Work-Preservation Guards closed 2026-08-09 at two phases**,
 both `approved_first_try`, zero bugs, zero bounces, zero assists (phase-01: 106
