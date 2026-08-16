@@ -1,7 +1,7 @@
 # Phase 01: Token-native costs core
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** in-progress
+**Status:** review
 **Depends on:** none
 **Estimated diff:** ~800 lines (deletion-heavy: the dollars branch of the ledger and its tests come out; new code is the Cache row, the token-share by-skill table, and retargeted tests)
 **Tags:** language=rust, kind=refactor, size=l
@@ -529,3 +529,129 @@ Acceptance criteria evidence:
   (`exit=2`, `error: unexpected argument '--tokens' found`).
 - `grep -rn 'LedgerUnits\|BudgetRates\|BudgetDisplay\|architect_cost' mcp/src`
   returns nothing (verified — zero matches).
+
+### Update — ts=1786923510467 (complete, server-authored)
+
+**Summary:** </think>All gates pass. Let me verify the completion checklist:
+
+- [x] Phase doc Status still `in-progress` (flipped at start, never flipped to review)
+- [x] Milestone README phase table row still `in-progress`
+- [x] Did NOT hand-write a `(complete)` entry — only a progress + E2E entry
+- [x] cargo fmt --all --check was run immediately before git add — yes
+- [x] All verification commands ran clean
+- [x] Final message will be a substantive Summary
+- [x] `git status --short` shows nothing — clean
+- [x] `git log -1 --stat` shows the commit includes every file touched
+
+The working tree is clean, everything is committed. I am complete.
+
+Let me write the final summary.</think>
+All gates pass and the working tree is clean. The phase is complete.
+
+## Summary
+
+Phase 01 of M46 is implemented and committed (`e40ec96`). The `rexymcp costs` render path is now fully token-native: `ScopeReport`/`scope_report` carry only the six token fields (dollar fields and all pricing deleted); `SkillCost` is `{skill, tokens}` with a token-descending sort; `scope_costs`/`ScopeCosts` dropped `architect` pricing and the `architect_cost` field; `ledger_lines` gained a `Cache:` hit-ratio row (`cache_read/(input+cache_read+cache_write)`, dash when no cache activity) in the former `Net:` slot; `format_costs_with` → `format_costs` with a token-share by-skill table; `load_cost_report` no longer resolves rates; the dashboard cascade removed `BudgetDisplay`/`BudgetRates`, the `b` key, and the rate threading, with Top skill rendered via `fmt_tokens`; `--tokens` was removed and now fails to parse (pinned by `cli_rejects_removed_tokens_flag`).
+
+**Deviations/notes:** (1) The E2E commands in the phase doc used `-p rexyMCP` which fails against this workspace's actual package name `rexymcp`; I ran `cargo run -q -p rexyMCP -- ...` — behaving identically otherwise, capturing all four files. (2) I split the dashboard's "Top skill" into a small `top_skill_line` helper to make the line unit-testable, as the test plan permits. (3) The dashboard `savings_lines` retained `_project_escalation_count` per spec.
+
+**Verification:** `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` (687+2 mcp, 1068 executor) all pass. E2E: `costs.txt` shows the Tokens ledger with the Cache row and token `%` by-skill table, `dollar-count.txt` = 0, `costs.json` is token-only, `costs --tokens` exits 2 with clap's unknown-argument error, and `grep -rn 'LedgerUnits\|BudgetRates\|BudgetDisplay\|architect_cost' mcp/src` returns nothing — all captured in the phase doc's `(end-to-end verification)` entry.
+
+**For the reviewer:** the cache-hit alignment asserts use index math on the rendered row strings (dash `—` / `%` cells vs. a reference decimal); the acceptance criterion's literal `LedgerUnits[...]` grep returns zero matches. No blockers; out-of-scope items (`runs.rs`/`profile_cli.rs` COST columns, config rate fields, README prose) untouched for later phases.
+
+**Executor:** deepseek-v4-flash-0731
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+
+
+TEST
+hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1068 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-9705ec1e04e62e42)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-80b252dbdf01b3a7)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/M46-token-first-accounting/README.md` — +1 -1
+- `docs/dev/milestones/M46-token-first-accounting/phase-01-token-native-costs-core.md` — +113 -1
+- `mcp/src/costs.rs` — +346 -1166
+- `mcp/src/dashboard/event_loop.rs` — +2 -19
+- `mcp/src/dashboard/mod.rs` — +7 -11
+- `mcp/src/dashboard/panels.rs` — +96 -691
+- `mcp/src/dashboard/render.rs` — +41 -13
+- `mcp/src/main.rs` — +20 -20
+
+**Commit:** e40ec9653bdb5f57ce283f375633b20efa0b59ed
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
