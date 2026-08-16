@@ -19,7 +19,7 @@ mod panels;
 mod render;
 mod transcript;
 
-pub use panels::{BudgetRates, ScopeCosts};
+pub use panels::ScopeCosts;
 
 /// Snapshot of the latest session data or an error loading it.
 pub struct DashboardData {
@@ -89,7 +89,7 @@ pub fn load_data(
     session: Option<&str>,
     telemetry_dir: Option<&Path>,
     project_id: Option<&str>,
-    architect: &rexymcp_executor::config::ArchitectConfig,
+    _architect: &rexymcp_executor::config::ArchitectConfig,
 ) -> DashboardData {
     let store = telemetry_dir
         .map(|dir| telemetry::read_all(&dir.join("phase_runs.jsonl")).unwrap_or_default())
@@ -100,7 +100,7 @@ pub fn load_data(
         Some(pid) => {
             let folded_activities = telemetry::fold_activities(store.activities);
             let ledgers = telemetry::fold_ledger(store.ledgers);
-            let project_costs = costs::scope_costs(&phase_runs, &ledgers, architect, pid, None);
+            let project_costs = costs::scope_costs(&phase_runs, &ledgers, pid, None);
             let project_escalation_count = folded_activities
                 .iter()
                 .filter(|a| a.project_id.as_deref() == Some(pid) && a.activity == "assist")
@@ -111,14 +111,12 @@ pub fn load_data(
                     let summary = status::summarize(&records);
                     let milestone = resolve_milestone(repo, summary.phase.as_deref());
                     let milestone_costs = resolve_milestone_dir(repo, summary.phase.as_deref())
-                        .zip(project_id)
-                        .map(|(milestone_dir, pid)| {
+                        .map(|milestone_dir| {
                             costs::scope_costs(
                                 &phase_runs,
                                 &ledgers,
-                                architect,
                                 pid,
-                                Some(&milestone_dir),
+                                Some(milestone_dir.as_str()),
                             )
                         });
                     DashboardData {
@@ -129,7 +127,7 @@ pub fn load_data(
                         milestone_costs,
                         project_costs,
                         project_escalation_count,
-                        top_skill: skill_costs(&ledgers, architect, pid).into_iter().next(),
+                        top_skill: skill_costs(&ledgers, pid).into_iter().next(),
                     }
                 }
                 Err(e) => DashboardData {
@@ -181,7 +179,6 @@ pub fn load_data(
 pub fn run_dashboard(
     repo: &Path,
     session: Option<&str>,
-    rates: BudgetRates,
     telemetry_dir: Option<&Path>,
     project_id: Option<String>,
     architect: &rexymcp_executor::config::ArchitectConfig,
@@ -191,7 +188,6 @@ pub fn run_dashboard(
         &mut terminal,
         repo,
         session,
-        rates,
         telemetry_dir,
         project_id,
         architect,
@@ -500,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn load_data_reads_project_architect_costs_from_ledger() {
+    fn load_data_reads_project_architect_tokens_from_ledger() {
         // Architect token totals come from the ArchitectLedger. Seed one ledger
         // record and assert the dashboard sums it into project_costs.architect.
         let dir = TempDir::new().unwrap();

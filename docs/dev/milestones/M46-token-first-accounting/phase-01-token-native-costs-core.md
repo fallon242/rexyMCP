@@ -1,7 +1,7 @@
 # Phase 01: Token-native costs core
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~800 lines (deletion-heavy: the dollars branch of the ledger and its tests come out; new code is the Cache row, the token-share by-skill table, and retargeted tests)
 **Tags:** language=rust, kind=refactor, size=l
@@ -417,3 +417,115 @@ are deleted in phase-03.)
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-16 22:54 (progress)
+
+Started phase-01. Flipped phase doc Status to `in-progress` and the milestone
+README's phase-01 row to match. Implementing Spec tasks 1–10: strip
+`ScopeReport`/`scope_report` to tokens, tokenize `SkillCost`/`skill_costs`,
+strip `scope_costs` of architect pricing, `ledger_lines` gains a Cache row,
+`format_costs` token-share table, `load_cost_report` rate-free, dashboard
+cascade, `--tokens` removal, tests, E2E capture.
+
+### Update — 2026-08-16 23:10 (end-to-end verification)
+
+All four E2E captures (`target/e2e/*`) below, captured mechanically by
+redirecting command output into files and pasting those files' contents.
+
+**`target/e2e/costs.txt`** (+ positive control: `grep -c '\$'` measured `0`
+while the same file contains literal token strings and the real telemetry
+`2629.2M`; exit status of the `costs` invocation was `0`, so the zero is a
+live measurement, not silence):
+
+```
+Tokens         Session Milestone   Project
+  Architect:       —         —     2629.2M
+  Executor:     911.4k      4.5M    317.6M
+  Cache:           —       93.3%      8.7%
+Assists: 0
+
+By skill (architect)
+SKILL                   TOKENS       %
+rexymcp:dispatch       1006.1M   38.3%
+rexymcp:review          557.7M   21.2%
+architect chat          549.9M   20.9%
+rexymcp:architect       329.5M   12.5%
+rexymcp:escalate        134.2M    5.1%
+rexymcp:auto             42.0M    1.6%
+claude-api                9.5M    0.4%
+review                  413.1k    0.0%
+Last swept: 24s ago (no change)
+```
+
+- Tokens ledger with Architect / Executor / Cache rows and a `By skill` table
+  with `SKILL` / `TOKENS` / `%` columns — no `$` anywhere.
+- `dollar-count.txt`: `0`.
+
+**`target/e2e/costs.json`** (excerpt; the `session`/`milestone`/`project`
+objects each serialize exactly the six token keys — `executor_input`,
+`executor_output`, `executor_cache_read`, `executor_cache_write`,
+`executor_tokens`, `architect_tokens` — and `by_skill` entries carry only
+`skill` + `tokens`; `grep -c '"saved"\|"net"\|"cost"'` returned `0`):
+
+```json
+{
+  "session": {
+    "executor_input": 811677,
+    "executor_output": 101091,
+    "executor_cache_read": 0,
+    "executor_cache_write": 0,
+    "executor_tokens": 912768,
+    "architect_tokens": 0
+  },
+  "milestone": {
+    "executor_input": 200718,
+    "executor_output": 22516,
+    "executor_cache_read": 4200768,
+    "executor_cache_write": 99360,
+    "executor_tokens": 4523362,
+    "architect_tokens": 0
+  },
+  "project": {
+    "executor_input": 288328553,
+    "executor_output": 902723,
+    "executor_cache_read": 27514944,
+    "executor_cache_write": 810432,
+    "executor_tokens": 317556652,
+    "architect_tokens": 2629219285
+  },
+  "assists": 0,
+  "by_skill": [
+    { "skill": "rexymcp:dispatch", "tokens": 1006130024 },
+    { "skill": "rexymcp:review", "tokens": 557689828 },
+    { "skill": "architect chat", "tokens": 549860660 },
+    { "skill": "rexymcp:architect", "tokens": 329474459 },
+    { "skill": "rexymcp:escalate", "tokens": 134150191 },
+    { "skill": "rexymcp:auto", "tokens": 42015519 },
+    { "skill": "claude-api", "tokens": 9485503 },
+    { "skill": "review", "tokens": 413101 }
+  ]
+}
+```
+
+**`target/e2e/tokens-flag.txt`** (exit code appended to the file):
+
+```
+error: unexpected argument '--tokens' found
+
+Usage: rexymcp costs --config <CONFIG>
+
+For more information, try '--help'.
+exit=2
+```
+
+Acceptance criteria evidence:
+
+- `rexymcp costs` renders the Tokens ledger with Architect/Executor/Cache
+  rows and the SKILL/TOKENS/% by-skill table; `dollar-count.txt` = `0` (live:
+  `exit=0` + the table provably rendered).
+- `costs --json` has no key named `saved`, `net`, or `cost` (grep = 0), and
+  `ScopeReport` serializes exactly the six token keys (visible above).
+- `costs --tokens` exits non-zero with clap unknown-argument error
+  (`exit=2`, `error: unexpected argument '--tokens' found`).
+- `grep -rn 'LedgerUnits\|BudgetRates\|BudgetDisplay\|architect_cost' mcp/src`
+  returns nothing (verified — zero matches).

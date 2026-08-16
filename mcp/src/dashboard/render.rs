@@ -8,11 +8,12 @@ use ratatui::{
 
 use super::filter::{ActivityFilter, FILTER_ITEM_COUNT, FilterState};
 use super::panels::{
-    BudgetDisplay, BudgetRates, budget_lines, files_lines, milestone_line, panel, reclaim_lines,
-    savings_lines, session_lines, spinner_line, tasks_lines,
+    budget_lines, files_lines, milestone_line, panel, reclaim_lines, savings_lines, session_lines,
+    spinner_line, tasks_lines,
 };
 use super::transcript::transcript_lines;
 use crate::dashboard::DashboardData;
+use rexymcp_executor::store::metrics;
 
 /// View-state for the dashboard activity pane.
 pub(crate) struct ViewState {
@@ -20,7 +21,6 @@ pub(crate) struct ViewState {
     pub(crate) follow: bool,
     pub(crate) spinner: Option<usize>,
     pub(crate) filter: FilterState,
-    pub(crate) budget_display: BudgetDisplay,
     pub(crate) generation: u64,
 }
 
@@ -200,6 +200,16 @@ fn header_band_height(session_len: usize, budget_len: usize, context_len: usize)
     (max as u16).saturating_add(2)
 }
 
+/// Top-skill Budget line — token-native from M46 phase-01.
+fn top_skill_line(ts: Option<&crate::costs::SkillCost>) -> Option<Line<'static>> {
+    let ts = ts.filter(|ts| ts.tokens > 0)?;
+    Some(Line::from(format!(
+        "  Top skill: {} {}",
+        ts.skill,
+        metrics::fmt_tokens(ts.tokens)
+    )))
+}
+
 /// Render the dashboard into a three-panel header band (Session · Budget ·
 /// Compactions) above a body (Activity wide-left · Files right), or a
 /// single error pane when `data.error` is set.
@@ -210,7 +220,6 @@ pub(crate) fn render_dashboard(
     data: &DashboardData,
     now_ms: u64,
     state: &ViewState,
-    rates: BudgetRates,
     cache: &mut TranscriptCache,
 ) -> usize {
     if let Some(ref err) = data.error {
@@ -254,19 +263,12 @@ pub(crate) fn render_dashboard(
     budget.extend(budget_lines(&data.summary));
     budget.extend(savings_lines(
         &data.summary,
-        rates,
         data.milestone_costs,
         data.project_costs,
         data.project_escalation_count,
-        state.budget_display,
     ));
-    if let Some(ref ts) = data.top_skill
-        && ts.cost > 0.0
-    {
-        budget.push(Line::from(format!(
-            "  Top skill: {} ${:.2}",
-            ts.skill, ts.cost
-        )));
+    if let Some(line) = top_skill_line(data.top_skill.as_ref()) {
+        budget.push(line);
     }
 
     let context = reclaim_lines(&data.summary);
@@ -404,6 +406,32 @@ mod tests {
         assert_eq!(header_band_height(3, 8, 4), 10); // fits Budget (8) + 2
         assert_eq!(header_band_height(6, 6, 6), 8); // all equal -> 6 + 2
         assert_eq!(header_band_height(0, 0, 0), 2); // borders only
+    }
+
+    #[test]
+    fn top_skill_line_uses_tokens() {
+        // A top skill with tokens > 0 renders `Top skill: <name> <fmt_tokens>`,
+        // never a `$`.
+        let line = top_skill_line(Some(&crate::costs::SkillCost {
+            skill: "rexymcp:auto".to_string(),
+            tokens: 2_500_000,
+        }))
+        .expect("top skill present");
+        let text = format!("{line}");
+        assert!(text.contains("Top skill: rexymcp:auto 2.5M"), "got: {text}");
+        assert!(!text.contains('$'), "top skill must not contain $: {text}");
+    }
+
+    #[test]
+    fn top_skill_line_omits_zero_token_skills() {
+        // A skill whose model had no configured rate previously hid behind a
+        // dollar gate; now it shows via tokens — but a true zero-token skill
+        // stays hidden.
+        let line = top_skill_line(Some(&crate::costs::SkillCost {
+            skill: "architect chat".to_string(),
+            tokens: 0,
+        }));
+        assert!(line.is_none(), "zero-token top skill must be omitted");
     }
 
     // --- visible_offset tests ---
