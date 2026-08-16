@@ -1,7 +1,7 @@
 # Phase 01: Token-native costs core
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~800 lines (deletion-heavy: the dollars branch of the ledger and its tests come out; new code is the Cache row, the token-share by-skill table, and retargeted tests)
 **Tags:** language=rust, kind=refactor, size=l
@@ -655,3 +655,30 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** e40ec9653bdb5f57ce283f375633b20efa0b59ed
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-16
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** deepseek-v4-flash-0731
+- **Scope deviations:** three, all acceptable: (1) the phase doc's E2E block
+  carried a wrong cargo package name — the executor corrected it and ran the
+  equivalent commands (architect spec bug, not an executor fault); (2) the
+  dashboard Top-skill line was extracted into a `top_skill_line` helper for
+  unit-testability (within test-plan latitude, covered by two new tests);
+  (3) `dashboard/mod.rs` retains its `ArchitectConfig` parameter
+  underscore-prefixed (`_architect`) rather than cascading the call sites —
+  mirrors the in-repo `_project_escalation_count` precedent; phase-03
+  deletes it.
+- **Calibration:** the server-authored completion entry again heads itself
+  `ts=<epoch-ms>` instead of the WORKFLOW.md date format — third occurrence
+  (M45 held it at 2×). At threshold, but the fix is server runtime code, not
+  a doc fold; flagged for the human as a candidate fix item.
+
+Review basis: independent re-run, not the pasted transcript — all four gates
+re-run green (mcp 687+2, executor 1068, 0 failed); every acceptance
+criterion exercised against the real binary (`costs` table with live Cache
+row at 96.7%/15.6%, token-only `--json`, `--tokens` rejected exit 2, symbol
+grep empty); test realness spot-checked on the cache-ratio and
+column-alignment tests (concrete fixtures, index-equality asserts, `0.0%`
+negative pin).
