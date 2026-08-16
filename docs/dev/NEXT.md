@@ -4,7 +4,16 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: none — M46 is open, phase-01 not yet drafted.**
+**Active phase: [M46 / phase-01 — Token-native costs core](milestones/M46-token-first-accounting/phase-01-token-native-costs-core.md)** (status: todo — drafted 2026-08-16, awaiting dispatch via `/rexymcp:dispatch`).
+
+**Drafting note (2026-08-16):** phase-01 absorbed the dashboard's dollars-mode
+removal (README had sketched it under phase-02) — deleting `LedgerUnits` breaks
+`savings_lines`' compile, and an unread `architect_cost` field would trip
+`-D warnings` dead-code in the binary crate, so the cascade is compile-forced
+into one phase. Phase-02 is now purely additive: the `b` key returns as a
+token-view cycler and the session scope gains cache classes. The `Cache:` row's
+hit-ratio formula is pinned in the phase doc (prompt-side classes only;
+no-cache-activity renders `—`, never `0.0%`).
 
 **M46 — Token-First Accounting opened 2026-08-16 on human instruction** (the
 milestone-boundary gate after M45 was crossed by the user asking for this

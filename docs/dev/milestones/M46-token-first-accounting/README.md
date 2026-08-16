@@ -96,8 +96,8 @@ reflow as earlier phases reveal information.
 
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | Token-native `costs` core: delete the dollars branch of `ledger_lines` + `LedgerUnits` + `paren`, tokenize the by-skill table, put a cache line in the dead `Net:` slot, strip `ScopeReport` to tokens, drop `--tokens` | todo |
-| 02 | Dashboard: remove `BudgetDisplay::Dollars`, repurpose `b` to cycle token views (totals ⇄ cache split), token-gate and token-sort Top skill, wire the session-scope cache split | todo |
+| 01 | Token-native `costs` core ([phase-01-token-native-costs-core.md](phase-01-token-native-costs-core.md)): delete the dollars branch of `ledger_lines` + `LedgerUnits` + `paren` + `BudgetDisplay`/`BudgetRates` (the dashboard shares the renderer, so its dollars mode and the `b` toggle come out here as a compile-forced cascade), tokenize the by-skill table + Top skill, put a `Cache:` hit-ratio row in the dead `Net:` slot, strip `ScopeReport` to tokens, drop `--tokens` | todo |
+| 02 | Dashboard token views: reintroduce `b` as a token-view cycler (totals ⇄ cache split — first surface for the ledger's 5m/1h cache-creation split), wire the session-scope cache classes | todo |
 | 03 | Pricing plumbing removal: config rate fields + `known_model_rates` + `token_cost` + `ArchitectLedger::cost` + multipliers; `runs`/`profile` `COST` columns → token/cache-hit columns; `init`/`calibrate` scaffolds; stale `[dashboard]` block in `rexymcp.toml`; README config blocks (guard test) | todo |
 | 04 | Docs sweep: README release-notes/dashboard/CLI-reference/rate-table prose, `plugin/skills/auto/SKILL.md` closing-report line, dashboard screenshot regeneration (human action) | todo |
 
