@@ -1,7 +1,7 @@
 # Phase 03: Pricing plumbing removal
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** review
+**Status:** done
 **Depends on:** phase-02
 **Estimated diff:** ~600 lines (deletion-heavy: the whole `$/Mtok` rate layer comes out of both crates; new code is the `CACHE%` columns in `runs`/`profile` and retargeted tests)
 **Tags:** language=rust, kind=refactor, size=l
@@ -403,6 +403,31 @@ Deleted the pricing/rate layer end to end (M46 phase-03): `known_model_rates`, `
 **Executor:** deepseek-v4-flash-0731
 
 **Gates:** format=run, build=run, lint=run, test=run
+
+### Review verdict — 2026-08-16
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** deepseek-v4-flash-0731
+- **Scope deviations:** README.md — beyond the two authorized sample-TOML
+  blocks ([architect], [models."<id>"]), the executor also edited the
+  "Section reference" table row prose for those two sections and deleted the
+  "Known-model rate table" paragraph, which the phase doc's Out of scope
+  section names explicitly as phase-04 work. Reviewed and allowed to stand:
+  the deleted paragraph opened with "recognized by `[architect] model`" — a
+  config field this same phase deletes from `executor/src/config.rs` — so
+  leaving it would document a feature that no longer exists in the codebase,
+  the exact "documented-but-ignored knob actively misleads" failure mode
+  this milestone exists to remove (per the M38 precedent the phase doc
+  itself cites). Not disclosed in the executor's Notes for review; flagged
+  here instead of bounced because reverting it would reintroduce stale,
+  factually wrong documentation with no compensating benefit.
+- **Calibration:** none — the executor's two disclosed deviations (E2E
+  command syntax workarounds; the two `..Default::default()` removals in
+  `mcp/src/runner.rs` test literals forced by `ModelOverride` becoming fully
+  specified once its four rate fields were deleted, a clippy
+  needless-update fix) are both minimal, spec-consistent, and correctly
+  self-reported.
 
 **Command output tails:**
 
