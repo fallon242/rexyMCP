@@ -4,7 +4,7 @@
 token counts become the sole accounting currency, and token reporting is
 enhanced so nothing observable is lost in the trade.
 
-**Status:** planning *(opened 2026-08-16)*
+**Status:** done *(opened 2026-08-16; closed 2026-08-16)*
 
 **Depends on:** M35 (the metrics/cost overhaul being partially reversed),
 M38 (the discount-ledger renderer this strips down), M39 (the cache-token
@@ -153,3 +153,70 @@ before phase-01 dispatch):
 - False positives, do not touch: the three Levenshtein `cost` variables in
   `executor/src/parser/{repair/name.rs,score.rs,feedback.rs}` are edit
   distance, not money.
+
+## M46 retrospective — closed 2026-08-16
+
+**Four phases, four `approved_first_try`, zero bugs, zero bounces, zero
+assists.** Phase-01 ran interactively; phases 02–04 ran inside a single
+`/rexymcp:auto` loop (dispatch/review delegated to `claude-sonnet-5`
+subagents, drafting and loop control on the session model). Every review was
+an independent re-run — gates, acceptance greps, and E2E against the real
+binary — not a transcript read.
+
+**Executor: `deepseek-v4-flash-0731`, first milestone on this model.**
+Scorecard after M46: N=4, gates 1.00, AFT rate 1.00, parse-fail 0.08,
+turns-mean 267.5 (high — 237/336/370/127 per phase; the model grinds in
+small steps but lands clean), verifier-retries mean 16.75 (also high, same
+grinding style), peak context 18% of a 1024k window, cache-hit 96.7–98.1%
+per run. Tokens per phase: 26.9M / 28.1M / 39.2M / 4.2M.
+
+**What the milestone shipped, verified end to end:** no dollar value on any
+surface; the `Architect / Executor / Cache` token ledger on `costs` + the
+dashboard; the `b` token-view cycler (Totals ⇄ Cache split) giving the
+ledger's 5m/1h cache-creation split its first reader; session-scope cache
+classes via a backward-compatible `SessionEvent::Metrics` extension;
+`CACHE%` columns on `runs`/`profile`; the whole `$/Mtok` config/rate layer
+deleted (leftover keys silently ignored, live `rexymcp.toml` cleaned); docs
+token-first. Every M46 exit criterion checked out at phase reviews.
+
+**Findings:**
+
+- **`rexymcp.toml` is gitignored**, so phase-03's live-config cleanup exists
+  on disk only — a phase doc that treats the live config as a committed
+  artifact is subtly wrong about what review can see in the diff. Reviewers
+  verified the file directly; worth remembering when a future phase touches
+  it.
+- **Undisclosed executor scope deviation, 1× (data, no fold):** phase-03
+  also removed README rate-table prose that was named phase-04 territory —
+  let stand because phase-03's own deletions had made that prose false, but
+  the executor did not list it in Notes for review.
+- **Architect E2E-block syntax errors, 2× (trend, watch):** phase-01's block
+  had a wrong cargo package name; phase-03's had a wrong `runs show` arg
+  order and an `init` flag mismatch. Both times the executor adapted and the
+  pinned behavior was still exercised, but the pattern is the architect
+  pinning CLI invocations it never dry-ran. Third occurrence folds a
+  "dry-run the E2E block before pinning it" rule.
+- **Server-authored completion entries still head themselves
+  `ts=<epoch-ms>`, 3rd occurrence (threshold reached).** The fix is server
+  runtime code (the entry writer), not a doc fold — recorded as a candidate
+  work item for a future milestone, needs human go-ahead.
+- **Pre-injecting exact replacement prose works for docs phases:** phase-04
+  (a pure-markdown rewrite by a local code model) landed in 127 turns with
+  zero bounces because the release-notes bullet, mock, and report-line text
+  were pasted into the spec verbatim rather than described.
+
+**Human follow-ups (outstanding):**
+
+1. **Reinstall the CLI binary** — `~/.cargo/bin/rexymcp` is still the
+   pre-M46 0.9.1 build; day-to-day `rexymcp costs`/`runs` show dollars until
+   `cargo install --path mcp` (and restart any live `rexymcp serve`, which
+   never hot-swaps a rebuilt binary).
+2. **Regenerate `docs/rexymcp_dashboard.png`** — live capture of the new
+   Budget ledger + cache-split view.
+3. Optional editorial: the README ASCII mock's pre-existing one-column
+   border misalignment on the `Architect:` row (predates M46).
+
+**Future milestone candidates recorded, not started:** server-authored
+entry-header date format fix (the 3× item above); architect
+tokens-by-milestone attribution (needs a ledger milestone dimension —
+deliberately out of M46 scope).

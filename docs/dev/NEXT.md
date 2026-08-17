@@ -4,7 +4,38 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: [M46 / phase-04 — Docs sweep](milestones/M46-token-first-accounting/phase-04-docs-sweep.md)** (status: todo — drafted 2026-08-16 inside a `/rexymcp:auto` run; the milestone's last in-scope phase).
+**Active phase: none.**
+
+**M46 — Token-First Accounting closed 2026-08-16 at four phases**, all
+`approved_first_try`, zero bugs, zero bounces, zero assists — the first
+milestone on executor `deepseek-v4-flash-0731` (scorecard: N=4, gates 1.00,
+AFT 1.00) and the first driven end-to-end by `/rexymcp:auto` past phase-01
+(dispatch/review on `claude-sonnet-5` subagents). Dollar accounting is gone;
+tokens are the accounting currency, with the Cache ledger row, the `b`
+Totals ⇄ Cache-split cycler, session cache classes, and `CACHE%` columns
+shipped in its place. Retrospective in
+[M46/README.md § M46 retrospective](milestones/M46-token-first-accounting/README.md);
+`architecture.md` §46 done.
+
+**Action outstanding for the human: reinstall the CLI binary and restart any
+live serve** — `~/.cargo/bin/rexymcp` is the pre-M46 build, so day-to-day
+`costs`/`runs` still show dollars until `cargo install --path mcp`. Also
+outstanding: regenerate `docs/rexymcp_dashboard.png` (live capture).
+
+**Calibration held as data:** architect E2E-block syntax errors at 2×
+(trend — fold a dry-run rule on the 3rd); executor undisclosed scope
+deviation at 1×. **At threshold (3×), needs human go-ahead as a runtime
+fix:** server-authored completion entries heading themselves `ts=<epoch-ms>`
+instead of the WORKFLOW.md date format.
+
+**The next milestone is a human decision — no auto-advance across the
+boundary.** Recorded candidates: the entry-header date-format server fix;
+architect tokens-by-milestone attribution (needs a ledger milestone
+dimension).
+
+**M46 / phase-04 — Docs sweep: done 2026-08-16, `approved_first_try`** (code
+`5e4fe87`, approval `1bb32ce`), 127 turns — a pure-markdown phase landed
+clean by pre-injecting the replacement prose verbatim.
 
 **M46 / phase-03 — Pricing plumbing removal: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces, 370 executor turns (code `8901564`, approval `d7ff06e`). The reviewer recorded one undisclosed-but-benign scope deviation: the executor also removed the README known-model rate-table prose (nominally phase-04 work) — let stand because phase-03's own `[architect] model` deletion had made that paragraph document a nonexistent feature. Note: the live `rexymcp.toml` cleanup is gitignored, so it exists on disk only.
 

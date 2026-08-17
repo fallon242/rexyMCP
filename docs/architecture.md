@@ -1232,7 +1232,9 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
-46. **M46 — Token-first accounting** *(in-progress; opened 2026-08-16)*.
+46. **M46 — Token-first accounting** *(done 2026-08-16; opened and closed the
+    same day at four phases, all `approved_first_try`, phases 02–04 inside one
+    `/rexymcp:auto` run on executor `deepseek-v4-flash-0731`)*.
     Retire dollar-denominated accounting and reporting; tokens become the
     sole accounting currency. Every `$` in the system was derived at read
     time (token counts × config rates) and **no dollar value was ever
