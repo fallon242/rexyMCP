@@ -869,13 +869,10 @@ max_turns        = 200                    # hard turn cap before budget_exceeded
 [telemetry]
 dir = "~/.rexymcp/telemetry"              # ~ is expanded; omit the section to disable telemetry
 
-# ── Architect model, per-role delegation & escalation cost ────────
+# ── Architect model, per-role delegation (M27) ─────────────────
 [architect]
-# model = "claude-opus-4-8"               # known Claude id → auto-fills the rates below (cost model, not the session model)
 # dispatch_model = "claude-sonnet-5"      # /rexymcp:auto delegates dispatch to a subagent on this model (M27; unset → inherit session model)
 # review_model   = "claude-sonnet-5"      # /rexymcp:auto delegates review to a subagent on this model   (M27; unset → inherit)
-input_per_mtok  = 5.0                      # USD / Mtok architect input
-output_per_mtok = 25.0                     # USD / Mtok architect output
 
 # ── M10 context output-filter kill-switch ─────────────────────────
 [context]
@@ -921,10 +918,6 @@ temperature                    = 0.2      # any of these override the global val
 # novelty_window               = 24
 # novelty_distinct_floor       = 6
 # novelty_action               = "terminate"  # per-model opt-in to the hard-fail once you've calibrated the pair above
-# input_per_mtok               = 0.15     # M35 executor pricing, USD / Mtok — an unpriced class costs $0
-# output_per_mtok              = 0.60
-# cache_read_per_mtok          = 0.015
-# cache_creation_per_mtok      = 0.1875
 ```
 
 **Section reference:**
@@ -936,19 +929,11 @@ temperature                    = 0.2      # any of these override the global val
 | `[commands]` | The `format` / `build` / `lint` / `test` (+ optional `lint_fix`) commands run as the final gate. |
 | `[budget]` | `context_length`, `max_context_pct`, `max_turns`, `gate_retries`, and the optional `wall_clock_secs` ceiling (M26). |
 | `[telemetry]` | `dir` — the cross-project store. Omit to disable; `~` is expanded. |
-| `[architect]` | `$/Mtok` rates for architect work and the executor discount (or a Claude `model` to auto-fill), plus the per-role `dispatch_model` / `review_model` keys the `/rexymcp:auto` loop delegates those steps to (M27). |
+| `[architect]` | The per-role `dispatch_model` / `review_model` keys the `/rexymcp:auto` loop delegates those steps to (M27). |
 | `[context]` | `output_filter` kill-switch for the M10 boundary filter. |
 | `[governor]` | Hard-fail thresholds: identical-call, verifier-persistence, runaway-output, empty-completion, stuck-gate-feedback, the no-progress read-only stall, and the oscillation / output-flood / low-novelty windows (the last of these advisory-only by default — see `novelty_action`). |
 | `[escalation]` | `max_assists` — the flat, tier-independent per-phase escalation budget for the `/rexymcp:auto` loop (M27). |
-| `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, every governor threshold, and the four M35 `$/Mtok` executor rates. Any key omitted inherits the global value. |
-
-**Known-model rate table** (recognized by `[architect] model`, in USD/Mtok
-input/output): `claude-opus-5`/`claude-opus-4-8`/`-4-7`/`-4-6` → 5/25 ·
-`claude-sonnet-5` → 2/10 (introductory, through 2026-08-31; 3/15 after) ·
-`claude-sonnet-4-6` → 3/15 · `claude-haiku-4-5` → 1/5 ·
-`claude-fable-5`/`claude-mythos-5` → 10/50. Anything else falls back to the
-explicit rate fields — a model in neither this table nor `[architect.rates]`
-contributes its tokens but **$0.00** to the cost totals, silently.
+| `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, and every governor threshold. Any key omitted inherits the global value. |
 
 ---
 

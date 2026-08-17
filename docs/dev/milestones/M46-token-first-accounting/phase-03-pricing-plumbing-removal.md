@@ -1,7 +1,7 @@
 # Phase 03: Pricing plumbing removal
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-02
 **Estimated diff:** ~600 lines (deletion-heavy: the whole `$/Mtok` rate layer comes out of both crates; new code is the `CACHE%` columns in `runs`/`profile` and retargeted tests)
 **Tags:** language=rust, kind=refactor, size=l
@@ -305,3 +305,69 @@ No dependencies, no `Cargo.toml`, no contract docs, no schema changes.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-08-16 18:15 (progress)
+
+Started phase-03. Flipped phase doc Status to `in-progress` and the milestone
+README's phase-03 row to match. Implementing Spec tasks: removing the config
+rate layer (`known_model_rates`, `ArchitectModelRate`, `ArchitectConfig`
+pricing members + methods, `ModelOverride` rate fields, `Config::model_rates`),
+the telemetry/metrics dollar functions (`ArchitectRates`/`ModelRates`,
+`ArchitectLedger::cost`, `token_cost`, the three multipliers), and the two
+remaining dollar-printing CLI surfaces (`runs`, `profile --cost`) now render
+token/cache-hit columns via a shared `cache_hit_pct` helper in
+`mcp/src/costs.rs`. Also updating the `init`/`calibrate` scaffolds, the live
+`rexymcp.toml`, and the README sample-TOML blocks (guard test).
+
+
+### Update — 2026-08-16 18:15 (end-to-end verification)
+
+Captured mechanically via the phase's E2E block (adjusted: `runs show <id>`
+reads `--config <CONFIG> show <ID>` argument order, and `init` writes into a
+target/scratch dir because `init` has no `--config` flag). All captures in
+`target/e2e3/*`.
+
+**`target/e2e3/runs.txt`** (positive control: real telemetry — rows show live
+`CACHE%` values like `98.1%` and `—` when no cache activity):
+
+```
+ID        AGE     MODEL  TAGS           SETTINGS     GATES  TURNS  STATUS    VERDICT  SERVED_MODEL  TRUNC  CXT_WIN  PEAK_CXT  RECLAIMED  TOKENS  CACHE%  TOK/S
+cb29dad2  45m19s  deepseek-v4-flash-0731 language=rust,kind=feature,size=m default      ✓✓✓✓  336    complete  approved_first_try deepseek-v4-flash-0731 0%      1024k   19%        131.8k  28.1M     98.1%  48
+16b752b1  1h      deepseek-v4-flash-0731 language=rust,kind=refactor,size=l default      ✓✓✓✓  237    complete  approved_first_try deepseek-v4-flash-0731 1%      1024k   23%        161.2k  26.9M     96.7%  45
+a8a0dc95  2d      Qwen/Qwen3.8-27B-FP8 language=rust,kind=refactor,size=s default      ✓✓✓✓  93     complete  —           Qwen/Qwen3.8-27B-FP8 0%      256k    36%        21.6k   2.7M      —      12
+```
+
+**`target/e2e3/run-detail.txt`** (run cb29dad2 — `cache:` line present, no `cost:`):
+
+```
+id: cb29dad2
+model: deepseek-v4-flash-0731
+...
+tokens: input=523216 output=99755 cache_read=27432704 cache_write=0 total=28055675
+cache: 98.1%
+tok/s: 48
+```
+
+**`target/e2e3/profile.txt`** header (header ends `TOKENS  CACHE%`, cache cells render):
+
+```
+PHASE  MILESTONE  ATTEMPTS  VERDICT  TOKENS  CACHE%
+phase-01-scaffold                        M1-foundations        2  approved_first_try          1.2M         —
+phase-01-read-key-test-bound             M10-residual-hygiene        1  approved_first_try          1.3M     90.1%
+```
+
+**`target/e2e3/dollar-counts.txt`** (positive control: every file measured `0`):
+
+```
+target/e2e3/runs.txt:0
+target/e2e3/run-detail.txt:0
+target/e2e3/profile.txt:0
+```
+
+**`target/e2e3/template-rate-count.txt`** (`rexymcp init` output has `0` rate keys):
+
+```
+0
+```
+
+**Live-artifact greps:** `grep -rn 'per_mtok\|known_model_rates\|token_cost\|RATE_MULTIPLIER\|ArchitectRates\|ModelRates\|fmt_cost' executor/src mcp/src` returns nothing in production paths (only API-constant occurrences inside test fixtures and the new negative-guard tests remain); `grep -n 'per_mtok\|\[dashboard\]\|claude-opus-4-8' rexymcp.toml` returns nothing.

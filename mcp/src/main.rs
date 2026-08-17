@@ -247,7 +247,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
 
-        /// Report tokens & cost to ship, per approved phase, instead of the
+        /// Report token cost to ship, per approved phase, instead of the
         /// model×tag capability table.
         #[arg(long)]
         cost: bool,
@@ -845,14 +845,7 @@ async fn main() -> anyhow::Result<()> {
                         })
                     );
                 } else {
-                    let cfg = match rexymcp_executor::config::Config::load_with_env(&config) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            eprintln!("failed to load config: {e}");
-                            std::process::exit(1);
-                        }
-                    };
-                    println!("{}", profile_cli::format_phase_costs(&rows, &cfg));
+                    println!("{}", profile_cli::format_phase_costs(&rows));
                 }
                 return Ok(());
             }

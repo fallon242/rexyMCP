@@ -55,12 +55,16 @@ fn gate_char(v: Option<bool>) -> char {
     if v == Some(true) { '✓' } else { '✗' }
 }
 
-/// Cost cell: `—` when unpriced/zero, else `$` with 4 decimals.
-pub(crate) fn fmt_cost(cost: f64) -> String {
-    if cost == 0.0 {
-        "—".to_string()
-    } else {
-        format!("${cost:.4}")
+/// Prompt-side cache-hit ratio cell: `{:.1}%` when the run has cache activity,
+/// else `—` (absence of instrumentation is not a measurement).
+fn fmt_cache_pct(run: &PhaseRun) -> String {
+    match crate::costs::cache_hit_pct(
+        run.tokens.input_tokens as u64,
+        run.tokens.cache_read_tokens as u64,
+        run.tokens.cache_write_tokens as u64,
+    ) {
+        Some(pct) => format!("{pct:.1}%"),
+        None => "—".to_string(),
     }
 }
 
@@ -95,11 +99,9 @@ pub fn find_run_by_id<'a>(runs: &'a [PhaseRun], id: &str) -> Result<&'a PhaseRun
 }
 
 /// Full single-run detail. `now_ms` injected for a testable age.
-pub fn format_run_detail(run: &PhaseRun, now_ms: u64, config: &Config) -> String {
+pub fn format_run_detail(run: &PhaseRun, now_ms: u64, _config: &Config) -> String {
     let id = metrics::run_id(run);
     let age = humanize_age(now_ms.saturating_sub(run.ts));
-    let rates = config.model_rates(&run.model);
-    let cost = metrics::token_cost(&run.tokens, &rates);
     let tps = metrics::tokens_per_sec(run.tokens.output_tokens, run.gen_time_s);
     let reclaimed = metrics::reclaimed_total(&run.context_efficiency);
 
@@ -144,7 +146,7 @@ pub fn format_run_detail(run: &PhaseRun, now_ms: u64, config: &Config) -> String
         reclaimed.to_string()
     };
 
-    let cost_str = fmt_cost(cost);
+    let cache_str = fmt_cache_pct(run);
     let tps_str = fmt_tok_per_sec(tps);
 
     format!(
@@ -157,7 +159,7 @@ pub fn format_run_detail(run: &PhaseRun, now_ms: u64, config: &Config) -> String
          architect_verdict: {verdict}\n\
          gates: {gates}\n\
          tokens: input={} output={} cache_read={} cache_write={} total={}\n\
-         cost: {cost_str}\n\
+         cache: {cache_str}\n\
          tok/s: {tps_str}\n\
          turns: {}\n\
          wall_clock_s: {:.2}\n\
@@ -194,14 +196,14 @@ pub fn format_run_detail(run: &PhaseRun, now_ms: u64, config: &Config) -> String
 
 /// Format a list of runs as a human-readable table. `now_ms` is the current
 /// unix-millis clock, injected so the age column is testable.
-pub fn format_runs(runs: &[PhaseRun], now_ms: u64, config: &Config) -> String {
+pub fn format_runs(runs: &[PhaseRun], now_ms: u64, _config: &Config) -> String {
     if runs.is_empty() {
         return "(no runs)".to_string();
     }
 
     let mut lines = Vec::new();
     lines.push(
-        "ID        AGE     MODEL  TAGS           SETTINGS     GATES  TURNS  STATUS    VERDICT  SERVED_MODEL  TRUNC  CXT_WIN  PEAK_CXT  RECLAIMED  TOKENS  COST      TOK/S".to_string(),
+        "ID        AGE     MODEL  TAGS           SETTINGS     GATES  TURNS  STATUS    VERDICT  SERVED_MODEL  TRUNC  CXT_WIN  PEAK_CXT  RECLAIMED  TOKENS  CACHE%  TOK/S".to_string(),
     );
 
     for run in runs {
@@ -251,8 +253,7 @@ pub fn format_runs(runs: &[PhaseRun], now_ms: u64, config: &Config) -> String {
         let reclaimed = metrics::fmt_tokens(reclaimed_total as u64);
 
         let tokens_cell = metrics::fmt_tokens(run.tokens.total() as u64);
-        let rates = config.model_rates(&run.model);
-        let cost_cell = fmt_cost(metrics::token_cost(&run.tokens, &rates));
+        let cache_cell = fmt_cache_pct(run);
         let tps_cell = fmt_tok_per_sec(metrics::tokens_per_sec(
             run.tokens.output_tokens,
             run.gen_time_s,
@@ -275,7 +276,7 @@ pub fn format_runs(runs: &[PhaseRun], now_ms: u64, config: &Config) -> String {
             peak_cxt,
             reclaimed,
             tokens_cell,
-            cost_cell,
+            cache_cell,
             tps_cell,
         ));
     }
@@ -840,36 +841,29 @@ dir = "{}"
     }
 
     #[test]
-    fn format_runs_shows_id_tokens_cost_speed_columns() {
+    fn format_runs_shows_cache_pct_column() {
         let mut run = make_run(1_717_000_000_000, "qwen", &["rust"], None);
         run.tokens = rexymcp_executor::ai::types::TokenBreakdown {
-            input_tokens: 1_000_000,
+            input_tokens: 600_000,
             output_tokens: 500_000,
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
+            cache_read_tokens: 300_000,
+            cache_write_tokens: 100_000,
         };
         run.gen_time_s = 5.0;
 
-        let mut cfg = Config::default();
-        cfg.models.insert(
-            "qwen".to_string(),
-            rexymcp_executor::config::ModelOverride {
-                input_per_mtok: Some(2.0),
-                output_per_mtok: Some(9.0),
-                ..Default::default()
-            },
-        );
-
-        let out = format_runs(&[run], 5_000, &cfg);
+        let out = format_runs(&[run], 5_000, &Config::default());
         assert!(out.contains("TOKENS"), "expected TOKENS header: {out}");
-        assert!(out.contains("COST"), "expected COST header: {out}");
+        assert!(out.contains("CACHE%"), "expected CACHE% header: {out}");
+        assert!(!out.contains("COST"), "COST header must be gone: {out}");
         assert!(out.contains("TOK/S"), "expected TOK/S header: {out}");
-        assert!(out.contains('$'), "expected a $ cost cell: {out}");
+        assert!(!out.contains('$'), "no dollar cells: {out}");
+        // (600k, 300k, 100k) prompt side → 300k/1000k = 30.0%
+        assert!(out.contains("30.0%"), "expected 30.0% cache cell: {out}");
         assert!(out.contains("100000"), "expected 100000 tok/s: {out}");
     }
 
     #[test]
-    fn format_runs_unpriced_cost_is_dash() {
+    fn format_runs_cache_dash_when_no_activity() {
         let mut run = make_run(1_717_000_000_000, "qwen", &["rust"], None);
         run.tokens = rexymcp_executor::ai::types::TokenBreakdown {
             input_tokens: 1_000_000,
@@ -879,13 +873,10 @@ dir = "{}"
         };
         let out = format_runs(&[run], 5_000, &Config::default());
         let line = out.lines().find(|l| l.contains("qwen")).expect("qwen line");
-        assert!(
-            !line.contains('$'),
-            "unpriced run must not show a $ cost: {line}"
-        );
+        assert!(!line.contains('$'), "no dollar cells anywhere: {out}");
         assert!(
             line.contains('—'),
-            "unpriced cost should render em dash: {line}"
+            "no cache activity should render em dash: {line}"
         );
     }
 
@@ -972,25 +963,15 @@ dir = "{}"
         run.warnings = Some(3);
         run.bounces_to_approval = Some(1);
 
-        let mut cfg = Config::default();
-        cfg.models.insert(
-            "qwen".to_string(),
-            rexymcp_executor::config::ModelOverride {
-                input_per_mtok: Some(2.0),
-                output_per_mtok: Some(9.0),
-                cache_read_per_mtok: Some(0.5),
-                cache_creation_per_mtok: Some(1.0),
-                ..Default::default()
-            },
-        );
-
-        let out = format_run_detail(&run, 1_717_000_010_000, &cfg);
+        let out = format_run_detail(&run, 1_717_000_010_000, &Config::default());
 
         let id = metrics::run_id(&run);
         assert!(out.contains(&id), "expected id in output: {out}");
         assert!(out.contains("qwen"), "expected model in output: {out}");
         assert!(out.contains("cache"), "expected cache token label: {out}");
-        assert!(out.contains('$'), "expected cost with $: {out}");
+        assert!(out.contains("cache:"), "expected cache: line: {out}");
+        assert!(!out.contains("cost:"), "cost: line must be gone: {out}");
+        assert!(!out.contains('$'), "no dollars in detail: {out}");
         assert!(
             out.contains("100"),
             "expected tok/s value (500/5=100): {out}"
@@ -1013,5 +994,41 @@ dir = "{}"
         assert!(out.contains("build="), "expected build gate: {out}");
         assert!(out.contains("lint="), "expected lint gate: {out}");
         assert!(out.contains("test="), "expected test gate: {out}");
+    }
+
+    #[test]
+    fn runs_show_detail_has_cache_line_not_cost() {
+        let mut run = make_run(1_717_000_000_000, "qwen", &["rust"], None);
+        run.tokens = rexymcp_executor::ai::types::TokenBreakdown {
+            input_tokens: 600_000,
+            output_tokens: 500_000,
+            cache_read_tokens: 300_000,
+            cache_write_tokens: 100_000,
+        };
+        let out = format_run_detail(&run, 1_717_000_010_000, &Config::default());
+        assert!(
+            out.lines().any(|l| l.trim_start().starts_with("cache:")),
+            "detail must have a cache: line: {out}"
+        );
+        assert!(
+            !out.lines().any(|l| l.trim_start().starts_with("cost:")),
+            "detail must not have a cost: line: {out}"
+        );
+        assert!(!out.contains('$'), "no dollars in detail: {out}");
+        assert!(out.contains("30.0%"), "cache cell renders 30.0%: {out}");
+    }
+
+    #[test]
+    fn runs_show_detail_cache_dash_when_no_activity() {
+        let run = make_run(1_717_000_000_000, "qwen", &["rust"], None);
+        let out = format_run_detail(&run, 1_717_000_010_000, &Config::default());
+        let line = out
+            .lines()
+            .find(|l| l.trim_start().starts_with("cache:"))
+            .expect("cache: line present");
+        assert!(
+            line.contains('—'),
+            "no cache activity renders the dash: {line}"
+        );
     }
 }

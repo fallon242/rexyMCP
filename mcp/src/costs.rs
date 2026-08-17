@@ -315,6 +315,17 @@ fn tok_cell(n: u64) -> String {
     if s == "—" { TOK_DASH.to_string() } else { s }
 }
 
+/// Prompt-side cache-hit ratio in percent. `None` when the scope/run has no
+/// cache activity (absence of instrumentation is not a measurement).
+pub(crate) fn cache_hit_pct(input: u64, cache_read: u64, cache_write: u64) -> Option<f64> {
+    let denom = input + cache_read + cache_write;
+    if cache_read + cache_write == 0 || denom == 0 {
+        None
+    } else {
+        Some(cache_read as f64 / denom as f64 * 100.0)
+    }
+}
+
 /// The Budget ledger: a header plus Architect / Executor / Cache rows across
 /// the Session / Milestone / Project scopes. First two rows are token counts;
 /// the Cache row is the executor's prompt-side cache-hit ratio (`%`), or `—`
@@ -345,14 +356,13 @@ pub fn ledger_lines(
     // cache activity renders the dash, never `0.0%` — an absence of
     // instrumentation should not read as a measurement.
     let cache_cell = |r: &ScopeReport| -> String {
-        let denom = r.executor_input + r.executor_cache_read + r.executor_cache_write;
-        if r.executor_cache_read + r.executor_cache_write == 0 || denom == 0 {
-            TOK_DASH.to_string()
-        } else {
-            format!(
-                "{:.1}%",
-                r.executor_cache_read as f64 / denom as f64 * 100.0
-            )
+        match cache_hit_pct(
+            r.executor_input,
+            r.executor_cache_read,
+            r.executor_cache_write,
+        ) {
+            Some(pct) => format!("{pct:.1}%"),
+            None => TOK_DASH.to_string(),
         }
     };
 
@@ -1096,6 +1106,21 @@ enabled = false
             })
             .collect();
         assert_eq!(labels, vec!["Architect", "Executor", "Cache"]);
+    }
+
+    #[test]
+    fn cache_hit_pct_none_when_no_activity() {
+        assert_eq!(cache_hit_pct(600_000, 0, 0), None);
+        assert_eq!(cache_hit_pct(0, 0, 0), None);
+    }
+
+    #[test]
+    fn cache_hit_pct_prompt_side_ratio() {
+        assert!((cache_hit_pct(600_000, 300_000, 100_000).unwrap() - 30.0).abs() < f64::EPSILON);
+        assert!((cache_hit_pct(0, 300_000, 100_000).unwrap() - 75.0).abs() < f64::EPSILON);
+        assert!(
+            (cache_hit_pct(100_000, 100_000, 100_000).unwrap() - 33.333333333333336).abs() < 1e-9
+        );
     }
 
     #[test]

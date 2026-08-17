@@ -5,24 +5,6 @@ use std::time::Duration;
 
 use crate::error::{Error, Result};
 
-/// Returns `(input_per_mtok, output_per_mtok)` in USD/MTok for known Claude
-/// model IDs. Used by `ArchitectConfig` and `ModelOverride` so the rate table
-/// lives in one place.
-pub fn known_model_rates(model: &str) -> Option<(f64, f64)> {
-    match model {
-        "claude-fable-5" | "claude-mythos-5" => Some((10.0, 50.0)),
-        "claude-opus-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6" => {
-            Some((5.0, 25.0))
-        }
-        "claude-sonnet-4-6" => Some((3.0, 15.0)),
-        // Introductory pricing through 2026-08-31; standard (3.0, 15.0) from
-        // 2026-09-01 — override via [architect.rates] after the switch.
-        "claude-sonnet-5" => Some((2.0, 10.0)),
-        "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => Some((1.0, 5.0)),
-        _ => None,
-    }
-}
-
 /// Executor capability tier. Set via `rexymcp calibrate` and recorded in
 /// `[executor].tier`. Controls default `max_turns` and `gate_retries`
 /// (wired M26).
@@ -73,106 +55,19 @@ impl Default for EscalationConfig {
     }
 }
 
-/// The model used for Architect escalation assists. Prices both the architect
-/// spend and the executor discount (executor tokens are work this model was not
-/// billed for). When `model` matches a known Claude model ID, rates are
-/// auto-filled.
+/// Role delegation for Architect assists. Keeps only `dispatch_model` /
+/// `review_model` — the pricing layer (model-driven and explicit $/MTok
+/// rates) was removed in M46 phase-03.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct ArchitectConfig {
-    /// Claude model ID for Architect assists (e.g. `"claude-opus-4-8"`).
-    /// When recognised, auto-fills `input_per_mtok` / `output_per_mtok`.
-    pub model: Option<String>,
-    /// USD per million input tokens (overridden by `model` when recognised).
-    pub input_per_mtok: f64,
-    /// USD per million output tokens (overridden by `model` when recognised).
-    pub output_per_mtok: f64,
-    /// USD per million cache-**read** input tokens (overridden by `model` when
-    /// recognised: 0.1× the input rate).
-    pub cache_read_per_mtok: f64,
-    /// USD per million cache-**creation** input tokens (overridden by `model`
-    /// when recognised: 1.25× the input rate).
-    pub cache_creation_per_mtok: f64,
     /// Model ID for dispatch subagent delegation. `None` means inherit the
-    /// session/architect model (not `[architect] model`).
+    /// session/architect model.
     pub dispatch_model: Option<String>,
     /// Model ID for review subagent delegation. `None` means inherit the
-    /// session/architect model (not `[architect] model`).
+    /// session/architect model.
     pub review_model: Option<String>,
-    /// Per-model rate overrides (from `[architect.rates]`).
-    pub rates: std::collections::HashMap<String, ArchitectModelRate>,
-}
-
-/// A per-model architect price override (a `[architect.rates."<model>"]` entry):
-/// base `(input, output)` $/Mtok that overrides `known_model_rates` for that model.
-/// Cache rates always derive from `input` via the standard multipliers.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ArchitectModelRate {
-    pub input_per_mtok: f64,
-    pub output_per_mtok: f64,
-}
-
-impl Default for ArchitectConfig {
-    fn default() -> Self {
-        Self {
-            model: None,
-            input_per_mtok: 0.0,
-            output_per_mtok: 0.0,
-            cache_read_per_mtok: 0.0,
-            cache_creation_per_mtok: 0.0,
-            dispatch_model: None,
-            review_model: None,
-            rates: std::collections::HashMap::new(),
-        }
-    }
-}
-
-impl ArchitectConfig {
-    /// Resolved `(input_per_mtok, output_per_mtok)`: model lookup wins when
-    /// the model ID is recognised; explicit fields win otherwise.
-    pub fn effective_rates(&self) -> (f64, f64) {
-        self.model
-            .as_deref()
-            .and_then(known_model_rates)
-            .unwrap_or((self.input_per_mtok, self.output_per_mtok))
-    }
-
-    /// Resolved per-class architect rates. When `model` is recognised, cache
-    /// rates derive from its input rate (0.1× read, 1.25× creation); otherwise the
-    /// explicit `cache_*_per_mtok` fields apply. Reuses `effective_rates` for the
-    /// input/output pair.
-    pub fn effective_architect_rates(&self) -> crate::store::telemetry::ArchitectRates {
-        use crate::store::telemetry::{
-            ArchitectRates, CACHE_CREATION_RATE_MULTIPLIER, CACHE_READ_RATE_MULTIPLIER,
-        };
-        let (input, output) = self.effective_rates();
-        let model_known = self.model.as_deref().and_then(known_model_rates).is_some();
-        let (cache_read, cache_creation) = if model_known {
-            (
-                input * CACHE_READ_RATE_MULTIPLIER,
-                input * CACHE_CREATION_RATE_MULTIPLIER,
-            )
-        } else {
-            (self.cache_read_per_mtok, self.cache_creation_per_mtok)
-        };
-        ArchitectRates {
-            input_per_mtok: input,
-            cache_creation_per_mtok: cache_creation,
-            cache_read_per_mtok: cache_read,
-            output_per_mtok: output,
-        }
-    }
-
-    /// Resolved base `(input, output)` $/Mtok for **any** architect model by ID: a
-    /// `[architect.rates]` override wins, else the built-in `known_model_rates`.
-    /// `None` when neither knows the model (the cost is then $0; surfaces render "—").
-    pub fn rates_for(&self, model: &str) -> Option<(f64, f64)> {
-        self.rates
-            .get(model)
-            .map(|r| (r.input_per_mtok, r.output_per_mtok))
-            .or_else(|| known_model_rates(model))
-    }
 }
 
 /// Context-optimization settings (M10). `output_filter` is the kill-switch for
@@ -310,15 +205,6 @@ pub struct ModelOverride {
     pub novelty_window: Option<usize>,
     pub novelty_distinct_floor: Option<usize>,
     pub novelty_action: Option<NoveltyAction>,
-    /// Per-Mtok USD executor pricing (M35). `None` ⇒ that class costs $0.
-    #[serde(default)]
-    pub input_per_mtok: Option<f64>,
-    #[serde(default)]
-    pub output_per_mtok: Option<f64>,
-    #[serde(default)]
-    pub cache_read_per_mtok: Option<f64>,
-    #[serde(default)]
-    pub cache_creation_per_mtok: Option<f64>,
 }
 
 /// Per-project identity. The `id` UUID is generated by `rexymcp init` and
@@ -616,19 +502,6 @@ impl Config {
         Ok(config)
     }
 
-    /// Per-class executor rates for `model` from its `[models]` entry; every
-    /// unset class is `0.0` (unpriced ⇒ $0). No fallback to `known_model_rates`
-    /// — executor models are local, never the Claude pricing table.
-    pub fn model_rates(&self, model: &str) -> crate::store::telemetry::ModelRates {
-        let o = self.models.get(model);
-        crate::store::telemetry::ModelRates {
-            input_per_mtok: o.and_then(|o| o.input_per_mtok).unwrap_or(0.0),
-            output_per_mtok: o.and_then(|o| o.output_per_mtok).unwrap_or(0.0),
-            cache_read_per_mtok: o.and_then(|o| o.cache_read_per_mtok).unwrap_or(0.0),
-            cache_creation_per_mtok: o.and_then(|o| o.cache_creation_per_mtok).unwrap_or(0.0),
-        }
-    }
-    /// Apply the per-model override for `model` (exact-match lookup in
     /// Apply the per-model override for `model` (exact-match lookup in
     /// `[models]`) on top of the global `[executor]`/`[governor]` defaults,
     /// mutating `self` so downstream reads see resolved values. A model with no
@@ -1020,7 +893,7 @@ max_turns = 40
     }
 
     #[test]
-    fn legacy_dashboard_section_is_ignored() {
+    fn legacy_rate_keys_are_ignored() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         std::fs::write(
@@ -1043,6 +916,11 @@ saved_output_per_mtok = 15.0
 
 [architect]
 model = "claude-opus-4-8"
+input_per_mtok = 5.0
+dispatch_model = "claude-sonnet-5"
+
+[models.m]
+output_per_mtok = 1.0
 "#,
         )
         .unwrap();
@@ -1050,8 +928,12 @@ model = "claude-opus-4-8"
         // Config still loads successfully — unknown keys are silently ignored
         // because Config derives #[serde(default)] without deny_unknown_fields.
         let cfg = Config::load(&path).unwrap();
-        // Architect rates resolve from the model, unaffected by stale [dashboard] keys.
-        assert_eq!(cfg.architect.effective_rates(), (5.0, 25.0));
+        assert_eq!(
+            cfg.architect.dispatch_model.as_deref(),
+            Some("claude-sonnet-5")
+        );
+        assert_eq!(cfg.architect.review_model, None);
+        assert!(cfg.models.contains_key("m"));
     }
 
     #[test]
@@ -1481,18 +1363,6 @@ task_tracking = false
     }
 
     #[test]
-    fn known_model_rates_returns_opus_rates() {
-        let (i, o) = known_model_rates("claude-opus-4-8").expect("opus must be known");
-        assert_eq!(i, 5.0);
-        assert_eq!(o, 25.0);
-    }
-
-    #[test]
-    fn known_model_rates_returns_none_for_unknown() {
-        assert!(known_model_rates("some-local-llm").is_none());
-    }
-
-    #[test]
     fn tier_default_max_turns_correct() {
         assert_eq!(Tier::Large.default_max_turns(), 400);
         assert_eq!(Tier::Medium.default_max_turns(), 250);
@@ -1582,36 +1452,6 @@ max_turns = 200
     }
 
     #[test]
-    fn architect_effective_rates_uses_known_model() {
-        let a = ArchitectConfig {
-            model: Some("claude-opus-4-8".into()),
-            input_per_mtok: 0.0,
-            output_per_mtok: 0.0,
-            cache_read_per_mtok: 0.0,
-            cache_creation_per_mtok: 0.0,
-            dispatch_model: None,
-            review_model: None,
-            rates: std::collections::HashMap::new(),
-        };
-        assert_eq!(a.effective_rates(), (5.0, 25.0));
-    }
-
-    #[test]
-    fn architect_effective_rates_falls_back_to_explicit() {
-        let a = ArchitectConfig {
-            model: Some("unknown-model".into()),
-            input_per_mtok: 2.5,
-            output_per_mtok: 12.5,
-            cache_read_per_mtok: 0.0,
-            cache_creation_per_mtok: 0.0,
-            dispatch_model: None,
-            review_model: None,
-            rates: std::collections::HashMap::new(),
-        };
-        assert_eq!(a.effective_rates(), (2.5, 12.5));
-    }
-
-    #[test]
     fn config_parses_tier_from_toml() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.toml");
@@ -1662,40 +1502,27 @@ max_turns = 40
 max_assists = 5
 
 [architect]
-model = "claude-opus-4-8"
+dispatch_model = "claude-sonnet-5"
+review_model = "claude-sonnet-5"
 "#,
         )
         .unwrap();
         let cfg = Config::load(&path).unwrap();
         assert_eq!(cfg.escalation.max_assists, 5);
-        assert_eq!(cfg.architect.model.as_deref(), Some("claude-opus-4-8"));
-        assert_eq!(cfg.architect.effective_rates(), (5.0, 25.0));
+        assert_eq!(
+            cfg.architect.dispatch_model.as_deref(),
+            Some("claude-sonnet-5")
+        );
+        assert_eq!(
+            cfg.architect.review_model.as_deref(),
+            Some("claude-sonnet-5")
+        );
     }
 
     #[test]
     fn config_escalation_absent_uses_default() {
         let cfg = Config::default();
         assert_eq!(cfg.escalation.max_assists, 3);
-    }
-
-    #[test]
-    fn architect_effective_rates_from_model() {
-        let a = ArchitectConfig {
-            model: Some("claude-opus-4-8".into()),
-            ..ArchitectConfig::default()
-        };
-        assert_eq!(a.effective_rates(), (5.0, 25.0));
-    }
-
-    #[test]
-    fn architect_effective_rates_explicit_override_when_model_unknown() {
-        let a = ArchitectConfig {
-            model: Some("unknown-model".into()),
-            input_per_mtok: 7.0,
-            output_per_mtok: 35.0,
-            ..ArchitectConfig::default()
-        };
-        assert_eq!(a.effective_rates(), (7.0, 35.0));
     }
 
     #[test]
@@ -2073,44 +1900,6 @@ runaway_output_bytes = 102400
     }
 
     #[test]
-    fn effective_architect_rates_derives_cache_from_known_model() {
-        let cfg = ArchitectConfig {
-            model: Some("claude-opus-4-8".to_string()),
-            input_per_mtok: 0.0,
-            output_per_mtok: 0.0,
-            cache_read_per_mtok: 0.0,
-            cache_creation_per_mtok: 0.0,
-            dispatch_model: None,
-            review_model: None,
-            rates: std::collections::HashMap::new(),
-        };
-        let rates = cfg.effective_architect_rates();
-        assert_eq!(rates.input_per_mtok, 5.0);
-        assert_eq!(rates.output_per_mtok, 25.0);
-        assert_eq!(rates.cache_read_per_mtok, 0.5);
-        assert_eq!(rates.cache_creation_per_mtok, 6.25);
-    }
-
-    #[test]
-    fn effective_architect_rates_uses_explicit_when_model_unknown() {
-        let cfg = ArchitectConfig {
-            model: Some("unknown-model".to_string()),
-            input_per_mtok: 8.0,
-            output_per_mtok: 40.0,
-            cache_read_per_mtok: 2.0,
-            cache_creation_per_mtok: 9.0,
-            dispatch_model: None,
-            review_model: None,
-            rates: std::collections::HashMap::new(),
-        };
-        let rates = cfg.effective_architect_rates();
-        assert_eq!(rates.input_per_mtok, 8.0);
-        assert_eq!(rates.output_per_mtok, 40.0);
-        assert_eq!(rates.cache_read_per_mtok, 2.0);
-        assert_eq!(rates.cache_creation_per_mtok, 9.0);
-    }
-
-    #[test]
     fn load_parses_architect_role_models() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -2129,7 +1918,6 @@ max_context_pct = 70
 max_turns = 40
 
 [architect]
-model = "claude-opus-4-8"
 dispatch_model = "claude-sonnet-5"
 review_model = "claude-haiku-4-5-20251001"
 "#,
@@ -2137,7 +1925,6 @@ review_model = "claude-haiku-4-5-20251001"
         .unwrap();
 
         let cfg = Config::load(&path).unwrap();
-        assert_eq!(cfg.architect.model, Some("claude-opus-4-8".into()));
         assert_eq!(cfg.architect.dispatch_model, Some("claude-sonnet-5".into()));
         assert_eq!(
             cfg.architect.review_model,
@@ -2164,13 +1951,11 @@ max_context_pct = 70
 max_turns = 40
 
 [architect]
-model = "claude-opus-4-8"
 "#,
         )
         .unwrap();
 
         let cfg = Config::load(&path).unwrap();
-        assert_eq!(cfg.architect.model, Some("claude-opus-4-8".into()));
         // Unset role models are None — they do NOT fall back to [architect] model
         assert!(cfg.architect.dispatch_model.is_none());
         assert!(cfg.architect.review_model.is_none());
@@ -2239,30 +2024,18 @@ model = "claude-opus-4-8"
     }
 
     #[test]
-    fn model_rates_zero_for_unconfigured_model() {
-        let cfg = Config::default();
-        let rates = cfg.model_rates("anything");
-        assert_eq!(rates.input_per_mtok, 0.0);
-        assert_eq!(rates.output_per_mtok, 0.0);
-        assert_eq!(rates.cache_read_per_mtok, 0.0);
-        assert_eq!(rates.cache_creation_per_mtok, 0.0);
-    }
-
-    #[test]
-    fn model_rates_reads_configured_pricing() {
+    fn model_override_ignores_rate_keys() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         std::fs::write(
             &config_path,
-            "[executor]\nprovider = \"openai\"\nmodel = \"m\"\nbase_url = \"http://localhost:9/v1\"\n[models.m]\ninput_per_mtok = 2.0\noutput_per_mtok = 9.0\n",
+            "[executor]\nprovider = \"openai\"\nmodel = \"m\"\nbase_url = \"http://localhost:9/v1\"\n[models.m]\ninput_per_mtok = 2.0\noutput_per_mtok = 9.0\nidentical_call_threshold = 3\n",
         )
         .unwrap();
         let config = Config::load(&config_path).unwrap();
-        let rates = config.model_rates("m");
-        assert_eq!(rates.input_per_mtok, 2.0);
-        assert_eq!(rates.output_per_mtok, 9.0);
-        assert_eq!(rates.cache_read_per_mtok, 0.0);
-        assert_eq!(rates.cache_creation_per_mtok, 0.0);
+        let o = config.models.get("m").expect("models.m parses");
+        assert_eq!(o.identical_call_threshold, Some(3));
+        // Rate keys are unknown keys now — silently ignored (no deserialize error).
     }
 
     #[test]
@@ -2275,54 +2048,7 @@ model = "claude-opus-4-8"
         )
         .unwrap();
         let config = Config::load(&config_path).unwrap();
-        let rates = config.model_rates("m");
-        assert_eq!(rates.input_per_mtok, 0.0);
-        assert_eq!(rates.output_per_mtok, 0.0);
-        assert_eq!(rates.cache_read_per_mtok, 0.0);
-        assert_eq!(rates.cache_creation_per_mtok, 0.0);
-    }
-
-    #[test]
-    fn known_model_rates_prices_sonnet_5() {
-        assert_eq!(known_model_rates("claude-sonnet-5"), Some((2.0, 10.0)));
-        // Spot-check an existing entry is unchanged.
-        assert_eq!(known_model_rates("claude-opus-4-8"), Some((5.0, 25.0)));
-    }
-
-    #[test]
-    fn known_model_rates_prices_opus_5() {
-        assert_eq!(known_model_rates("claude-opus-5"), Some((5.0, 25.0)));
-        // Shares the Opus arm with the 4.x IDs, which stay unchanged.
-        assert_eq!(known_model_rates("claude-opus-4-8"), Some((5.0, 25.0)));
-        assert_eq!(known_model_rates("claude-opus-4-7"), Some((5.0, 25.0)));
-        assert_eq!(known_model_rates("claude-opus-4-6"), Some((5.0, 25.0)));
-    }
-
-    #[test]
-    fn architect_rates_for_override_wins_then_known_then_none() {
-        let mut rates = std::collections::HashMap::new();
-        rates.insert(
-            "claude-opus-4-8".to_string(),
-            ArchitectModelRate {
-                input_per_mtok: 9.9,
-                output_per_mtok: 9.9,
-            },
-        );
-        let config = ArchitectConfig {
-            model: None,
-            input_per_mtok: 0.0,
-            output_per_mtok: 0.0,
-            cache_read_per_mtok: 0.0,
-            cache_creation_per_mtok: 0.0,
-            dispatch_model: None,
-            review_model: None,
-            rates,
-        };
-        // Override beats the built-in.
-        assert_eq!(config.rates_for("claude-opus-4-8"), Some((9.9, 9.9)));
-        // Falls through to the built-in table.
-        assert_eq!(config.rates_for("claude-sonnet-5"), Some((2.0, 10.0)));
-        // Unrecognised model with no override.
-        assert_eq!(config.rates_for("some-local-model"), None);
+        let o = config.models.get("m").expect("models.m parses");
+        assert_eq!(o.identical_call_threshold, Some(3));
     }
 }
