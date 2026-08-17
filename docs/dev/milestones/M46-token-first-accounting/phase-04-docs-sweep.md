@@ -1,7 +1,7 @@
 # Phase 04: Docs sweep
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase-03
 **Estimated diff:** ~120 lines (docs only — README + two plugin skill docs; zero code)
 **Tags:** language=markdown, kind=docs, size=s
@@ -246,3 +246,133 @@ panel, CLI-reference rows, ASCII mock) and the skills still reference the remove
 `[architect] model` cost-rate field. Starting the six Spec tasks: release-notes bullet,
 README prose sweep, ASCII mock, auto skill wording, escalate skill wording, and the
 acceptance greps. No code, per the phase's `kind=docs` tag.
+
+### Update — ts=1786931048362 (complete, server-authored)
+
+**Summary:** </think>All tasks done. Let me do the completion checklist:
+
+- [x] Phase doc Status still says in-progress (I flipped it there at start)
+- [x] Milestone README phase-table row says in-progress
+- [x] I did NOT hand-write a (complete) update log entry — only "Started"
+- [x] cargo fmt --all --check was run right before git add
+- [x] All verification commands ran clean
+- [x] Final message will be substantive Summary + Notes for review
+- [x] git status --short shows nothing (clean)
+- [x] git log -1 --stat shows commit includes every file I touched
+
+Wait — target/e2e4/ artifacts are untracked? Let me check — git status --short showed clean, so target/ must be gitignored. Good, target is in .gitignore.
+
+Now write the final summary with the e2e evidence.</think>
+# Summary + Notes for review
+
+**Built:** Phase-04 docs sweep, M46 token-first accounting — a docs-only change (zero code).
+
+**What changed (all six Spec tasks):**
+1. **Release-notes bullet** (`README.md:27-38`) — replaced dollar-era "Improved cost accounting" with the exact "Token-first accounting (M46)" bullet, verbatim from the spec (ledger rows, `b` cycler, `CACHE%` columns, the three loud breaks).
+2. **README prose sweep** — `:120` token accounting; deleted the `[architect] model` sample line; harvest prose → per-class token counts / "harvested, never estimated"; loop-report sentence → "token totals, why it stopped…"; both Budget-panel descriptions (dashboards panels + bottom bullet) → "token ledger" + Totals ⇄ Cache split, panel name kept **Budget**; `dashboard` row's `--config` note plain; `costs` row → token ledger with `--tokens` dropped; `harvest` row → per-class token counts / architect token rows; `:798` → "real token usage".
+3. **ASCII mock** (`:713-716`) — replaced the 4 `Spend`/`$` rows with the spec's 4 rows (`Tokens` header, `Architect:`/`Executor:`/`Cache:` labels, no `$`), alignment-verified same box widths (borders at cols 1/27/60/81 on the new rows).
+4. **auto/SKILL.md** — `:86` no-fallback sentence verbatim; journaling rationale → per-activity token accounting with `--model` = the model that actually performed the step *for attribution*; harvest → "token totals are real" / "report tokens as **absent**"; template line → `- **Tokens:** …`.
+5. **escalate/SKILL.md** — the `:149` cost mention ("**Cost:** the telemetry gap.") is the *tradeoff* of the escalate action (forgoing a model-vs-spec verdict), not dollar pricing — rewrote the label to "**Tradeoff:**" (spec explicitly allowed a mechanical spirit-fix, not verbatim).
+6. **Sweep verification** — all greps pass; see E2E below.
+
+**End-to-end verification** (captured into `target/e2e4/`): `dollar-grep.txt` and `readme-stale.txt` contain one hit each, both inside the release-notes bullet describing dollar accounting *as the thing that was removed* (quoted in the note above) — the remaining grep is the bullet's literal `$/Mtok`, `--tokens`, `net` mentions, which the spec mandates and which are not current-behavior claims; skill greps return empty (`exit=1`); `mock.txt` shows the four new rows, no `$`; `guard.txt` = "2 passed". `Cache` count in README = 6 (≥ 3).
+
+**Gates:** all four green: `cargo fmt --all --check` ✓, `cargo build` ✓, `cargo clippy --all-targets --all-features -- -D warnings` ✓, `cargo test` ✓ (700+2+1052 passed; the `readme_config_reference` guard passes, confirming the sample-TOML blocks stayed intact). Committed as `5e4fe87` (`docs:`); working tree clean.
+
+**Notes for review:** (1) The three acceptance grep commands mechanically match the release-notes bullet's own literal `$/Mtok`, `--tokens`, `net`, `architect`/`net` — I verified those are the bullet-only "removed-things" mentions the spec says are correct and stay; outside the bullet the scoped files are 100% stale-free. (2) `escalate/SKILL.md:149` label rewritten to "Tradeoff" (the phase left the exact rewrite open — "fix in the same spirit"). (3) `docs/rexymcp_dashboard.png` left untouched per Out of scope, and its README reference remains.
+
+**Executor:** deepseek-v4-flash-0731
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+
+
+LINT
+    Checking rexymcp v0.9.1 (/home/matt/src/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+
+
+TEST
+ust_function_by_name ... ok
+test tools::symbols::tests::kind_filter_returns_only_matching_kind ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::symbols::tests::references_exclude_strings_and_comments ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1052 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-9705ec1e04e62e42)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-80b252dbdf01b3a7)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `README.md` — +34 -37
+- `docs/dev/milestones/M46-token-first-accounting/README.md` — +1 -1
+- `docs/dev/milestones/M46-token-first-accounting/phase-04-docs-sweep.md` — +10 -1
+- `plugin/skills/auto/SKILL.md` — +8 -8
+- `plugin/skills/escalate/SKILL.md` — +1 -1
+
+**Commit:** 5e4fe87549a28ec2c2f92a6682c09a10296c3d5e
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
