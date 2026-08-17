@@ -4,7 +4,9 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: [M46 / phase-02 — Dashboard token views](milestones/M46-token-first-accounting/phase-02-dashboard-token-views.md)** (status: todo — drafted 2026-08-16 inside a `/rexymcp:auto` run).
+**Active phase: [M46 / phase-03 — Pricing plumbing removal](milestones/M46-token-first-accounting/phase-03-pricing-plumbing-removal.md)** (status: todo — drafted 2026-08-16 inside a `/rexymcp:auto` run).
+
+**M46 / phase-02 — Dashboard token views: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces (code `f3f98dd`, approval `54f99a5`), inside the `/rexymcp:auto` loop with dispatch/review delegated to `claude-sonnet-5` subagents. The reviewer re-ran the E2E fixture block independently; the `SessionEvent::Metrics` cache extension is backward-compatible (`#[serde(default)]`, old-line parse test).
 
 **M46 / phase-01 — Token-native costs core: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces (code `e40ec96`, approval `ee62dde`). First scorecard data point for executor `deepseek-v4-flash-0731`. Reviewed by independent re-run; three acceptable scope deviations and a 3rd occurrence of the server-authored `ts=<epoch-ms>` entry-header format (runtime-fix candidate) recorded in the verdict.
 
