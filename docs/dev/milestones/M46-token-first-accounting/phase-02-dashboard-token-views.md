@@ -1,7 +1,7 @@
 # Phase 02: Dashboard token views
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase-01
 **Estimated diff:** ~350 lines
 **Tags:** language=rust, kind=feature, size=m
@@ -410,3 +410,130 @@ two Session cells are the isolated variable; the Executor Session cell differs
 enum + `savings_lines` delegation tests instead, per the phase doc.
 
 <!-- entries appended below this line -->
+
+### Update — ts=1786926385974 (complete, server-authored)
+
+**Summary:** </think>All checks complete. Let me verify the completion checklist:
+
+- Phase doc Status still says `in-progress` ✓ (I flipped it, server flips to review)
+- Milestone README phase-table row still says `in-progress` ✓
+- Did NOT hand-write a `(complete)` entry ✓ (only progress + E2E entries)
+- `cargo fmt --all --check` run right before `git add` ✓
+- All verification commands ran clean ✓ (build, clippy, test, fmt)
+- Final message = substantive Summary + Notes for review — this is it
+- `git status --short` shows nothing ✓
+- `git log -1 --stat` shows the commit includes every file touched ✓
+
+Now the final summary message.</think>
+## Summary
+
+M46 phase-02 implemented and committed (`f3f98dd`, one `feat:` commit, 13 files, 662 insertions). Built in Spec order: (1) `SessionEvent::Metrics` gains `cache_read_tokens`/`cache_write_tokens` with `#[serde(default)]`, emitted from `metrics.tokens` at the agent site; (2) `StatusSummary` gains the two `last_cache_*` fields, filled in the Metrics arm; (3) both session-`ScopeCosts` call paths (`costs.rs load_cost_report`, `panels.rs savings_lines`) read them via `unwrap_or(0) as u64`; (4) `cache_split_lines` in `costs.rs` renders the 4-row Read/Write/Arch 5m/Arch 1h layout, sharing `TOK_DASH`/`tok_cell` helpers factored out of `ledger_lines` so the M40 decimal-column alignment holds; (5) `b` cycler restored through `TokenView` → `ViewState`/`DashboardState` → `render.rs`, with `arch_cache_5m/1h` folded from project-scoped ledgers in `dashboard/mod.rs` (saturating add, foreign-project excluded) and `0` in the no-project/error arms.
+
+**Gates:** `cargo build` clean, `cargo clippy --all-targets --all-features -- -D warnings` clean, `cargo fmt --all --check` clean, `cargo test` 694+1070 passed, 0 failed.
+
+**E2E:** the phase's fixture block ran live against the rebuilt binary — `cache-row.txt` shows `30.0%` for the cache-bearing fixture and `—` for the pre-M46 fixture (Session cells; the shared Milestone/Project cells are identical across both runs, and the Executor Session cell differs 1.0M ⇄ 15.2k exactly as the fixtures prescribe — a same-session A/B with the Session Cache cell as the isolated live variable). Both outputs pasted verbatim into the `(end-to-end verification)` Update Log entry.
+
+**Notes for review:** the `arch_cell` closure in `cache_split_lines` takes a `&ScopeReport` and always returns the dash because only architect 5m/1h values (no per-scope struct) exist — the other two columns are dash-by-construction, matching the spec's "always TOK_DASH" requirement. The E2E captured a fresh run after the final edits; `target/e2e/*` is gitignored so it stays out of the tree. The phase doc status is left `in-progress` for the server's completion bookkeeping, per the lifecycle split.
+
+**Executor:** deepseek-v4-flash-0731
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+
+
+TEST
+ts::malformed_args_returns_advisory_error ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::references_exclude_strings_and_comments ... ok
+test tools::symbols::tests::finds_python_function_and_class ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test ai::backends::openai::tests::is_retriable_transport_true_for_reqwest_error ... ok
+test tools::bash::tests::cargo_command_records_cargo_filter_label ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test governor::verifier::tests::verify_rust_returns_checked_empty_on_clean_code ... ok
+test governor::verifier::tests::capture_baseline_dedupes_by_project_root ... ok
+test governor::verifier::tests::capture_baseline_skips_unsupported_files ... ok
+test governor::verifier::tests::verify_rust_returns_checked_with_errors_on_broken_code ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1070 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-9705ec1e04e62e42)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-80b252dbdf01b3a7)
+     Running unittests src/lib.rs (target/debug/deps/executor-c1650299697d7408)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/M46-token-first-accounting/README.md` — +1 -1
+- `docs/dev/milestones/M46-token-first-accounting/phase-02-dashboard-token-views.md` — +76 -1
+- `executor/src/agent/mod.rs` — +2 -0
+- `executor/src/store/sessions/event.rs` — +6 -0
+- `executor/src/store/sessions/jsonl.rs` — +53 -0
+- `executor/src/store/telemetry.rs` — +2 -0
+- `mcp/src/costs.rs` — +245 -32
+- `mcp/src/dashboard/event_loop.rs` — +12 -0
+- `mcp/src/dashboard/mod.rs` — +77 -0
+- `mcp/src/dashboard/panels.rs` — +143 -15
+- `mcp/src/dashboard/render.rs` — +6 -2
+- `mcp/src/dashboard/transcript.rs` — +4 -0
+- `mcp/src/status.rs` — +35 -0
+
+**Commit:** f3f98dd270d29ed8977a3997aad0865ac693d932
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
