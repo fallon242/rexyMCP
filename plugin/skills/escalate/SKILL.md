@@ -146,7 +146,7 @@ You (Claude) take over and implement the phase directly. Use this when:
   phase that's too big for any spec refinement).
 - The phase is on the critical path and the user is time-pressed.
 
-**Cost: the telemetry gap.** When you implement the phase, the
+**Tradeoff: the telemetry gap.** When you implement the phase, the
 `PhaseRun.architect_verdict` records `escalated` instead of an `approved_*`
 from a model — you produce a successful artifact but *no* model-vs-spec data
 point. The `model_scorecard` is blind to the run. Use sparingly.

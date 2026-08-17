@@ -82,9 +82,9 @@ tool and instruct it in its prompt to run the composed skill for the phase — e
 verdict, briefing) to the main loop; the loop makes every branching decision.
 
 **Inherit-by-default (06a semantics).** If a role model is **unset** (`None`),
-**omit the `model` parameter** so the subagent inherits the session model. Do
-**not** substitute `[architect] model` — that field is the cost-rate model, a
-separate concern.
+**omit the `model` parameter** so the subagent inherits the session model.
+There is no fallback field to substitute — the role keys are the only architect
+model configuration.
 
 **Degrade rule (honesty).** The verified mechanism supports per-call model
 override, so role-model delegation is the normal path. But if, in a given client
@@ -186,10 +186,10 @@ loop report) and stop.
 ## 4. Journaling — every activity, exact command
 
 Every architect activity in the loop is journaled to the telemetry store — this
-is what makes `PhaseRun.escalation_count` real and feeds per-activity token/cost
+is what makes `PhaseRun.escalation_count` real and feeds per-activity token
 accounting. After each step, run (from `<repo>`; `--project-id` defaults from
 `[project].id`; pass `--model` = the model that **actually performed** the step
-so cost uses that role model's rates):
+for attribution):
 
 ```bash
 rexymcp journal --config <repo>/rexymcp.toml \
@@ -220,7 +220,7 @@ Do all of the following, in order, on **every** stop:
 persisted, queryable half of the loop report.
 
 **b. Harvest token usage (Claude Code only; degrade gracefully).** So the report's
-cost totals are real, not estimated:
+token totals are real, not estimated:
 
 ```bash
 rexymcp harvest --config <repo>/rexymcp.toml --transcript-dir <Claude Code session transcript dir>
@@ -229,7 +229,7 @@ rexymcp harvest --config <repo>/rexymcp.toml --transcript-dir <Claude Code sessi
 The transcript dir is Claude Code's `~/.claude/projects/<slug>/`, where `<slug>`
 is the project path with `/` replaced by `-` (e.g. `-home-matt-src-rexyMCP`). If
 the client is **not** Claude Code, or the transcript dir cannot be located, **skip
-the harvest** and report token/cost as **absent** — never estimate Claude's own
+the harvest** and report tokens as **absent** — never estimate Claude's own
 usage (the same no-fabrication rule the review applies to executor tokens).
 
 **c. Print the loop report** to the session (no committed report file — the
@@ -244,7 +244,7 @@ persisted half is the `boundary` record from step a):
   - <phase-id> — <verdict> (assists: <n>)
   - …
 - **Total assists spent:** <N>
-- **Token / cost:** <harvested totals, or "absent — <client> provides no transcript usage">
+- **Tokens:** <harvested totals, or "absent — <client> provides no transcript usage">
 - **What needs the human:** <the specific next action — sign off on the milestone
   boundary, resolve the blocker, raise max_assists and restart, or restart
   /rexymcp:auto with a larger backstop>

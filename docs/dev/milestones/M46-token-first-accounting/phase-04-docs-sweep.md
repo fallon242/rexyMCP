@@ -1,7 +1,7 @@
 # Phase 04: Docs sweep
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-03
 **Estimated diff:** ~120 lines (docs only — README + two plugin skill docs; zero code)
 **Tags:** language=markdown, kind=docs, size=s
@@ -237,3 +237,12 @@ No code, no `Cargo.toml`, no config, no contract docs
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Started — 2026-08-17 01:32 (executor)
+
+Picking up phase-04, the M46 docs sweep. Current state per the phase doc: README prose is
+still describing dollar accounting (release-notes bullet, harvest prose, dashboard Budget
+panel, CLI-reference rows, ASCII mock) and the skills still reference the removed
+`[architect] model` cost-rate field. Starting the six Spec tasks: release-notes bullet,
+README prose sweep, ASCII mock, auto skill wording, escalate skill wording, and the
+acceptance greps. No code, per the phase's `kind=docs` tag.
