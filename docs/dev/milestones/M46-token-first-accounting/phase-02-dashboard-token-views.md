@@ -1,7 +1,7 @@
 # Phase 02: Dashboard token views
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase-01
 **Estimated diff:** ~350 lines
 **Tags:** language=rust, kind=feature, size=m
@@ -333,5 +333,80 @@ docs.)
 ## Update Log
 
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
+
+### Update — 2026-08-16 23:49 (progress)
+
+Started M46 phase-02: flipped status to in-progress and updated the milestone
+README's phase table. Implementing the Spec tasks in order — session Metrics
+cache classes first, then StatusSummary, ScopeCosts wiring, the new
+`cache_split_lines` renderer, the `b` cycler, and the tests/E2E capture.
+
+### Update — 2026-08-16 23:53 (end-to-end verification)
+
+Ran the phase's E2E block against the real `costs` CLI and session-log
+schema. `target/e2e/cache-row.txt` (pasted):
+
+```
+  Cache:         30.0%     96.7%     15.6%
+  Cache:           —       96.7%     15.6%
+```
+
+Full CLI outputs, `target/e2e/costs-cache-session.txt` (pasted):
+
+```
+Tokens         Session Milestone   Project
+  Architect:       —         —     2635.3M
+  Executor:       1.0M     26.9M    344.5M
+  Cache:         30.0%     96.7%     15.6%
+Assists: 0
+
+By skill (architect)
+SKILL                   TOKENS       %
+rexymcp:dispatch       1006.1M   38.2%
+rexymcp:review          560.9M   21.3%
+architect chat          550.5M   20.9%
+rexymcp:architect       329.5M   12.5%
+rexymcp:escalate        134.2M    5.1%
+rexymcp:auto             44.3M    1.7%
+claude-api                9.5M    0.4%
+review                  413.1k    0.0%
+Last swept: 14s ago (no change)
+```
+
+`target/e2e/costs-old-session.txt` (pasted):
+
+```
+Tokens         Session Milestone   Project
+  Architect:       —         —     2635.3M
+  Executor:      15.2k     26.9M    344.5M
+  Cache:           —       96.7%     15.6%
+Assists: 0
+
+By skill (architect)
+SKILL                   TOKENS       %
+rexymcp:dispatch       1006.1M   38.2%
+rexymcp:review          560.9M   21.3%
+architect chat          550.5M   20.9%
+rexymcp:architect       329.5M   12.5%
+rexymcp:escalate        134.2M    5.1%
+rexymcp:auto             44.3M    1.7%
+claude-api                9.5M    0.4%
+review                  413.1k    0.0%
+Last swept: 14s ago (no change)
+```
+
+First line of `cache-row.txt`: the cache-bearing fixture
+(`session-e2e-cache.jsonl`) shows the Session `Cache:` cell at **30.0%** (300k
+read / [600k input + 300k read + 100k write] = 30.0%) — the session-scope
+cache classes are live end-to-end. Positive control: the second line is the
+pre-M46 fixture (`session-e2e-old.jsonl`), whose `metrics` line has **no**
+cache keys; it parses and renders the Session cell as `—`, proving the
+deserializer defaults zeros — a same-session A/B that could only differ if
+the new fields were actually wired. Both `costs` runs exited 0 and report
+the same shared project telemetry (Milestone/Project cells identical), so the
+two Session cells are the isolated variable; the Executor Session cell differs
+(1.0M ⇄ 15.2k) exactly as the two fixtures prescribe. No `$` anywhere. The
+`b` cycler is not exercisable non-interactively — covered by the state-level
+enum + `savings_lines` delegation tests instead, per the phase doc.
 
 <!-- entries appended below this line -->

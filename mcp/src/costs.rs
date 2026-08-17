@@ -193,7 +193,9 @@ pub fn load_cost_report(
             ScopeCosts {
                 executor_in: summary.last_input_tokens.unwrap_or(0) as u64,
                 executor_out: summary.last_output_tokens.unwrap_or(0) as u64,
-                ..Default::default()
+                executor_cache_read: summary.last_cache_read_tokens.unwrap_or(0) as u64,
+                executor_cache_write: summary.last_cache_write_tokens.unwrap_or(0) as u64,
+                architect: ArchitectTokens::default(),
             }
         }
         Err(_) => ScopeCosts::default(),
@@ -298,6 +300,21 @@ fn make_row(label: &str, v1: String, v2: String, v3: String, has_milestone: bool
     }
 }
 
+/// A token cell's dash aligned on the decimal column. `fmt_tokens`' bare
+/// "—" right-aligns to the field's right edge, but a `X.Xk`/`X.XM` value
+/// keeps its decimal 2 columns in (`.` + one digit + a k/M suffix); two
+/// trailing spaces drop the em-dash onto that decimal column. Applied
+/// here at the render level, NOT in `fmt_tokens` — that helper is shared
+/// by scorecard/runs/calibrate-governor, where a bare "—" is correct.
+/// The same 2-in-from-the-right padding places the Cache-row `%` cells
+/// (`NN.N%` is `.` + digit + `%`) on the identical marker column.
+const TOK_DASH: &str = "—  ";
+
+fn tok_cell(n: u64) -> String {
+    let s = metrics::fmt_tokens(n);
+    if s == "—" { TOK_DASH.to_string() } else { s }
+}
+
 /// The Budget ledger: a header plus Architect / Executor / Cache rows across
 /// the Session / Milestone / Project scopes. First two rows are token counts;
 /// the Cache row is the executor's prompt-side cache-hit ratio (`%`), or `—`
@@ -322,19 +339,7 @@ pub fn ledger_lines(
         format!("{:<12}{:>9}{:>9}", "Tokens", "Session", "Project")
     };
 
-    // A token cell's dash aligned on the decimal column. `fmt_tokens`' bare
-    // "—" right-aligns to the field's right edge, but a `X.Xk`/`X.XM` value
-    // keeps its decimal 2 columns in (`.` + one digit + a k/M suffix); two
-    // trailing spaces drop the em-dash onto that decimal column. Applied
-    // here at the render level, NOT in `fmt_tokens` — that helper is shared
-    // by scorecard/runs/calibrate-governor, where a bare "—" is correct.
-    // The same 2-in-from-the-right padding places the Cache-row `%` cells
-    // (`NN.N%` is `.` + digit + `%`) on the identical marker column.
-    const TOK_DASH: &str = "—  ";
-    let tok = |n: u64| -> String {
-        let s = metrics::fmt_tokens(n);
-        if s == "—" { TOK_DASH.to_string() } else { s }
-    };
+    // Token cells use the shared decimal-aligned dash helper (see `TOK_DASH`).
 
     // Cache: prompt-side hit ratio. No cache-class data (Session scope) or no
     // cache activity renders the dash, never `0.0%` — an absence of
@@ -355,16 +360,16 @@ pub fn ledger_lines(
         header,
         make_row(
             "Architect:",
-            tok(session.architect_tokens),
-            tok(mile.architect_tokens),
-            tok(project.architect_tokens),
+            tok_cell(session.architect_tokens),
+            tok_cell(mile.architect_tokens),
+            tok_cell(project.architect_tokens),
             has_milestone,
         ),
         make_row(
             "Executor:",
-            tok(session.executor_tokens),
-            tok(mile.executor_tokens),
-            tok(project.executor_tokens),
+            tok_cell(session.executor_tokens),
+            tok_cell(mile.executor_tokens),
+            tok_cell(project.executor_tokens),
             has_milestone,
         ),
         make_row(
@@ -372,6 +377,68 @@ pub fn ledger_lines(
             cache_cell(session),
             cache_cell(mile),
             cache_cell(project),
+            has_milestone,
+        ),
+    ]
+}
+
+/// The Cache-split view: executor read/write per scope, plus the architect
+/// ledger's 5m/1h cache-creation split (project scope only — the ledger has
+/// no session or milestone dimension). Same column widths, dash and token-cell
+/// conventions as `ledger_lines`; the architect cells are `TOK_DASH` outside
+/// the Project column (no per-session/per-milestone architect data exists).
+pub fn cache_split_lines(
+    session: &ScopeReport,
+    milestone: Option<&ScopeReport>,
+    project: &ScopeReport,
+    arch_cache_5m: u64,
+    arch_cache_1h: u64,
+) -> Vec<String> {
+    let has_milestone = milestone.is_some();
+    let mile_default = ScopeReport::default();
+    let mile = milestone.unwrap_or(&mile_default);
+
+    let header = if has_milestone {
+        format!(
+            "{:<12}{:>10}{:>10}{:>10}",
+            "Cache", "Session", "Milestone", "Project"
+        )
+    } else {
+        format!("{:<12}{:>9}{:>9}", "Cache", "Session", "Project")
+    };
+
+    // Architect cache-creation cells exist only at Project scope; everywhere
+    // else the column is the padded dash.
+    let arch_cell = |_: &ScopeReport| TOK_DASH.to_string();
+
+    vec![
+        header,
+        make_row(
+            "  Read:",
+            tok_cell(session.executor_cache_read),
+            tok_cell(mile.executor_cache_read),
+            tok_cell(project.executor_cache_read),
+            has_milestone,
+        ),
+        make_row(
+            "  Write:",
+            tok_cell(session.executor_cache_write),
+            tok_cell(mile.executor_cache_write),
+            tok_cell(project.executor_cache_write),
+            has_milestone,
+        ),
+        make_row(
+            "  Arch 5m:",
+            arch_cell(session),
+            arch_cell(mile),
+            tok_cell(arch_cache_5m),
+            has_milestone,
+        ),
+        make_row(
+            "  Arch 1h:",
+            arch_cell(session),
+            arch_cell(mile),
+            tok_cell(arch_cache_1h),
             has_milestone,
         ),
     ]
@@ -461,28 +528,174 @@ mod tests {
     }
 
     #[test]
+    fn session_scope_cache_cells_from_summary() {
+        // Hand-built ScopeCosts mirroring what load_cost_report wires from a
+        // summary with cache_read=300k, input=600k, cache_write=100k.
+        let session_costs = ScopeCosts {
+            executor_in: 600_000,
+            executor_out: 1_000,
+            executor_cache_read: 300_000,
+            executor_cache_write: 100_000,
+            architect: ArchitectTokens::default(),
+        };
+        let sess = scope_report(&session_costs);
+        let lines = ledger_lines(&sess, None, &ScopeReport::default());
+        let cache_line = lines
+            .iter()
+            .find(|l| l.contains("Cache:"))
+            .expect("Cache row present");
+        assert!(
+            cache_line.contains("30.0%"),
+            "session cache cell should read 30.0%: {cache_line}"
+        );
+    }
+
+    #[test]
+    fn cache_split_lines_renders_four_rows() {
+        let sess = ScopeReport {
+            executor_cache_read: 90_200,
+            executor_cache_write: 0,
+            ..Default::default()
+        };
+        let proj = ScopeReport {
+            executor_cache_read: 53_500_000,
+            executor_cache_write: 810_400,
+            ..Default::default()
+        };
+        let lines = cache_split_lines(&sess, None, &proj, 1_500_000, 500_300);
+        let texts: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+
+        let read_line = texts
+            .iter()
+            .find(|s| s.contains("Read:"))
+            .expect("Read: row");
+        assert!(read_line.contains("90.2k"), "session read: {read_line}");
+        assert!(read_line.contains("53.5M"), "project read: {read_line}");
+
+        let write_line = texts
+            .iter()
+            .find(|s| s.contains("Write:"))
+            .expect("Write: row");
+        assert!(write_line.contains("810.4k"), "project write: {write_line}");
+
+        let arch_5m = texts
+            .iter()
+            .find(|s| s.contains("Arch 5m:"))
+            .expect("Arch 5m: row");
+        assert!(arch_5m.contains("1.5M"), "project arch 5m: {arch_5m}");
+        // Session/milestone arch cells are all dashes (no per-session arch data).
+        let dash_count = arch_5m.match_indices('—').count();
+        assert!(
+            dash_count >= 1,
+            "Arch 5m: session cell must be a dash: {arch_5m}"
+        );
+
+        let arch_1h = texts
+            .iter()
+            .find(|s| s.contains("Arch 1h:"))
+            .expect("Arch 1h: row");
+        assert!(arch_1h.contains("500.3k"), "project arch 1h: {arch_1h}");
+
+        // Row order: Read, Write, Arch 5m, Arch 1h.
+        let labels: Vec<String> = texts[1..]
+            .iter()
+            .map(|s| {
+                let end = s.find(':').unwrap_or(s.len());
+                s[..end].trim().to_string()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+        let expected: Vec<String> = vec!["Read", "Write", "Arch 5m", "Arch 1h"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(labels, expected);
+    }
+
+    #[test]
+    fn cache_split_alignment_matches_decimal_column() {
+        // Decimal/dash alignment: Session cells share one marker column and
+        // Project cells share another; dash cells land on the decimal column
+        // of their scope. Char-columns, not bytes — the em-dash is 3 UTF-8
+        // bytes wide, so byte offsets would be misaligned.
+        let sess = ScopeReport {
+            executor_cache_read: 90_200, // "90.2k" — Session column
+            ..Default::default()
+        };
+        let proj = ScopeReport {
+            executor_cache_read: 53_500_000, // "53.5M" — Project column
+            executor_cache_write: 810_400,   // "810.4k" — Project column
+            ..Default::default()
+        };
+        let lines = cache_split_lines(&sess, None, &proj, 1_500_000, 500_300);
+        let texts: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        let read = texts.iter().find(|s| s.contains("Read:")).unwrap();
+        let write = texts.iter().find(|s| s.contains("Write:")).unwrap();
+        let arch_5m = texts.iter().find(|s| s.contains("Arch 5m:")).unwrap();
+        let arch_1h = texts.iter().find(|s| s.contains("Arch 1h:")).unwrap();
+
+        let col_of = |line: &str, needle: char, nth: usize| -> usize {
+            line.chars()
+                .enumerate()
+                .filter(|(_, c)| *c == needle)
+                .nth(nth)
+                .map(|(i, _)| i)
+                .unwrap()
+        };
+
+        // Session column: read=90.2k (decimal at col N), others are dashes.
+        let read_session = col_of(read, '.', 0);
+        let write_session = col_of(write, '—', 0);
+        let arch_5m_session = col_of(arch_5m, '—', 0);
+        let arch_1h_session = col_of(arch_1h, '—', 0);
+        assert_eq!(
+            write_session, read_session,
+            "Write dash aligns with Read decimal\nRead:  {read}\nWrite: {write}"
+        );
+        assert_eq!(
+            arch_5m_session, read_session,
+            "Arch 5m dash aligns with Read decimal\nRead:    {read}\nArch5m:  {arch_5m}"
+        );
+        assert_eq!(
+            arch_1h_session, read_session,
+            "Arch 1h dash aligns with Read decimal\nRead:   {read}\nArch1h: {arch_1h}"
+        );
+
+        // Project column: every cell here is non-zero, so each row's project
+        // decimal is the first '.' after the session cell.
+        let read_p = col_of(read, '.', 1);
+        let write_p = col_of(write, '.', 0);
+        let arch_5m_p = col_of(arch_5m, '.', 0);
+        let arch_1h_p = col_of(arch_1h, '.', 0);
+        assert_eq!(
+            read_p, write_p,
+            "Read/Write Project decimals align\nRead:  {read}\nWrite: {write}"
+        );
+        assert_eq!(
+            read_p, arch_5m_p,
+            "Read/Arch 5m Project decimals align\nRead:   {read}\nArch5m: {arch_5m}"
+        );
+        assert_eq!(
+            read_p, arch_1h_p,
+            "Read/Arch 1h Project decimals align\nRead:  {read}\nArch1h: {arch_1h}"
+        );
+    }
+
+    #[test]
     fn load_cost_report_telemetry_disabled_errors() {
         // Use a temp config file with telemetry.enabled = false.
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("rexymcp.toml");
-        let _ = std::fs::write(
+        std::fs::write(
             &config_path,
-            r#"
-[executor]
-model = "AEON-7"
-provider = "ollama"
+            r#"provider = "ollama"
 base_url = "http://localhost:1234/v1"
-
-[commands]
-format = "cargo fmt --all"
-build = "cargo build"
-lint = "cargo clippy"
-test = "cargo test"
 
 [telemetry]
 enabled = false
 "#,
-        );
+        )
+        .unwrap();
         let err = load_cost_report(&config_path, tmp.path(), None, None).unwrap_err();
         assert!(
             err.contains("telemetry disabled"),

@@ -59,6 +59,10 @@ pub struct StatusSummary {
     pub last_input_tokens: Option<u32>,
     /// Cumulative output tokens from the most recent `Metrics` record.
     pub last_output_tokens: Option<u32>,
+    /// Cumulative executor cache-read tokens from the most recent `Metrics`.
+    pub last_cache_read_tokens: Option<u32>,
+    /// Cumulative executor cache-write tokens from the most recent `Metrics`.
+    pub last_cache_write_tokens: Option<u32>,
     /// Context-window fraction (0.0..=1.0+) from the most recent `Metrics`;
     /// `None` = no metrics yet. A value of 0.0 means the run had no real
     /// ceiling (unmeasured sentinel).
@@ -181,6 +185,8 @@ pub fn summarize(records: &[SessionRecord]) -> StatusSummary {
             SessionEvent::Metrics {
                 input_tokens,
                 output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
                 context_pct,
                 context_used,
                 context_window,
@@ -192,6 +198,8 @@ pub fn summarize(records: &[SessionRecord]) -> StatusSummary {
                 summary.last_metrics_ts = Some(rec.ts);
                 summary.last_input_tokens = Some(*input_tokens);
                 summary.last_output_tokens = Some(*output_tokens);
+                summary.last_cache_read_tokens = Some(*cache_read_tokens);
+                summary.last_cache_write_tokens = Some(*cache_write_tokens);
                 summary.last_context_pct = Some(*context_pct);
                 summary.last_context_used = Some(*context_used);
                 summary.last_context_window = Some(*context_window);
@@ -492,10 +500,37 @@ mod tests {
         SessionEvent::Metrics {
             input_tokens,
             output_tokens,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
             context_pct,
             context_used: 0,
             context_window: 0,
         }
+    }
+
+    #[test]
+    fn summarize_reads_cache_classes_from_metrics() {
+        let recs = vec![
+            rec(100, 0, start()),
+            rec(
+                900,
+                1,
+                SessionEvent::Metrics {
+                    input_tokens: 600_000,
+                    output_tokens: 1_000,
+                    cache_read_tokens: 300_000,
+                    cache_write_tokens: 100_000,
+                    context_pct: 0.1,
+                    context_used: 1,
+                    context_window: 10,
+                },
+            ),
+        ];
+        let s = summarize(&recs);
+        assert_eq!(s.last_input_tokens, Some(600_000));
+        assert_eq!(s.last_output_tokens, Some(1_000));
+        assert_eq!(s.last_cache_read_tokens, Some(300_000));
+        assert_eq!(s.last_cache_write_tokens, Some(100_000));
     }
 
     fn compaction(tokens_before: usize, tokens_after: usize) -> SessionEvent {

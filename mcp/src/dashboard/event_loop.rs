@@ -19,6 +19,7 @@ pub(crate) fn run_loop(
     let mut follow = true;
     let mut spinner_tick: usize = 0;
     let mut filter_state = FilterState::default();
+    let mut token_view = super::panels::TokenView::default();
     // Track record count so we can re-enable follow whenever new content arrives,
     // regardless of whether the user previously scrolled away from the bottom.
     let mut prev_record_count: usize = 0;
@@ -71,6 +72,7 @@ pub(crate) fn run_loop(
             follow,
             spinner,
             filter: filter_state.clone(),
+            token_view,
             generation,
         };
         let mut total_wrapped = 0usize;
@@ -105,6 +107,16 @@ pub(crate) fn run_loop(
                     KeyCode::Char('f') => {
                         filter_state.open = true;
                         filter_state.cursor = 0;
+                    }
+                    KeyCode::Char('b') => {
+                        token_view = match token_view {
+                            super::panels::TokenView::Totals => {
+                                super::panels::TokenView::CacheSplit
+                            }
+                            super::panels::TokenView::CacheSplit => {
+                                super::panels::TokenView::Totals
+                            }
+                        };
                     }
                     KeyCode::Up => {
                         follow = false;

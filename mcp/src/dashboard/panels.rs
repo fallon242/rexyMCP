@@ -464,16 +464,28 @@ pub(crate) fn budget_lines(summary: &StatusSummary) -> Vec<Line<'static>> {
     lines
 }
 
-/// Budget-panel savings block. Delegates to the shared `ledger_lines` renderer
-/// so the dashboard and CLI produce identical output.
+/// Which token view the Budget panel renders. `b` cycles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TokenView {
+    #[default]
+    Totals,
+    CacheSplit,
+}
+
+/// Budget-panel savings block. Delegates to the shared `ledger_lines`
+/// (`Totals`) / `cache_split_lines` (`CacheSplit`) renderer so the dashboard and
+/// CLI produce identical output.
 /// Returns empty when there are no session metrics yet — never a lone header.
 pub(crate) fn savings_lines(
     summary: &StatusSummary,
     milestone_costs: Option<ScopeCosts>,
     project_costs: ScopeCosts,
     _project_escalation_count: u32, // retained to avoid call-site cascade; full removal deferred
+    view: TokenView,
+    arch_cache_5m: u64,
+    arch_cache_1h: u64,
 ) -> Vec<Line<'static>> {
-    // Nothing to render without input tokens.
+    // Nothing to render without input tokens — applies to both views.
     let Some(sess_in) = summary.last_input_tokens else {
         return Vec::new();
     };
@@ -483,13 +495,20 @@ pub(crate) fn savings_lines(
     let session_costs = ScopeCosts {
         executor_in: sess_in,
         executor_out: sess_out,
+        executor_cache_read: summary.last_cache_read_tokens.unwrap_or(0) as u64,
+        executor_cache_write: summary.last_cache_write_tokens.unwrap_or(0) as u64,
         ..Default::default()
     };
     let sess = costs::scope_report(&session_costs);
     let mile = milestone_costs.map(|c| costs::scope_report(&c));
     let proj = costs::scope_report(&project_costs);
 
-    let lines = costs::ledger_lines(&sess, mile.as_ref(), &proj);
+    let lines = match view {
+        TokenView::Totals => costs::ledger_lines(&sess, mile.as_ref(), &proj),
+        TokenView::CacheSplit => {
+            costs::cache_split_lines(&sess, mile.as_ref(), &proj, arch_cache_5m, arch_cache_1h)
+        }
+    };
     lines.into_iter().map(Line::from).collect()
 }
 /// Wrap lines in a bordered `Block` with the given title.
@@ -1545,8 +1564,30 @@ mod tests {
     // --- savings_lines tests ---
 
     #[test]
+    fn token_view_defaults_to_totals_and_has_two_variants() {
+        // The `b` cycler flips between the two — state-level contract the key
+        // arm and the render branch both rely on.
+        assert_eq!(TokenView::default(), TokenView::Totals);
+        assert_ne!(TokenView::Totals, TokenView::CacheSplit);
+        let next = |v: TokenView| match v {
+            TokenView::Totals => TokenView::CacheSplit,
+            TokenView::CacheSplit => TokenView::Totals,
+        };
+        assert_eq!(next(TokenView::Totals), TokenView::CacheSplit);
+        assert_eq!(next(TokenView::CacheSplit), TokenView::Totals);
+    }
+
+    #[test]
     fn savings_lines_empty_without_session_metrics() {
-        let result = savings_lines(&StatusSummary::default(), None, ScopeCosts::default(), 0);
+        let result = savings_lines(
+            &StatusSummary::default(),
+            None,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         assert!(result.is_empty(), "no session tokens → empty");
     }
 
@@ -1558,7 +1599,15 @@ mod tests {
             ..StatusSummary::default()
         };
         // No milestone → 2-scope header
-        let lines = savings_lines(&summary, None, ScopeCosts::default(), 0);
+        let lines = savings_lines(
+            &summary,
+            None,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         let header = format!("{}", lines[0]);
         assert!(
             header.contains("Tokens"),
@@ -1584,7 +1633,15 @@ mod tests {
             executor_out: 200_000,
             ..ScopeCosts::default()
         });
-        let lines = savings_lines(&summary, mile, ScopeCosts::default(), 0);
+        let lines = savings_lines(
+            &summary,
+            mile,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         let header = format!("{}", lines[0]);
         assert!(
             header.contains("Milestone"),
@@ -1600,7 +1657,15 @@ mod tests {
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let lines = savings_lines(&summary, None, ScopeCosts::default(), 0);
+        let lines = savings_lines(
+            &summary,
+            None,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         // Header + 3 data rows = 4 lines
         assert_eq!(lines.len(), 4, "should have header + 3 rows");
@@ -1616,7 +1681,15 @@ mod tests {
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let lines = savings_lines(&summary, None, ScopeCosts::default(), 0);
+        let lines = savings_lines(
+            &summary,
+            None,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         assert!(
             !texts.iter().any(|s| s.starts_with("  Assists:")),
@@ -1643,7 +1716,7 @@ mod tests {
                 output: 25_000,
             },
         };
-        let lines = savings_lines(&summary, None, project_costs, 0);
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
 
         let header = &texts[0];
@@ -1690,7 +1763,15 @@ mod tests {
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let lines = savings_lines(&summary, None, ScopeCosts::default(), 0);
+        let lines = savings_lines(
+            &summary,
+            None,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         let row_labels: Vec<&str> = texts[1..]
             .iter()
@@ -1717,7 +1798,15 @@ mod tests {
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let lines = savings_lines(&summary, None, ScopeCosts::default(), 0);
+        let lines = savings_lines(
+            &summary,
+            None,
+            ScopeCosts::default(),
+            0,
+            TokenView::Totals,
+            0,
+            0,
+        );
         let header = format!("{}", lines[0]);
         assert!(
             header.contains("Tokens"),
@@ -1749,7 +1838,7 @@ mod tests {
                 output: 0,
             },
         };
-        let lines = savings_lines(&summary, None, project_costs, 0);
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         let data_texts: Vec<String> = texts
             .iter()
@@ -1778,7 +1867,7 @@ mod tests {
             executor_cache_write: 0,
             architect: Default::default(),
         };
-        let lines = savings_lines(&summary, None, project_costs, 0);
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         let cache_line = texts
             .iter()
@@ -1817,7 +1906,7 @@ mod tests {
         let sess = crate::costs::scope_report(&session_costs_from(&summary));
         let proj = crate::costs::scope_report(&project_costs);
 
-        let lines = savings_lines(&summary, None, project_costs, 0);
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let dashboard_strings: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
 
         let expected = crate::costs::ledger_lines(&sess, None, &proj);
@@ -1827,10 +1916,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn savings_lines_cache_split_delegates_to_cache_split_lines() {
+        // CacheSplit view must equal cache_split_lines for the same inputs.
+        let summary = StatusSummary {
+            last_input_tokens: Some(600_000),
+            last_output_tokens: Some(1_000),
+            last_cache_read_tokens: Some(300_000),
+            last_cache_write_tokens: Some(100_000),
+            ..StatusSummary::default()
+        };
+        let project_costs = ScopeCosts {
+            executor_cache_read: 53_500_000,
+            executor_cache_write: 810_400,
+            ..ScopeCosts::default()
+        };
+
+        let sess = crate::costs::scope_report(&session_costs_from(&summary));
+        let proj = crate::costs::scope_report(&project_costs);
+
+        let lines = savings_lines(
+            &summary,
+            None,
+            project_costs,
+            0,
+            TokenView::CacheSplit,
+            1_500_000,
+            500_300,
+        );
+        let dashboard_strings: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
+
+        let expected = crate::costs::cache_split_lines(&sess, None, &proj, 1_500_000, 500_300);
+        assert_eq!(
+            dashboard_strings, expected,
+            "dashboard CacheSplit must delegate to cache_split_lines"
+        );
+    }
+
     fn session_costs_from(summary: &StatusSummary) -> ScopeCosts {
         ScopeCosts {
             executor_in: summary.last_input_tokens.unwrap_or(0) as u64,
             executor_out: summary.last_output_tokens.unwrap_or(0) as u64,
+            executor_cache_read: summary.last_cache_read_tokens.unwrap_or(0) as u64,
+            executor_cache_write: summary.last_cache_write_tokens.unwrap_or(0) as u64,
             ..ScopeCosts::default()
         }
     }

@@ -81,6 +81,12 @@ pub enum SessionEvent {
     Metrics {
         input_tokens: u32,
         output_tokens: u32,
+        /// Cumulative executor cache-read / cache-write tokens (M46 phase-02).
+        /// `#[serde(default)]` so pre-M46 session logs (no such keys) still parse.
+        #[serde(default)]
+        cache_read_tokens: u32,
+        #[serde(default)]
+        cache_write_tokens: u32,
         context_pct: f64,
         /// Estimated tokens currently occupying the context window.
         context_used: u32,

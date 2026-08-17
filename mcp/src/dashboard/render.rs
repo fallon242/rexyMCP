@@ -8,8 +8,8 @@ use ratatui::{
 
 use super::filter::{ActivityFilter, FILTER_ITEM_COUNT, FilterState};
 use super::panels::{
-    budget_lines, files_lines, milestone_line, panel, reclaim_lines, savings_lines, session_lines,
-    spinner_line, tasks_lines,
+    TokenView, budget_lines, files_lines, milestone_line, panel, reclaim_lines, savings_lines,
+    session_lines, spinner_line, tasks_lines,
 };
 use super::transcript::transcript_lines;
 use crate::dashboard::DashboardData;
@@ -21,6 +21,7 @@ pub(crate) struct ViewState {
     pub(crate) follow: bool,
     pub(crate) spinner: Option<usize>,
     pub(crate) filter: FilterState,
+    pub(crate) token_view: TokenView,
     pub(crate) generation: u64,
 }
 
@@ -266,6 +267,9 @@ pub(crate) fn render_dashboard(
         data.milestone_costs,
         data.project_costs,
         data.project_escalation_count,
+        state.token_view,
+        data.arch_cache_5m,
+        data.arch_cache_1h,
     ));
     if let Some(line) = top_skill_line(data.top_skill.as_ref()) {
         budget.push(line);
