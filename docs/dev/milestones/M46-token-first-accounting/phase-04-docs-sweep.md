@@ -1,7 +1,7 @@
 # Phase 04: Docs sweep
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** review
+**Status:** done
 **Depends on:** phase-03
 **Estimated diff:** ~120 lines (docs only — README + two plugin skill docs; zero code)
 **Tags:** language=markdown, kind=docs, size=s
@@ -376,3 +376,24 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 5e4fe87549a28ec2c2f92a6682c09a10296c3d5e
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-16
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** deepseek-v4-flash-0731
+- **Scope deviations:** none
+- **Calibration:** none
+
+Notes: the two greps in acceptance criteria 1-2 (`$[0-9]|/Mtok|...` and
+`--tokens|Spend block|...`) each return exactly one hit, both inside the
+release-notes bullet's own literal `$/Mtok`/`--tokens` mentions of the things
+that were *removed* — Spec task 6 explicitly authorizes this residual as
+correct-and-stays. Outside the bullet, both files are stale-free. Also
+observed: the ASCII mock's `Architect:` row is one column wider than its
+siblings (border at char 60 vs 59), a pre-existing one-space misalignment
+carried over unchanged from the prior `$`-denominated mock (confirmed via
+`git show 5e4fe87` — the old `Architect:` line had the identical extra
+trailing space before this phase touched it). Cosmetic only, not introduced
+by this phase, not a criterion failure — noted for a future editorial pass,
+not worth a bounce.
