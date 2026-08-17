@@ -4,7 +4,9 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active phase: [M46 / phase-03 — Pricing plumbing removal](milestones/M46-token-first-accounting/phase-03-pricing-plumbing-removal.md)** (status: todo — drafted 2026-08-16 inside a `/rexymcp:auto` run).
+**Active phase: [M46 / phase-04 — Docs sweep](milestones/M46-token-first-accounting/phase-04-docs-sweep.md)** (status: todo — drafted 2026-08-16 inside a `/rexymcp:auto` run; the milestone's last in-scope phase).
+
+**M46 / phase-03 — Pricing plumbing removal: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces, 370 executor turns (code `8901564`, approval `d7ff06e`). The reviewer recorded one undisclosed-but-benign scope deviation: the executor also removed the README known-model rate-table prose (nominally phase-04 work) — let stand because phase-03's own `[architect] model` deletion had made that paragraph document a nonexistent feature. Note: the live `rexymcp.toml` cleanup is gitignored, so it exists on disk only.
 
 **M46 / phase-02 — Dashboard token views: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces (code `f3f98dd`, approval `54f99a5`), inside the `/rexymcp:auto` loop with dispatch/review delegated to `claude-sonnet-5` subagents. The reviewer re-ran the E2E fixture block independently; the `SessionEvent::Metrics` cache extension is backward-compatible (`#[serde(default)]`, old-line parse test).
 
