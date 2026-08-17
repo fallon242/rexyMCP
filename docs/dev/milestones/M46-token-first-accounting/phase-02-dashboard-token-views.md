@@ -1,7 +1,7 @@
 # Phase 02: Dashboard token views
 
 **Milestone:** M46 — Token-First Accounting
-**Status:** review
+**Status:** done
 **Depends on:** phase-01
 **Estimated diff:** ~350 lines
 **Tags:** language=rust, kind=feature, size=m
@@ -537,3 +537,11 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** f3f98dd270d29ed8977a3997aad0865ac693d932
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-08-16
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** deepseek-v4-flash-0731
+- **Scope deviations:** none
+- **Calibration:** none
