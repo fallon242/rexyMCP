@@ -4,18 +4,17 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active milestone: M45 — Executor Egress Protection** (closes the M44 residual —
-cloud-executor PII egress — via irreversible redact-on-read + a write-guard).
-**Status:** phases 01–04 built, tested, committed on branch
-`m45-executor-egress-protection` (endpoint classification, PII pre-scan /
-`PiiIndex`, `RedactingAiClient`, `pii_write_refusal`; 1806 → 1827 tests).
-**Phase-05 WIRED** (branch `m45-phase05-wiring`, 2 commits): 05a threaded
-`pii_files` through `LoopDeps` + the refusal chain (dormant, all tests unchanged);
-05b engages it at dispatch — `run_phase` pre-scans the repo, wraps the client in
-`RedactingAiClient`, and feeds the PII-file set to the write-guard when the gate
-is on and the executor endpoint is a cloud host. Egress protection is now
-automatic. Live pre-scan verified against Qwen (1827 → 1828 tests); a full
-DeepSeek dispatch dogfood is the one manual check left.
+**Active milestone: M46 — Pre-scan Efficiency — DONE** (both phases
+`approved_first_try` 2026-08-21: `scan_globs` bounds the egress pre-scan;
+encrypted `PiiIndex` persistence reuses unchanged files, skipping NER).
+**M45 phase-05 (wiring + dogfood) also approved 2026-08-21** — the live DeepSeek
+dogfood (2026-08-07) confirmed the write-guard + `[REDACTED:…]` on the wire and
+caught the documented best-effort NER miss for names; egress protection is
+automatic for cloud endpoints.
+**Next:** M45 phases 01–04 (endpoint classification, PII pre-scan, redacting
+client, write-refuse) remain marked `review` from 2026-08-07 — architect
+closeout pending (all four built, tested, merged; gates re-verified green
+2026-08-21). No M47 planned yet — milestone boundaries await human sign-off.
 
 **M44 — PII Ingestion Gate: MERGED** to `fallon242/master` (PR #1, 2026-08-07,
 merge `3915b1d`). Usable via the CLI + auto-scrubs the `PhaseResult` return path;

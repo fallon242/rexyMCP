@@ -1,7 +1,7 @@
 # Phase 1: `[privacy] scan_globs`
 
 **Milestone:** M46 — Pre-scan Efficiency
-**Status:** review
+**Status:** done
 **Depends on:** M45 (`scan_repo_files` / `build_egress_index`)
 **Estimated diff:** ~60 lines
 **Tags:** language=rust, kind=feature, size=s
@@ -59,3 +59,14 @@ failed.
 **End-to-end verification:** Not applicable — library filter; the
 `scan_globs_limit_the_walk` test drives a real `TempDir` walk with a `data/**`
 pattern and asserts a top-level file is excluded.
+
+### Review verdict — 2026-08-21
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** none
+- **Calibration:** none — gates independently re-verified green (fmt, build,
+  clippy `-D warnings`, `cargo test` 1140 executor / workspace 0 failed);
+  `scan_globs_limit_the_walk` is mutation-resistant (a "no filtering" impl
+  fails it); empty-glob behavior pinned by the pre-existing ignore-walk test.

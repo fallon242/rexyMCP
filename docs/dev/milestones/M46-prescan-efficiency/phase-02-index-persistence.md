@@ -1,7 +1,7 @@
 # Phase 2: Encrypted PiiIndex persistence
 
 **Milestone:** M46 — Pre-scan Efficiency
-**Status:** review
+**Status:** done
 **Depends on:** phase-01; M45 pre-scan; M44 vault crypto
 **Estimated diff:** ~180 lines (seal module + refactor + persistence + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -75,3 +75,16 @@ persistence).
 `PiiIndex`, confirms the on-disk blob has no plaintext "Alice", and reloads it;
 the live `build_egress_index` test (against Qwen) still passes with the new
 load/save I/O in place.
+
+### Review verdict — 2026-08-21
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** none
+- **Calibration:** none — gates independently re-verified green (fmt, build,
+  clippy `-D warnings`, `cargo test` 1140 executor / workspace 0 failed);
+  `index_persists_encrypted_across_reload` is mutation-resistant (asserts the
+  on-disk blob contains no plaintext "Alice", i.e. an unencrypted save fails
+  it); `load_missing_index_is_empty` pins the absent-file case; the vault
+  refactor is guarded by the five pre-existing vault tests staying green.

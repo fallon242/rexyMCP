@@ -1,7 +1,7 @@
 # Phase 5: Wiring (DEFERRED — focused follow-up)
 
 **Milestone:** M45 — Executor Egress Protection
-**Status:** review (05a plumbing + 05b dispatch integration done; live pre-scan verified)
+**Status:** done
 **Depends on:** phase-01, phase-02, phase-03, phase-04 (all built + committed)
 **Estimated diff:** large — core dispatch path + ~23 `LoopDeps` sites + file-walk
 
@@ -132,3 +132,16 @@ three properties were observed live:
 **Net:** the mechanism is correct — structured PII is reliably redacted and the
 write-guard reliably fires; unstructured PII (names/addresses) depends on the NER
 catching it and is **not guaranteed**, matching `docs/privacy.md`'s stated limits.
+
+### Review verdict — 2026-08-21
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** none
+- **Calibration:** none — gates independently re-verified green (fmt, build,
+  clippy `-D warnings`, `cargo test` 1140 executor / workspace 0 failed); the
+  live DeepSeek dogfood (2026-08-07) confirmed write-guard firing + deterministic
+  `[REDACTED:…]` on the wire, and caught the documented best-effort NER miss for
+  names — a limitation recorded in `docs/privacy.md`, not a defect. Wiring is
+  dormant-safe (05a plumbing + 05b engagement verified; `docs/privacy.md` amended).

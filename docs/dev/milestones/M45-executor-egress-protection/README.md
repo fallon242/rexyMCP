@@ -5,7 +5,8 @@ local executor isn't an option — by redacting PII out of everything the execut
 sends to the model (irreversibly) and refusing model writes to PII-bearing files,
 so no round-trip and no corruption.
 
-**Status:** planning
+**Status:** phase-05 (wiring + dogfood) done 2026-08-21; phases 01–04 built and
+awaiting review closeout.
 
 **Depends on:** M44 (detectors, registry, `[privacy]` config, vault). This closes
 the residual gap M44 documented and phase-06b proved could not be closed with a
@@ -64,7 +65,7 @@ Engaged iff `privacy.enabled && !endpoint_is_local(executor.base_url)`.
 | 02 | repo pre-scan → PII dictionary + PII-file set (registry-cached) | architect | review |
 | 03 | `RedactingAiClient` outbound chokepoint (deterministic + dictionary) | architect | review |
 | 04 | write-refuse guard for PII-bearing files (`pii_write_refusal` in `egress`) | architect | review |
-| 05 | wiring (engage for cloud endpoints) + config + docs + dogfood | architect | review (05a plumbing + 05b dispatch integration; live pre-scan verified) |
+| 05 | wiring (engage for cloud endpoints) + config + docs + dogfood | architect | done |
 
 ## Notes
 
