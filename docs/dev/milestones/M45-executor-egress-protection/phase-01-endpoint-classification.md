@@ -1,7 +1,7 @@
 # Phase 1: Endpoint classification + egress config
 
 **Milestone:** M45 — Executor Egress Protection
-**Status:** review
+**Status:** done
 **Depends on:** none (M44 config exists)
 **Estimated diff:** ~120 lines (module + config field + tests)
 **Tags:** language=rust, kind=feature, size=s
@@ -107,3 +107,11 @@ runtime-loadable artifact. The 8 unit tests cover host classification (localhost
 loopback / RFC-1918 incl. the 172.16–31 boundary / IPv6 / `.local` vs public
 domains and IPs, with scheme/port/path stripping) and the `should_redact_egress`
 decision matrix (disabled, auto cloud/local, and both explicit overrides).
+
+### Review verdict — 2026-08-30
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** none
+- **Calibration:** none

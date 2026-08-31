@@ -5,8 +5,8 @@ local executor isn't an option — by redacting PII out of everything the execut
 sends to the model (irreversibly) and refusing model writes to PII-bearing files,
 so no round-trip and no corruption.
 
-**Status:** phase-05 (wiring + dogfood) done 2026-08-21; phases 01–04 built and
-awaiting review closeout.
+**Status:** done — all five phases approved (01–04 closeout 2026-08-30; phase-05
+wiring + dogfood done 2026-08-21).
 
 **Depends on:** M44 (detectors, registry, `[privacy]` config, vault). This closes
 the residual gap M44 documented and phase-06b proved could not be closed with a
@@ -61,10 +61,10 @@ Engaged iff `privacy.enabled && !endpoint_is_local(executor.base_url)`.
 
 | #  | Phase                                                         | Build     | Status |
 |----|--------------------------------------------------------------|-----------|--------|
-| 01 | `endpoint_is_local` classification + `[privacy]` egress config | architect | review ← active |
-| 02 | repo pre-scan → PII dictionary + PII-file set (registry-cached) | architect | review |
-| 03 | `RedactingAiClient` outbound chokepoint (deterministic + dictionary) | architect | review |
-| 04 | write-refuse guard for PII-bearing files (`pii_write_refusal` in `egress`) | architect | review |
+| 01 | `endpoint_is_local` classification + `[privacy]` egress config | architect | done |
+| 02 | repo pre-scan → PII dictionary + PII-file set (registry-cached) | architect | done |
+| 03 | `RedactingAiClient` outbound chokepoint (deterministic + dictionary) | architect | done |
+| 04 | write-refuse guard for PII-bearing files (`pii_write_refusal` in `egress`) | architect | done |
 | 05 | wiring (engage for cloud endpoints) + config + docs + dogfood | architect | done |
 
 ## Notes

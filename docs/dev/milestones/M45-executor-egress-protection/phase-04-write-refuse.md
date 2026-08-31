@@ -1,7 +1,7 @@
 # Phase 4: Write-refuse guard for PII files
 
 **Milestone:** M45 — Executor Egress Protection
-**Status:** review
+**Status:** done
 **Depends on:** phase-02 (`PiiIndex`)
 **Estimated diff:** ~70 lines (fn + tests)
 **Tags:** language=rust, kind=feature, size=s
@@ -105,3 +105,13 @@ Post-phase-03 baseline was 1823; now 1827 (+4 write-guard tests).
 four tests cover: refuse a PII file, allow a clean file, allow a non-edit call
 (`None` target), and never refuse on an empty set. Live refusal in a dispatch is
 phase-05's dogfood.
+
+### Review verdict — 2026-08-30
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** guard relocated to `privacy::egress` as a `pub` fn vs the
+  draft's `agent/tools.rs` (declared deviation, accepted — clippy dead-code gate
+  with the wiring deferred to phase-05)
+- **Calibration:** none

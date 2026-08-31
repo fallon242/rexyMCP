@@ -1,7 +1,7 @@
 # Phase 2: Repo pre-scan → PII index
 
 **Milestone:** M45 — Executor Egress Protection
-**Status:** review
+**Status:** done
 **Depends on:** phase-01; M44 detector / ner / registry
 **Estimated diff:** ~200 lines (module + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -112,3 +112,11 @@ Post-phase-01 baseline was 1814; now 1817 (+3 prescan tests).
 `(path, content)` pairs + `MockAiClient`. `unchanged_file_reuses_cache_without_ner`
 proves the incrementality: a second pass over identical content leaves the mock's
 call count at 1; `changed_file_is_rescanned` shows it rises to 2 on edited content.
+
+### Review verdict — 2026-08-30
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** none
+- **Calibration:** none

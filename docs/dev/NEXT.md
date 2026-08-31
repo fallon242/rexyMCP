@@ -11,10 +11,11 @@ encrypted `PiiIndex` persistence reuses unchanged files, skipping NER).
 dogfood (2026-08-07) confirmed the write-guard + `[REDACTED:…]` on the wire and
 caught the documented best-effort NER miss for names; egress protection is
 automatic for cloud endpoints.
-**Next:** M45 phases 01–04 (endpoint classification, PII pre-scan, redacting
-client, write-refuse) remain marked `review` from 2026-08-07 — architect
-closeout pending (all four built, tested, merged; gates re-verified green
-2026-08-21). No M47 planned yet — milestone boundaries await human sign-off.
+**Next:** M45 phases 01–04 closeout **done 2026-08-30** — all four approved
+(`approved_first_try`, gates re-verified in-session: fmt/build/clippy clean,
+tests 717+2+1148 passed, write-guard mutation-checked to bite); M45 fully
+closed with review verdicts recorded in each phase doc. No M47 planned yet —
+milestone boundaries await human sign-off.
 
 **M44 — PII Ingestion Gate: MERGED** to `fallon242/master` (PR #1, 2026-08-07,
 merge `3915b1d`). Usable via the CLI + auto-scrubs the `PhaseResult` return path;

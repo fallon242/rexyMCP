@@ -1,7 +1,7 @@
 # Phase 3: RedactingAiClient outbound chokepoint
 
 **Milestone:** M45 — Executor Egress Protection
-**Status:** review
+**Status:** done
 **Depends on:** phase-01, phase-02
 **Estimated diff:** ~180 lines (module + tests)
 **Tags:** language=rust, kind=feature, size=m
@@ -114,3 +114,11 @@ client receives `help [REDACTED:name] today` and
 `[REDACTED:name]'s email is [REDACTED:email]`; `redacts_tool_result_content`
 confirms a `read_file` tool result carrying a name + private IP is redacted before
 forwarding. Live wiring (cloud endpoints via `make_client`) is phase-05.
+
+### Review verdict — 2026-08-30
+
+- **Verdict:** approved_first_try
+- **Bounces:** 0 (bugs: none)
+- **Executor:** Claude Code (direct)
+- **Scope deviations:** none
+- **Calibration:** none
