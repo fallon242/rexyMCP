@@ -99,7 +99,15 @@ pub trait AiClient: Send + Sync {
 pub fn http() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
+            // Connect timeout only — no client-level total `.timeout`. That
+            // setting is a deadline on the whole exchange, body included, so
+            // it severed every streamed response that ran past 300 s, and
+            // reqwest reports a severed body as "error decoding response
+            // body" — which `is_retriable_transport` then retried three times
+            // with the same prompt, restarting the model's reasoning from zero
+            // each attempt. Streams are bounded by the first-token / idle
+            // budgets in `stream_next_with_timeout` instead.
+            .connect_timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap()
     })
