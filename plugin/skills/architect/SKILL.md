@@ -170,6 +170,21 @@ whatever agent acts as the architect reads this first.
 | `<LINT_COMMAND>` | Lint / static analysis |
 | `<TEST_COMMAND>` | Tests |
 
+## Privacy (include this section only when `[privacy]` is enabled)
+
+- **Nothing unredacted leaves the environment.** Where redaction cannot be
+  verified, treat the content as unredacted and do not send it. When the
+  detection engine is unavailable, cloud work stops rather than proceeding
+  unprotected.
+- **`docs/` is what the architect reads**, directly and every session. Anything
+  left there reaches the cloud whatever the egress layer does — redaction
+  protects the executor's wire, not the architect's context.
+- **A phase doc dispatched to a cloud executor must forbid writing protected
+  names into its output**, or the run fails its own lint gate.
+- **Sensitive data is not written down in the first place.** Cite aggregate
+  figures and identifiers. Redaction is the second line of defence, never the
+  first.
+
 ## Executor
 
 Phases are executed by a **local LLM** reached through the rexyMCP MCP
