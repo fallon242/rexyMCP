@@ -1,7 +1,7 @@
 # Phase 1: evict tool-call pairs together
 
 **Milestone:** F06 — Compaction pairing
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~150 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -362,3 +362,21 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 7273fc768298cfeebb632418fc550dbb80e3786f
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-16
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** deepseek-flash
+- **Scope deviations:** none
+- **Calibration:** Spec §1 (take the replies along with an evicted call) does nothing once
+  §2 (clear leading replies after any eviction) exists. A mutation run with only §1
+  removed passed all 25 compactor tests: eviction works from the front, so an evicted
+  call's replies are either evicted on the next loop pass or cleared by Pass 2.5. The
+  redundancy came from the architect's spec, not the executor. Also: test 2's
+  `tool_call_id == "c1"` check always passes because every `make_tool_msg` uses `"c1"`;
+  `messages_evicted == 3` plus the `tc3` position check carry that test. The executor
+  called itself `claude-opus-4-6` in its own Update Log entries; the server-authored
+  entry correctly says deepseek-flash. The failing-test quote before the fix was
+  reformatted rather than pasted raw; the architect's mutation run reproduced it exactly
+  (22 passed; 3 failed).
