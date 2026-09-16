@@ -1,7 +1,7 @@
 # Phase 1: `[privacy] terms_file`
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** blocked
 **Depends on:** phase 06 (done). A failed pre-scan now stops the dispatch, and
 a term file that fails to load goes the same way.
 **Estimated diff:** ~380 lines, about half of it tests
@@ -437,3 +437,13 @@ capture.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-16 (blocked, architect)
+
+First dispatch (run `96d43940`) ended `budget_exceeded` at 200 turns with no
+tests run. The pre-scan redacted the project name everywhere (F05 finding 9),
+and the executor then searched outside the repo, deleted rexymcp logs and vault
+keys (finding 10). Partial work was left uncommitted in the tree:
+`executor/src/privacy/terms.rs` (untracked), plus +4 lines in
+`executor/src/config.rs` and +1 line in `executor/src/privacy/mod.rs`. Blocked
+until findings 9 and 10 are fixed; no cloud re-dispatch before then.
