@@ -1,7 +1,7 @@
 # Phase 6: a failed pre-scan stops a cloud dispatch
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** none (drafted ahead of phase 01 on human instruction)
 **Estimated diff:** ~120 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -341,3 +341,109 @@ through `redact_pii`, as specified.
 **Commands:** `cargo fmt --all --check` clean; `cargo build` clean;
 `cargo clippy --all-targets --all-features -- -D warnings` clean;
 `cargo test` = 1142 passed / 0 failed / 4 ignored.
+
+### Update — ts=1789570595702 (complete, server-authored)
+
+**Summary:** Done. Summary and notes for review:
+
+**What I built.** In `mcp/src/runner.rs`, the egress pre-scan now fails closed: when `should_redact_egress` is true and `build_egress_index` returns `Err`, `run_phase` returns `Err(Error::Privacy(..))` immediately — before `owned`, `fetch_context_window`, or `run_phase_with`, so no request reaches the cloud executor and no `PhaseResult` is produced. `egress_warning` and its push block are gone, the comment above `redact` no longer claims degradation, and a new private `prescan_refusal` builds the message: it routes the underlying error through `redact_pii(&e.to_string(), &[])`, then names `privacy.engine_base_url` and the three remedies (start the engine, run locally, or set `privacy.redact_executor_egress = false`). Two tests were added to the existing `mod tests` (built with the runtime-joined address, per the doc's gotcha), and `docs/privacy.md` gained the one sentence in the "② Executor egress" bullet.
+
+**Deviations.** None material. One cosmetic detail worth naming: `Error::Privacy`'s `#[error("privacy: {0}")]` prepends its own prefix, so the CLI line reads `privacy: the PII pre-scan failed (privacy: NER engine call failed: …)`. The spec's example showed `privacy:` once; I kept the raw pre-scan `Display` inside the parentheses so the underlying cause survives, and recorded this in the Update Log.
+
+**Verification.** `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` (1142 passed / 0 failed / 4 ignored) all clean. End-to-end, the real CLI against a cloud-configured executor with a refusing `localhost:9` engine exits `1` and prints the `privacy:` refusal, naming `privacy.engine_base_url`, with the address shown as `[REDACTED:ip]`. Positive control recorded: reverting the one-line change makes both new tests fail (27 passed / 2 failed) and the CLI harness revert to the old bare `privacy: NER engine call failed: …` output, so the refusal wording is produced by the fix rather than the harness. `grep -rn "write-guard is off" mcp/src/` returns nothing.
+
+**Executor:** deepseek-flash
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.24s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+:tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1142 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 6.17s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.39s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — +1 -1
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-06-prescan-fails-closed.md` — +65 -1
+- `docs/privacy.md` — +3 -1
+- `mcp/src/runner.rs` — +93 -12
+
+**Commit:** 0f6930ad3d280801ee03d5ade6a70608f4469b3a
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
