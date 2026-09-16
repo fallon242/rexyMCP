@@ -17,7 +17,7 @@ the same failure story, and together they make phase-02 diagnosable.
 
 ## Architecture references
 
-- `docs/dev/milestones/M43-thinking-mode-round-trip/README.md` — the three
+- `docs/dev/milestones/F01-thinking-mode-round-trip/README.md` — the three
   defects, how they chain, and the `feat/executor-thinking-and-autocomplete`
   branch that interacts with this one.
 

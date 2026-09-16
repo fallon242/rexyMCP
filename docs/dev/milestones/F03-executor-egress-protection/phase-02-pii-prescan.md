@@ -16,7 +16,7 @@ its cached result, so NER runs only on new/changed files.
 
 ## Architecture references
 
-- `docs/dev/milestones/M45-executor-egress-protection/README.md` — the design.
+- `docs/dev/milestones/F03-executor-egress-protection/README.md` — the design.
 - `executor/src/privacy/{detector,ner,registry}.rs` — reused wholesale.
 - `docs/dev/STANDARDS.md` §3 (tests; `MockAiClient` for NER).
 

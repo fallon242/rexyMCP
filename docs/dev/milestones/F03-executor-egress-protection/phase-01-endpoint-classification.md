@@ -14,7 +14,7 @@ local/LAN host vs a cloud host, and resolve the engage/skip decision from
 
 ## Architecture references
 
-- `docs/dev/milestones/M45-executor-egress-protection/README.md` — the design and
+- `docs/dev/milestones/F03-executor-egress-protection/README.md` — the design and
   the `privacy.enabled && !endpoint_is_local(base_url)` engagement rule.
 - `executor/src/config.rs` — `PrivacyConfig` (M44); this adds one field.
 - `docs/dev/STANDARDS.md` §3.1 (pure fns need tests).

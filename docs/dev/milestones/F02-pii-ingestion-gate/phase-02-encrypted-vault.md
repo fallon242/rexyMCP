@@ -17,7 +17,7 @@ half of the "secure dictionary" the milestone requires — the honeypot, contain
 
 Read before starting:
 
-- `docs/dev/milestones/M44-pii-ingestion-gate/README.md` § "Detection is
+- `docs/dev/milestones/F02-pii-ingestion-gate/README.md` § "Detection is
   best-effort" — the vault is a PII honeypot; encryption + git-ignore + `0600`
   key are how that risk is contained.
 - `executor/src/privacy/tokenizer.rs` — the `TokenMap` this persists.

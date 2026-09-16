@@ -17,7 +17,7 @@ output) because they all arrive as `Message`s.
 
 ## Architecture references
 
-- `docs/dev/milestones/M45-executor-egress-protection/README.md` — why
+- `docs/dev/milestones/F03-executor-egress-protection/README.md` — why
   irreversible (the 06b corruption failure mode does not apply — nothing to
   reverse).
 - `executor/src/ai/mod.rs` — `AiClient` trait (`chat` → `anyhow::Result<()>`),

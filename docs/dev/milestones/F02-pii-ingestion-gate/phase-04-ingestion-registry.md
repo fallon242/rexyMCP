@@ -18,7 +18,7 @@ This is the "done on any new or changed source document or data" requirement.
 
 Read before starting:
 
-- `docs/dev/milestones/M44-pii-ingestion-gate/README.md` — the ingestion-registry
+- `docs/dev/milestones/F02-pii-ingestion-gate/README.md` — the ingestion-registry
   role.
 - `executor/src/privacy/gateway.rs` — `Gateway::anonymize` (the scrub this gates).
 - `docs/dev/STANDARDS.md` §2.6 (deps), §3 (tests).

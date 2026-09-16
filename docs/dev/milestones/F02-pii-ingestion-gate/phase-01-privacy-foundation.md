@@ -17,7 +17,7 @@ read. No I/O, no crypto, no model calls; those are phases 02–03.
 
 Read before starting:
 
-- `docs/dev/milestones/M44-pii-ingestion-gate/README.md` — threat model, the
+- `docs/dev/milestones/F02-pii-ingestion-gate/README.md` — threat model, the
   deterministic-first / bias-to-false-positive principle, where this module sits.
 - `executor/src/security/redact.rs` — the sibling *irreversible* redactor; mirror
   its `LazyLock<Regex>` style. This module is its reversible counterpart.

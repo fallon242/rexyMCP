@@ -18,7 +18,7 @@ the LAN, so it never leaks.
 
 Read before starting:
 
-- `docs/dev/milestones/M44-pii-ingestion-gate/README.md` — engine-vs-executor,
+- `docs/dev/milestones/F02-pii-ingestion-gate/README.md` — engine-vs-executor,
   thinking-off requirement, bias-to-false-positive.
 - `executor/src/ai/mod.rs` — the `AiClient` trait (streaming `AiEvent`s over a
   channel), `SamplingParams`, `OpenAiClient::new`, `make_client`.

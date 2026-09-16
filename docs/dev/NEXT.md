@@ -4,42 +4,55 @@ Single source of truth for which phase is active. The principal engineer
 (architect) maintains this file; every session reads it (per `REXYMCP.md`
 § "Read these first") to know which phase to work next.
 
-**Active milestone: M46 — Pre-scan Efficiency — DONE** (both phases
+> **Numbering.** This fork's milestones carry an `F` prefix (`F01`…);
+> upstream's keep `M`. The two numbering lines collided four times (two each of
+> M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
+> upstream's M numbers were left alone. Never open a new `M` milestone here.
+
+**Active milestone: none.** F04 — Pre-scan Efficiency — **DONE** (both phases
 `approved_first_try` 2026-08-21: `scan_globs` bounds the egress pre-scan;
 encrypted `PiiIndex` persistence reuses unchanged files, skipping NER).
-**M45 phase-05 (wiring + dogfood) also approved 2026-08-21** — the live DeepSeek
+**F03 phase-05 (wiring + dogfood) also approved 2026-08-21** — the live DeepSeek
 dogfood (2026-08-07) confirmed the write-guard + `[REDACTED:…]` on the wire and
 caught the documented best-effort NER miss for names; egress protection is
 automatic for cloud endpoints.
-**Next:** M45 phases 01–04 closeout **done 2026-08-30** — all four approved
+**F03 phases 01–04 closeout done 2026-08-30** — all four approved
 (`approved_first_try`, gates re-verified in-session: fmt/build/clippy clean,
-tests 717+2+1148 passed, write-guard mutation-checked to bite); M45 fully
-closed with review verdicts recorded in each phase doc. No M47 planned yet —
-milestone boundaries await human sign-off.
+tests 717+2+1148 passed, write-guard mutation-checked to bite); F03 fully
+closed with review verdicts recorded in each phase doc.
 
-**M44 — PII Ingestion Gate: MERGED** to `fallon242/master` (PR #1, 2026-08-07,
+**Next: F05 — Privacy and security hardening, proposed 2026-09-16, awaiting
+human sign-off** (milestone boundaries always do). Six findings from the CRS
+deployment: literal terms invisible to the NER pre-scan; session logs storing
+unredacted tool output world-readable; a vault key hardened but its container
+not; a prompt guard that fails open three ways; `privacy.kinds` inert; and
+`docs/privacy.md` contradicting itself on egress protection. Phase 01
+(`terms_file`) is drafted; 02–05 are named, expanded on demand. Estimate three
+to four executor days.
+
+**F02 — PII Ingestion Gate: MERGED** to `fallon242/master` (PR #1, 2026-08-07,
 merge `3915b1d`). Usable via the CLI + auto-scrubs the `PhaseResult` return path;
 06b (reversible executor round-trip) prototyped, proven unsafe, abandoned.
-**Docs:** `docs/dev/milestones/M4{4,5}-*/` + `docs/privacy.md`.
+**Docs:** `docs/dev/milestones/F0{2,3}-*/` + `docs/privacy.md`.
 
-M44 (PII Ingestion Gate) anonymizes every input via a local PII engine (Qwen3.5
+F02 (PII Ingestion Gate) anonymizes every input via a local PII engine (Qwen3.5
 on the LAN, detection only) before it reaches Claude or the DeepSeek executor,
 keeping a reversible local encrypted vault. See
-[M44/README.md](milestones/M44-pii-ingestion-gate/README.md).
+[F02/README.md](milestones/F02-pii-ingestion-gate/README.md).
 
-**M43 is parked, not blocked — it is NOT a prerequisite for M44.** Initially
-sequenced first on the belief that its `deny_unknown_fields` would gate M44's
-config; it does not. M43 adds `deny_unknown_fields` to `ModelOverride` only, while
-M44's `[privacy]` section lives on the top-level `Config` (which has no
-`deny_unknown_fields`). Land M43 whenever. Note before landing it: its phase-01
+**F01 is parked, not blocked — it is NOT a prerequisite for F02.** Initially
+sequenced first on the belief that its `deny_unknown_fields` would gate F02's
+config; it does not. F01 adds `deny_unknown_fields` to `ModelOverride` only, while
+F02's `[privacy]` section lives on the top-level `Config` (which has no
+`deny_unknown_fields`). Land F01 whenever. Note before landing it: its phase-01
 doc has drifted — it claims `ModelOverride` has no `thinking` field, but `a2fdbe2`
 already merged `pub thinking: Option<String>` (`config.rs:305`), so its
 end-to-end step (expecting `thinking = "disabled"` to be *rejected*) would now
-fail, because `thinking` is a valid key. Reconcile that doc when landing M43.
+fail, because `thinking` is a valid key. Reconcile that doc when landing F01.
 
 **Baseline:** 1761 tests (685 + 2 + 1074) at `a2fdbe2`.
 
-**M46 — Token-First Accounting closed 2026-08-16 at four phases**, all
+**M46 (upstream) — Token-First Accounting closed 2026-08-16 at four phases**, all
 `approved_first_try`, zero bugs, zero bounces, zero assists — the first
 milestone on executor `deepseek-v4-flash-0731` (scorecard: N=4, gates 1.00,
 AFT 1.00) and the first driven end-to-end by `/rexymcp:auto` past phase-01

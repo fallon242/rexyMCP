@@ -17,10 +17,10 @@ acronyms, product names that are ordinary words — are the whole point.
 
 Read before starting:
 
-- `docs/dev/milestones/M47-literal-term-masking/README.md` — why the existing
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — why the existing
   dictionary does not cover this, and why it is not the abandoned reversible
   round-trip.
-- `docs/dev/milestones/M45-executor-egress-protection/README.md` §"Why
+- `docs/dev/milestones/F03-executor-egress-protection/README.md` §"Why
   irreversible redaction" — the constraint this phase must not break.
 - `executor/src/privacy/egress.rs` — `build_egress_index`, which returns the
   dictionary this phase extends.
