@@ -1,7 +1,7 @@
 # Phase 1: evict tool-call pairs together
 
 **Milestone:** F06 — Compaction pairing
-**Status:** in-progress
+**Status:** review
 **Depends on:** none
 **Estimated diff:** ~150 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -258,3 +258,107 @@ build exit=0
 clippy exit=0
 test exit=0
 ```
+
+### Update — ts=1789569571724 (complete, server-authored)
+
+**Summary:** The `tool` guard is in place, the tests are added, the gates are green, and the commit is made. Working tree is clean.
+
+Summary — I implemented F06 Phase 1 in `executor/src/context/compactor.rs`. Pass 2 now removes the directly following `role == "tool"` messages together with any assistant message it evicts that carries `tool_calls`, matched by position rather than id (the test helpers use `"c1"` for replies and `"tc1"` for calls, so an id-matching rule would misread valid pairs as orphans). A new Pass 2.5 then sweeps any `tool` message that is left as the first non-system message, gated on Pass 2 having evicted something so histories that legitimately open with a reply — as several existing tests assert — keep passing unchanged. Pass 1 / 1.5, `system` protection, and `CompactionReport` are untouched; `messages_evicted` now counts the replies taken with their call.
+
+Verification — I wrote the four Test-plan tests (plus a `make_call_msg` helper) first and ran them against the unfixed `compact()`; three failed exactly as predicted, including the regression test failing at index 1 holding `"tool"`, i.e. the production shape. That failure output is quoted in the phase Update Log. After the fix: `cargo fmt --all --check` exit 0, `cargo build` exit 0, `cargo clippy --all-targets --all-features -- -D warnings` exit 0, `cargo test` exit 0 with `1142 passed; 0 failed; 4 ignored`, and the compactor filter shows `25 passed; 0 failed`. These are internal-only changes with no user-visible surface, so per the phase doc there is no end-to-end check; no literal needed grepping beyond the `role == "tool"` guards at lines 129 and 142.
+
+Notes for review — One transient incident: my first append to the phase Update Log mistakenly targeted `executor/src/context/compactor.rs` and overwrote it with 10 lines. I rebuilt the file from the HEAD blob in this session (no commit was made from that state), so the committed diff is additive-only; the verifier’s error report referred to it through the doubled `executor/executor/...` path. No deviations from the spec, and nothing out of scope touched.
+
+**Executor:** deepseek-flash
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+
+TEST
+ts::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1142 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 6.18s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F06-compaction-pairing/README.md` — +1 -1
+- `docs/dev/milestones/F06-compaction-pairing/phase-01-evict-tool-pairs.md` — +46 -1
+- `executor/src/context/compactor.rs` — +179 -0
+
+**Commit:** 7273fc768298cfeebb632418fc550dbb80e3786f
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
