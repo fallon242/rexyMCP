@@ -166,6 +166,12 @@ These are **stop-and-file-a-blocker** triggers. Do not improvise around any.
   read it`, the file drifted out from under your last read — **`read_file` it
   again, then re-issue the `patch`/`write_file`**. Never escape to the shell to
   force an edit through.
+- **Stay inside the project.** Do not read, list, search, or modify anything
+  outside the project root, and do not touch `.rexymcp/` other than reading
+  `.rexymcp/output/`. Never look for redaction dictionaries, mask tables,
+  vaults, keys, API keys, or credentials, anywhere. If a name in your view is
+  replaced by `[REDACTED:…]` and you cannot work without it, stop and file a
+  blocker.
 
 Spec ambiguity, missing referenced files, impossible acceptance criteria, or
 architectural inconsistencies you discover are also blockers — not invitations to

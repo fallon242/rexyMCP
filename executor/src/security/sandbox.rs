@@ -1,0 +1,280 @@
+// Cloud-executor sandbox.
+//
+// Wraps a `bash` command in bubblewrap (`bwrap`) so a cloud executor cannot
+// read the host's `$HOME` (vault keys, other projects' config) or touch the
+// repo's `.rexymcp/` state: the host is read-only, `/home`, `/tmp` and the
+// (possibly non-`/home`) home directory are empty tmpfs mounts, only the
+// Rust toolchain under `$HOME` is visible read-only, the repo is writable,
+// and the repo's `.rexymcp/` is an empty scratch directory. A failing probe
+// before turn 1 makes `run_phase` refuse a cloud dispatch (see `runner`).
+
+use std::path::PathBuf;
+
+#[derive(Debug, Clone)]
+pub struct Sandbox {
+    program: String,
+    root: PathBuf,
+    home: Option<PathBuf>,
+}
+
+impl Sandbox {
+    /// `home` is the value of `$HOME`, or `None` when unset. `program` = `"bwrap"`.
+    pub fn new(root: &std::path::Path, home: Option<PathBuf>) -> Self {
+        Self {
+            program: "bwrap".to_string(),
+            root: root.to_path_buf(),
+            home,
+        }
+    }
+
+    /// Replace the program name. Tests use a name that does not exist.
+    pub fn with_program(mut self, program: &str) -> Self {
+        self.program = program.to_string();
+        self
+    }
+
+    /// The full argv to spawn: element 0 is `program`, the last three are
+    /// `"sh"`, `"-c"`, `command`. bwrap applies mounts in order, so a later
+    /// mount covers an earlier one — the order below is the security property.
+    pub fn argv(&self, command: &str) -> Vec<String> {
+        let p = |path: &std::path::Path| path.to_string_lossy().into_owned();
+        let root = self.root.clone();
+        let home = self.home.clone();
+        let mut a: Vec<String> = vec![self.program.clone()];
+
+        // 1. killing bwrap on timeout kills the whole process tree.
+        a.push("--die-with-parent".into());
+        a.push("--unshare-pid".into());
+        // 2. host filesystem read-only; toolchains stay usable.
+        a.extend(["--ro-bind", "/", "/"].iter().map(|s| s.to_string()));
+
+        // 3. a working /dev/null and a /proc for the new pid namespace.
+        a.extend(
+            ["--dev", "/dev", "--proc", "/proc"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+
+        // 4-5. hide other processes' temp files and every home directory.
+        a.extend(["--tmpfs", "/tmp"].iter().map(|s| s.to_string()));
+        a.extend(["--tmpfs", "/home"].iter().map(|s| s.to_string()));
+
+        // 6. a home outside /home (e.g. /root, /var/home/x) gets its own tmpfs.
+        if let Some(h) = &home
+            && !h.starts_with("/home")
+        {
+            a.extend(["--tmpfs".to_string(), p(h)]);
+        }
+
+        // 7. Rust toolchain under $HOME, individually — never ~/.cargo as a whole
+        // (it can hold credentials.toml). --ro-bind-try skips missing paths.
+        if let Some(h) = home {
+            let rel = [
+                ".cargo/bin",
+                ".cargo/registry",
+                ".cargo/git",
+                ".cargo/config.toml",
+                ".rustup",
+            ];
+            for r in rel {
+                let path = h.join(r);
+                a.push("--ro-bind-try".into());
+                a.push(p(&path));
+                a.push(p(&path));
+            }
+        }
+
+        // 8. the repo is writable.
+        a.push("--bind".into());
+        a.push(p(&root));
+        a.push(p(&root));
+
+        // 9. the repo's .rexymcp/ is an empty scratch dir: sessions, vault and
+        // keys are hidden and writes do not reach the host.
+        let state = root.join(".rexymcp");
+        a.push("--tmpfs".into());
+        a.push(p(&state));
+
+        // 10-11.
+        a.push("--chdir".into());
+        a.push(p(&root));
+        a.push("sh".into());
+        a.push("-c".into());
+        a.push(command.to_string());
+
+        a
+    }
+}
+
+/// Run `<program> --ro-bind / / --dev /dev true` with stdin, stdout and stderr
+/// null. `Ok(())` on exit 0; otherwise `Err` with a one-line reason that starts
+/// with the program name (the spawn error or the exit status).
+pub fn probe_with(program: &str) -> Result<(), String> {
+    let out = std::process::Command::new(program)
+        .args(["--ro-bind", "/", "/", "--dev", "/dev", "true"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+
+    match out {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(format!(
+            "{program}: sandbox probe exited with status {:?}",
+            o.status.code()
+        )),
+        Err(e) => Err(format!("{program}: {e}")),
+    }
+}
+
+/// `probe_with("bwrap")`.
+pub fn probe() -> Result<(), String> {
+    probe_with("bwrap")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn argv_contains_sequence(a: &[String], seq: &[&str]) -> Option<usize> {
+        let n = seq.len();
+        a.windows(n)
+            .position(|w| w.iter().zip(seq).all(|(x, y)| x == y))
+    }
+
+    #[test]
+    fn argv_orders_mounts_so_repo_state_is_hidden() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), Some(PathBuf::from("/home/u")));
+        let a = sb.argv("echo hi");
+
+        assert_eq!(a[0], "bwrap");
+        assert_eq!(&a[a.len() - 3..], &["sh", "-c", "echo hi"]);
+
+        let ro_bind = argv_contains_sequence(&a, &["--ro-bind", "/", "/"]).expect("ro-bind / /");
+        let tmpfs_home = argv_contains_sequence(&a, &["--tmpfs", "/home"]).expect("tmpfs /home");
+        let bind_root = argv_contains_sequence(&a, &["--bind", "/srv/repo", "/srv/repo"])
+            .expect("bind repo root");
+        let tmpfs_state =
+            argv_contains_sequence(&a, &["--tmpfs", "/srv/repo/.rexymcp"]).expect("tmpfs .rexymcp");
+
+        assert!(
+            ro_bind < tmpfs_home && tmpfs_home < bind_root && bind_root < tmpfs_state,
+            "mount order is wrong: ro-bind={ro_bind} tmpfs_home={tmpfs_home} bind={bind_root} tmpfs_state={tmpfs_state}"
+        );
+
+        assert!(a.contains(&"--die-with-parent".to_string()));
+        assert!(a.contains(&"--unshare-pid".to_string()));
+        assert!(
+            argv_contains_sequence(&a, &["--chdir", "/srv/repo"]).is_some(),
+            "--chdir /srv/repo must be present"
+        );
+    }
+
+    #[test]
+    fn argv_binds_toolchain_dirs_but_not_cargo_home() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), Some(PathBuf::from("/home/u")));
+        let a = sb.argv("echo hi");
+
+        assert!(
+            a.windows(3).any(|w| w
+                == [
+                    "--ro-bind-try",
+                    "/home/u/.cargo/registry",
+                    "/home/u/.cargo/registry"
+                ]),
+            "registry ro-bind-try must be present"
+        );
+        assert!(
+            a.windows(3)
+                .any(|w| w == ["--ro-bind-try", "/home/u/.rustup", "/home/u/.rustup"]),
+            "rustup ro-bind-try must be present"
+        );
+        assert!(
+            !a.iter().any(|x| x == "/home/u/.cargo"),
+            "must not bind ~/.cargo as a whole (credentials.toml)"
+        );
+    }
+
+    #[test]
+    fn argv_hides_home_outside_slash_home() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), Some(PathBuf::from("/root")));
+        let a = sb.argv("echo hi");
+
+        let tmpfs_root = argv_contains_sequence(&a, &["--tmpfs", "/root"]).expect("tmpfs /root");
+        let bind = argv_contains_sequence(&a, &["--bind", "/srv/repo", "/srv/repo"]).unwrap();
+        assert!(
+            tmpfs_root < bind,
+            "/root tmpfs must come before the repo bind"
+        );
+    }
+
+    #[test]
+    fn argv_without_home_has_no_toolchain_binds() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), None);
+        let a = sb.argv("echo hi");
+        assert!(
+            !a.iter().any(|x| x == "--ro-bind-try"),
+            "no toolchain binds without a home"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs bwrap and user namespaces"]
+    async fn sandbox_blocks_home_and_state_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join(".rexymcp/vault")).unwrap();
+        std::fs::write(repo.join(".rexymcp/vault/key"), "k").unwrap();
+
+        let canonical = repo.canonicalize().unwrap();
+        let sb = Sandbox::new(&canonical, std::env::var_os("HOME").map(PathBuf::from));
+
+        // $HOME here is /home/gpratt, hidden by `--tmpfs /home`; point HOME at
+        // an existing dir under /var/tmp (writable) so "the sandbox must not
+        // make $HOME writable" is a meaningful check.
+        let host_home = PathBuf::from("/var/tmp/rexymcp-p07-home");
+        std::fs::create_dir_all(&host_home).unwrap();
+        let run = |cmd: &str| {
+            let argv = sb.argv(cmd);
+            let mut c = std::process::Command::new(&argv[0]);
+            c.args(&argv[1..]).env("HOME", &host_home);
+            c.output().unwrap_or_else(|e| panic!("spawn failed: {e}"))
+        };
+
+        assert!(
+            !run("touch \"$HOME/.sandbox-probe\"").status.success(),
+            "sandboxed $HOME must not be writable"
+        );
+
+        assert!(
+            !run("cat .rexymcp/vault/key").status.success(),
+            "repo .rexymcp must be hidden in the sandbox"
+        );
+
+        let rm = run("rm -rf .rexymcp/vault");
+        assert!(
+            rm.status.success(),
+            "rm inside the sandbox should succeed against the empty tmpfs: {}",
+            String::from_utf8_lossy(&rm.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.join(".rexymcp/vault/key")).unwrap(),
+            "k",
+            "host .rexymcp/vault/key must survive the sandboxed rm"
+        );
+
+        let write = run("echo ok > written.txt");
+        assert!(write.status.success(), "writing into the repo must work");
+        assert!(
+            repo.join("written.txt").exists(),
+            "written.txt must reach the host"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs bwrap and user namespaces"]
+    fn probe_succeeds_where_bwrap_works() {
+        assert!(probe().is_ok());
+    }
+}

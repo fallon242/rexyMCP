@@ -582,6 +582,7 @@ async fn main() -> anyhow::Result<()> {
                 resume: None,
                 test_client: None,
                 cancel: cancel_signal,
+                sandbox_program: "bwrap",
             })
             .await;
 

@@ -2,9 +2,11 @@
 // env-stripped to a safe allowlist. Commands are classified before execution;
 // dangerous shapes are refused outright.
 //
-// Unlike read_file / write_file / patch, bash is not path-confined by Scope —
-// Scope only sets the default cwd; a command can still `cd /` or use absolute
-// paths. cwd-pin + env-strip + classifier are defense-in-depth, not a jail.
+// When a sandbox is set, `bash` runs under bwrap: the host filesystem is
+// read-only, `/home` and the repo's `.rexymcp/` are hidden, and only the repo
+// is writable. Without a sandbox it is not a jail — cwd-pin + env-strip +
+// classifier are defense-in-depth only (Scope does not confine `cd /` or
+// absolute paths).
 
 use crate::security::scope::Scope;
 use crate::security::{Severity, classify};
@@ -32,6 +34,7 @@ pub struct Bash {
     scope: Scope,
     default_timeout_secs: u32,
     filter: bool,
+    sandbox: Option<crate::security::Sandbox>,
 }
 
 #[async_trait]
@@ -140,10 +143,30 @@ impl Tool for Bash {
         // MCP stdio transport, so an inherited fd 0 hands a child the server's
         // JSON-RPC pipe — draining it, or setting O_NONBLOCK on the shared open
         // file description, kills the transport for the whole serve process.
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c")
-            .arg(&parsed.command)
-            .current_dir(self.scope.root())
+        let mut cmd = match &self.sandbox {
+            Some(sb) => {
+                let argv = sb.argv(&parsed.command);
+                let (first, rest) = match argv.split_first() {
+                    Some((first, rest)) => (first, rest),
+                    None => {
+                        return Ok(ToolResult {
+                            output: String::new(),
+                            error: Some("internal error: sandbox argv is empty".to_string()),
+                            metadata: None,
+                        });
+                    }
+                };
+                let mut c = Command::new(first);
+                c.args(rest);
+                c
+            }
+            None => {
+                let mut c = Command::new("sh");
+                c.arg("-c").arg(&parsed.command);
+                c
+            }
+        };
+        cmd.current_dir(self.scope.root())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -312,10 +335,20 @@ pub fn bash(scope: Scope, default_timeout_secs: u32) -> Arc<dyn Tool> {
 }
 
 pub fn bash_with_filter(scope: Scope, default_timeout_secs: u32, filter: bool) -> Arc<dyn Tool> {
+    bash_sandboxed(scope, default_timeout_secs, filter, None)
+}
+
+pub fn bash_sandboxed(
+    scope: Scope,
+    default_timeout_secs: u32,
+    filter: bool,
+    sandbox: Option<crate::security::Sandbox>,
+) -> Arc<dyn Tool> {
     Arc::new(Bash {
         scope,
         default_timeout_secs,
         filter,
+        sandbox,
     })
 }
 
@@ -615,6 +648,30 @@ mod tests {
                 .contains(expected_root.to_string_lossy().as_ref()),
             "pwd output should contain scope root: {}",
             result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn sandboxed_bash_spawns_the_sandbox_program() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let scope = Scope::new(dir.path()).unwrap();
+        let sb =
+            crate::security::Sandbox::new(dir.path(), None).with_program("rexymcp-no-such-bwrap");
+        let tool = bash_sandboxed(scope, 5, false, Some(sb));
+        let result = tool
+            .execute(json!({ "command": "echo inside" }))
+            .await
+            .unwrap();
+        assert!(
+            result
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("failed to spawn shell")),
+            "expected a spawn failure, got {result:?}"
+        );
+        assert!(
+            !result.output.contains("inside"),
+            "the sandboxed program must not have run"
         );
     }
 

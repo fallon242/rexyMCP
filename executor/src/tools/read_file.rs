@@ -378,6 +378,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn read_file_refuses_vault_key() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".rexymcp/vault")).unwrap();
+        fs::write(dir.path().join(".rexymcp/vault/key"), "k").unwrap();
+
+        let tool = read_file(make_scope(&dir));
+        let result = tool
+            .execute(json!({ "path": ".rexymcp/vault/key" }))
+            .await
+            .unwrap();
+
+        assert!(result.error.is_some());
+        assert!(
+            result
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("private state directory"),
+            "expected a protected-state refusal, got {:?}",
+            result.error
+        );
+        assert!(result.output.is_empty());
+    }
+
+    #[tokio::test]
+    async fn read_file_reads_output_recovery_log() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".rexymcp/output")).unwrap();
+        fs::write(dir.path().join(".rexymcp/output/cmd-output-1.log"), "full").unwrap();
+
+        let tool = read_file(make_scope(&dir));
+        let result = tool
+            .execute(json!({ "path": ".rexymcp/output/cmd-output-1.log" }))
+            .await
+            .unwrap();
+
+        assert!(result.error.is_none());
+        assert!(result.output.contains("full"));
+    }
+
+    #[tokio::test]
     async fn rejects_path_outside_root() {
         let dir = tempfile::TempDir::new().unwrap();
         let tool = read_file(make_scope(&dir));

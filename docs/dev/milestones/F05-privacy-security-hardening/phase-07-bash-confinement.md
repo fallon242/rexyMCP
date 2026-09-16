@@ -1,7 +1,7 @@
 # Phase 7: confine `bash` for a cloud executor
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~350 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -576,3 +576,21 @@ and a non-zero `exit=`. Run it from the repo root.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-16 (escalation)
+
+**Chosen lever:** resume
+**Rationale:** the first run (`ac852636`, session `6aaad526`) ended at turn 69
+on a transient connection error to the local vLLM server, not a spec gap; Spec
+§1–§2 and most of §3 were on disk, with one compile error
+(`scope.rs:94`, `if let Some` on a `Result`).
+
+### Update — 2026-09-16 (escalation)
+
+**Chosen lever:** resume
+**Rationale:** the resumed run (session `6aaadd94`) ended `budget_exceeded` at
+200 turns with 5 of 6 tasks done. The architect's gate run left only small
+fixes: executor tests pass (1151), and the build passes. What remains: the
+`rexymcp` test compile (a missing `let dir`, and `sandbox: None` in six `Seams`
+literals), rustfmt on three files, clippy in `sandbox.rs`, `docs/privacy.md`,
+E2E, and the Update Log.

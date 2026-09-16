@@ -34,7 +34,11 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   and refuses model writes to PII-bearing files (a cloud model only sees their
   redacted contents). A local executor bypasses all of this. If the pre-scan
   fails — for example because the NER engine is unreachable — the dispatch stops
-  before anything is sent. Best-effort:
+  before anything is sent. For a cloud executor, `bash` runs inside a bubblewrap
+  sandbox that hides home directories and `.rexymcp/` and makes the host
+  read-only, and the dispatch stops if the sandbox is unavailable. Only the Rust
+  toolchain under `$HOME` (`~/.cargo`, `~/.rustup`) is visible inside the
+  sandbox. Best-effort:
   names the pre-scan NER misses still egress. See
   `docs/dev/milestones/F03-executor-egress-protection/`.
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)

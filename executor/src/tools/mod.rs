@@ -15,7 +15,7 @@ mod write_file;
 
 mod update_task;
 
-pub use bash::{Bash, bash, bash_with_filter, is_allowed_env_key};
+pub use bash::{Bash, bash, bash_sandboxed, bash_with_filter, is_allowed_env_key};
 pub use delete_file::{DeleteFile, delete_file};
 pub use find_files::{FindFiles, find_files};
 pub use move_file::{MoveFile, move_file};

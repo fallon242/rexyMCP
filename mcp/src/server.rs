@@ -241,6 +241,7 @@ pub(crate) async fn execute_phase_inner_with_client(
         test_client,
         resume: None,
         cancel,
+        sandbox_program: "bwrap",
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -297,6 +298,7 @@ pub(crate) async fn continue_phase_inner(
         test_client: None,
         resume: Some(ctx),
         cancel: CancelSignal::never(),
+        sandbox_program: "bwrap",
     })
     .await
     .map_err(|e| e.to_string())?;

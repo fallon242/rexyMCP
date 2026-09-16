@@ -102,6 +102,8 @@ struct Seams<'a> {
     clock: &'a (dyn Fn() -> u64 + Send + Sync),
     /// M45: PII-bearing files for the write-guard (empty = protection off).
     pii_files: std::collections::HashSet<std::path::PathBuf>,
+    /// F05: sandbox for cloud-executor `bash`; `None` for a local endpoint.
+    sandbox: Option<rexymcp_executor::security::Sandbox>,
 }
 
 /// Non-seam inputs for the assembler.
@@ -191,6 +193,7 @@ pub fn build_registry(
     bash_timeout_secs: u32,
     filter_output: bool,
     tasks: Option<Vec<rexymcp_executor::agent::tasks::Task>>,
+    sandbox: Option<rexymcp_executor::security::Sandbox>,
 ) -> (rexymcp_executor::tools::ToolRegistry, Vec<ToolSchema>) {
     let mut registry = rexymcp_executor::tools::ToolRegistry::new();
 
@@ -201,7 +204,7 @@ pub fn build_registry(
         tools::find_files(scope.clone()),
         tools::search(scope.clone()),
         tools::symbols(scope.clone()),
-        tools::bash_with_filter(scope.clone(), bash_timeout_secs, filter_output),
+        tools::bash_sandboxed(scope.clone(), bash_timeout_secs, filter_output, sandbox),
         tools::delete_file(scope.clone()),
         tools::move_file(scope.clone()),
         tools::patch_lines(scope.clone()),
@@ -249,7 +252,13 @@ async fn run_phase_with(
         None
     };
 
-    let (registry, tool_schemas) = build_registry(&scope, 30, inp.cfg.context.output_filter, tasks);
+    let (registry, tool_schemas) = build_registry(
+        &scope,
+        30,
+        inp.cfg.context.output_filter,
+        tasks,
+        seams.sandbox.clone(),
+    );
 
     let budget = Budget::from_context(
         inp.cfg.budget.context_length,
@@ -349,6 +358,9 @@ pub struct RunPhaseConfig<'a> {
     /// Cooperative cancel signal for the spawned async run. `CancelSignal::never()`
     /// disables it (the CLI `run-phase` path and `continue_phase`, for now).
     pub cancel: CancelSignal,
+    /// Program name for the cloud-executor bash sandbox probe ("bwrap" in
+    /// production; a missing name in tests to force a failing probe).
+    pub sandbox_program: &'a str,
 }
 
 /// Production wrapper — builds real seams + system clock, delegates.
@@ -389,6 +401,28 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             &inp.cfg.privacy,
             &inp.cfg.executor.base_url,
         );
+    // F05 bash confinement: a cloud executor's `bash` runs inside a bubblewrap
+    // sandbox (read-only host, hidden $HOME and .rexymcp/); the decision uses only
+    // the endpoint, not [privacy]. A cloud dispatch without a working sandbox stops
+    // before turn 1, in the same way as a failed pre-scan.
+    let sandbox = if inp.test_client.is_none()
+        && !rexymcp_executor::privacy::egress::endpoint_is_local(&inp.cfg.executor.base_url)
+    {
+        if let Err(reason) = rexymcp_executor::security::sandbox::probe_with(inp.sandbox_program) {
+            return Err(sandbox_refusal(&reason));
+        }
+        let root = std::fs::canonicalize(inp.repo_path)?;
+        Some(
+            rexymcp_executor::security::Sandbox::new(
+                &root,
+                std::env::var_os("HOME").map(std::path::PathBuf::from),
+            )
+            .with_program(inp.sandbox_program),
+        )
+    } else {
+        None
+    };
+
     let mut egress_terms = Vec::new();
     let mut pii_files = std::collections::HashSet::new();
     if redact {
@@ -443,6 +477,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         runner: &runner,
         clock: &clock,
         pii_files,
+        sandbox,
     };
 
     let assembly = AssemblyInput {
@@ -477,6 +512,16 @@ fn prescan_refusal(e: &rexymcp_executor::error::Error) -> rexymcp_executor::erro
          before any content was sent. Check the privacy.engine_base_url setting, or start the \
          PII-detection engine; if it stays unavailable, run the phase on a local executor, or set \
          privacy.redact_executor_egress = false to send unredacted content deliberately."
+    ))
+}
+
+/// Turn a failed sandbox probe into the refusal `run_phase` returns.
+fn sandbox_refusal(reason: &str) -> rexymcp_executor::error::Error {
+    rexymcp_executor::error::Error::Privacy(format!(
+        "the bash sandbox is unavailable ({reason}), so the dispatch to the cloud executor \
+         was stopped before any content was sent. Install bubblewrap (the `bwrap` binary) \
+         and check that unprivileged user namespaces are enabled, or run the phase on a \
+         local executor."
     ))
 }
 
@@ -603,7 +648,7 @@ mod tests {
     fn build_registry_has_seven_tools() {
         let dir = tempfile::tempdir().unwrap();
         let scope = Scope::new(dir.path()).unwrap();
-        let (_registry, schemas) = build_registry(&scope, 30, true, None);
+        let (_registry, schemas) = build_registry(&scope, 30, true, None, None);
 
         assert_eq!(schemas.len(), 10);
         let names: Vec<_> = schemas.iter().map(|s| s.name.as_str()).collect();
@@ -636,7 +681,7 @@ mod tests {
             title: "Test task".to_string(),
             state: rexymcp_executor::store::sessions::event::TaskState::Pending,
         }];
-        let (_registry, schemas) = build_registry(&scope, 30, true, Some(tasks));
+        let (_registry, schemas) = build_registry(&scope, 30, true, Some(tasks), None);
 
         assert_eq!(schemas.len(), 11);
         let names: Vec<_> = schemas.iter().map(|s| s.name.as_str()).collect();
@@ -647,7 +692,7 @@ mod tests {
     fn build_registry_excludes_update_task_when_none() {
         let dir = tempfile::tempdir().unwrap();
         let scope = Scope::new(dir.path()).unwrap();
-        let (_registry, schemas) = build_registry(&scope, 30, true, None);
+        let (_registry, schemas) = build_registry(&scope, 30, true, None, None);
 
         assert_eq!(schemas.len(), 10);
         let names: Vec<_> = schemas.iter().map(|s| s.name.as_str()).collect();
@@ -680,6 +725,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -733,11 +779,11 @@ mod tests {
         let cfg = Config::default();
 
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
-
         let clock = || 1234567890u64;
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -795,6 +841,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -862,11 +909,11 @@ mod tests {
             },
         );
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
-
         let clock = || 1234567890u64;
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -924,6 +971,7 @@ mod tests {
         let clock = || 1234567890u64;
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -1002,6 +1050,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -1131,6 +1180,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
@@ -1238,6 +1288,7 @@ mod tests {
             test_client: None,
             resume: None,
             cancel: CancelSignal::never(),
+            sandbox_program: "bwrap",
         };
 
         let result = run_phase(&inp).await;
@@ -1249,5 +1300,112 @@ mod tests {
             message.contains("privacy.engine_base_url"),
             "the setting to check is not named: {message}"
         );
+    }
+
+    // --- end-to-end: run_phase sandboxes cloud dispatches and fails closed ---
+
+    #[test]
+    fn sandbox_refusal_names_bwrap_and_local_fallback() {
+        let refused = sandbox_refusal("bwrap not found: No such file or directory");
+
+        let rexymcp_executor::error::Error::Privacy(message) = &refused else {
+            panic!("expected Error::Privacy, got {refused:?}");
+        };
+        assert!(
+            message.contains("bwrap"),
+            "the program name is missing: {message}"
+        );
+        assert!(
+            message.contains("bubblewrap"),
+            "the package name is missing: {message}"
+        );
+        assert!(
+            message.contains("local executor"),
+            "the remedy is not named: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_phase_stops_when_sandbox_unavailable() {
+        let dir = TempDir::new().unwrap();
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let phase_doc_path = dir.path().join("phase-01-test.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01: Test\n\n**Status:** todo\n\n## Goal\n\nTest goal.\n",
+        )
+        .unwrap();
+
+        let mut cfg = Config::default();
+        cfg.executor.base_url = "https://api.example.com/v1".to_string();
+        let inp = RunPhaseConfig {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "standards",
+            model_override: None,
+            telemetry_dir: None,
+            progress: None,
+            project_id: None,
+            test_client: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+            sandbox_program: "rexymcp-no-such-bwrap",
+        };
+
+        let result = run_phase(&inp).await;
+
+        let Err(rexymcp_executor::error::Error::Privacy(message)) = &result else {
+            panic!("expected a sandbox refusal, got {result:?}");
+        };
+        assert!(
+            message.contains("rexymcp-no-such-bwrap"),
+            "the probe reason must name the program: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_phase_skips_sandbox_for_local_endpoint() {
+        let dir = TempDir::new().unwrap();
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let phase_doc_path = dir.path().join("phase-01-test.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01: Test\n\n**Status:** todo\n\n## Goal\n\nTest goal.\n",
+        )
+        .unwrap();
+
+        let mut cfg = Config::default();
+        cfg.executor.base_url = "http://localhost:9/v1".to_string();
+
+        let inp = RunPhaseConfig {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "standards",
+            model_override: None,
+            telemetry_dir: None,
+            progress: None,
+            project_id: None,
+            test_client: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+            sandbox_program: "rexymcp-no-such-bwrap",
+        };
+
+        let result = run_phase(&inp).await;
+
+        // The run fails later when it contacts localhost:9; that is expected.
+        // What matters: it must not be the sandbox refusal.
+        if let Err(rexymcp_executor::error::Error::Privacy(message)) = &result {
+            assert!(
+                !message.contains("bubblewrap"),
+                "a local endpoint must not trigger the sandbox refusal: {message}"
+            );
+        }
     }
 }

@@ -15,6 +15,7 @@ pub struct Scope {
 pub enum ScopeError {
     Escapes { requested: String },
     BadRoot { reason: String },
+    Protected { requested: String },
 }
 
 impl std::fmt::Display for ScopeError {
@@ -24,6 +25,12 @@ impl std::fmt::Display for ScopeError {
                 write!(f, "path escapes the project root: {requested}")
             }
             ScopeError::BadRoot { reason } => write!(f, "bad root: {reason}"),
+            ScopeError::Protected { requested } => {
+                write!(
+                    f,
+                    "path is inside rexymcp's private state directory and cannot be accessed: {requested}"
+                )
+            }
         }
     }
 }
@@ -81,6 +88,30 @@ fn confine_to_root(candidate: &Path, root: &Path) -> Result<PathBuf, ScopeError>
     }
 
     let result = remaining.iter().fold(canonical_base, |acc, c| acc.join(c));
+
+    // The repo's .rexymcp/ holds rexymcp's own state (sessions, vault, keys);
+    // the only subpath the model may touch is .rexymcp/output/ (recovery logs).
+    if let Ok(rel) = result.strip_prefix(root) {
+        let first = rel
+            .components()
+            .next()
+            .map(|c| c.as_os_str())
+            .and_then(|c| c.to_str())
+            .map(|s| s == ".rexymcp")
+            .unwrap_or(false);
+        let second = rel
+            .components()
+            .nth(1)
+            .map(|c| c.as_os_str())
+            .and_then(|c| c.to_str())
+            .map(|s| s == "output")
+            .unwrap_or(false);
+        if first && !second {
+            return Err(ScopeError::Protected {
+                requested: candidate.to_string_lossy().into_owned(),
+            });
+        }
+    }
     Ok(result)
 }
 
@@ -179,5 +210,57 @@ mod tests {
     fn new_on_missing_dir_returns_bad_root() {
         let result = Scope::new(Path::new("/nonexistent/path/that/does/not/exist"));
         assert!(matches!(result, Err(ScopeError::BadRoot { .. })));
+    }
+
+    #[test]
+    fn rejects_rexymcp_state_paths() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".rexymcp/vault")).unwrap();
+        fs::create_dir_all(dir.path().join(".rexymcp/sessions")).unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join(".rexymcp/vault/key"), "k").unwrap();
+        fs::write(dir.path().join(".rexymcp/sessions/x.jsonl"), "s").unwrap();
+
+        let scope = Scope::new(dir.path()).unwrap();
+        for requested in [
+            ".rexymcp",
+            ".rexymcp/vault/key",
+            ".rexymcp/sessions/x.jsonl",
+            "./.rexymcp/vault",
+            "src/../.rexymcp/vault/key",
+        ] {
+            let result = scope.resolve(requested);
+            assert!(
+                matches!(result, Err(ScopeError::Protected { .. })),
+                "{requested} must be protected, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_rexymcp_output_and_lookalikes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".rexymcp/output")).unwrap();
+        fs::create_dir_all(dir.path().join(".rexymcpx")).unwrap();
+        fs::create_dir_all(dir.path().join("docs/.rexymcp")).unwrap();
+        fs::write(dir.path().join(".rexymcp/output/cmd-output-1.log"), "full").unwrap();
+        fs::write(dir.path().join(".rexymcpx/file"), "f").unwrap();
+        fs::write(dir.path().join("docs/.rexymcp/notes.md"), "n").unwrap();
+        fs::write(dir.path().join("rexymcp.toml"), "x").unwrap();
+
+        let scope = Scope::new(dir.path()).unwrap();
+        for requested in [
+            ".rexymcp/output/cmd-output-1.log",
+            ".rexymcp/output",
+            ".rexymcpx/file",
+            "docs/.rexymcp/notes.md",
+            "rexymcp.toml",
+        ] {
+            let result = scope.resolve(requested);
+            assert!(
+                result.is_ok(),
+                "{requested} must be allowed, got {result:?}"
+            );
+        }
     }
 }
