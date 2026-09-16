@@ -10,11 +10,13 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-F05 phase-06 — a failed pre-scan stops a cloud dispatch** (`todo`, drafted
-2026-09-16; dispatch with `/rexymcp:dispatch phase-06`). Drafted ahead of
-phase 01 on human instruction. **Phase 01 (`[privacy] terms_file`) is next**
-(`todo`, drafted). F05 was opened on human sign-off 2026-09-16 and resumed when
-F06 closed.
+F05 phase-01 — `[privacy] terms_file`** (`todo`, refreshed 2026-09-16 with
+quoted code, a fixed design and a capture-server end-to-end harness; dispatch
+with `/rexymcp:dispatch phase-01`). **Phase 06 is done** (2026-09-16,
+`approved_first_try`, approval `add4fe6`): a failed pre-scan now stops a cloud
+dispatch. **Dispatch precondition:** the NER engine
+(`privacy.engine_base_url`) must be reachable. It was down on 2026-09-16, and
+since phase 06 a cloud dispatch refuses to start without it.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
