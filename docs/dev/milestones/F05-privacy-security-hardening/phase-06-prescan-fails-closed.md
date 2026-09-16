@@ -187,7 +187,7 @@ let addr = ["192", "0", "2", "10"].join(".");
    cfg.privacy.redact_executor_egress = Some(true);
    cfg.privacy.engine_base_url = None;
    cfg.privacy.engine_model = Some("m".to_string());
-   cfg.executor.base_url = "http://127.0.0.1:9/v1".to_string();
+   cfg.executor.base_url = "http://localhost:9/v1".to_string();
    ```
 
    `engine_base_url = None` makes `build_egress_index` fail inside
@@ -198,7 +198,7 @@ let addr = ["192", "0", "2", "10"].join(".");
    `matches!(result, Err(rexymcp_executor::error::Error::Privacy(_)))` and that
    the message contains `privacy.engine_base_url`.
 
-   With the fix reverted this test goes on to contact `127.0.0.1:9`, which
+   With the fix reverted this test goes on to contact `localhost:9`, which
    refuses at once, and fails. That is expected, and it only happens in the
    reverted state.
 
