@@ -1,7 +1,7 @@
 # Phase 6: a failed pre-scan stops a cloud dispatch
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** none (drafted ahead of phase 01 on human instruction)
 **Estimated diff:** ~120 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -447,3 +447,22 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 0f6930ad3d280801ee03d5ade6a70608f4469b3a
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-16
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** deepseek-flash
+- **Scope deviations:** none
+- **Calibration:** the Update Log's positive control is misdescribed. Its
+  "revert" (`Err(e) => return Err(e)`) cannot fail
+  `run_phase_stops_when_prescan_fails`, because the raw
+  `privacy.engine_base_url is unset` error already contains the asserted
+  string. The reviewer re-ran the real revert (restoring the degrade branch):
+  the test fails with `Err(Backend("… localhost:9 …"))`, so the test is real.
+  The executor's pasted FAILED output does not match its described revert.
+  Re-run any positive control that looks off before trusting it. Gates re-run
+  by the reviewer: fmt, build (0 warnings), clippy, test (1142 + 708 + 2
+  passed). The E2E CLI run was reproduced: `exit=1`, refusal names
+  `privacy.engine_base_url`. Nit, not bounced: `let result = …; Ok(result)` in
+  `run_phase` could be a bare tail expression.

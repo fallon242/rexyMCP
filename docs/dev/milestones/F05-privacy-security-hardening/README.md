@@ -153,7 +153,7 @@ dispatch run with reduced protection.
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
 | 05 | inert config + doc truth | not drafted |
-| 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | review      |
+| 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
 
 ## Reference implementation
 
