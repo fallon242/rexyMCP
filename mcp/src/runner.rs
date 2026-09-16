@@ -382,7 +382,8 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
     // M45 executor-egress protection: on a real dispatch (no test client) with the
     // gate on and a cloud endpoint, pre-scan the repo for PII, wrap the client so
     // outbound content is redacted, and collect the PII-file set for the
-    // write-guard. A failed pre-scan degrades to deterministic-only live redaction.
+    // write-guard. A failed pre-scan is fatal: nothing may reach the cloud executor
+    // with the detection engine unavailable.
     let redact = inp.test_client.is_none()
         && rexymcp_executor::privacy::egress::should_redact_egress(
             &inp.cfg.privacy,
@@ -390,7 +391,6 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         );
     let mut egress_terms = Vec::new();
     let mut pii_files = std::collections::HashSet::new();
-    let mut egress_warning = None;
     if redact {
         match rexymcp_executor::privacy::egress::build_egress_index(inp.repo_path, &inp.cfg.privacy)
             .await
@@ -399,12 +399,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
                 egress_terms = terms;
                 pii_files = files;
             }
-            Err(e) => {
-                egress_warning = Some(format!(
-                    "executor-egress redaction engaged but the PII pre-scan failed ({e}); only \
-                     structured PII is redacted live and the write-guard is off"
-                ));
-            }
+            Err(e) => return Err(prescan_refusal(&e)),
         }
     }
 
@@ -468,11 +463,21 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         cancel: inp.cancel.clone(),
     };
 
-    let mut result = run_phase_with(&assembly, &seams).await?;
-    if let Some(warning) = egress_warning {
-        result.warnings.push(warning);
-    }
+    let result = run_phase_with(&assembly, &seams).await?;
     Ok(result)
+}
+
+/// Turn a failed egress pre-scan into the refusal `run_phase` returns. The
+/// underlying error can carry an engine address, and this error reaches Claude
+/// without passing through the `PhaseResult` scrub, so redact it first.
+fn prescan_refusal(e: &rexymcp_executor::error::Error) -> rexymcp_executor::error::Error {
+    let detail = rexymcp_executor::privacy::redact::redact_pii(&e.to_string(), &[]);
+    rexymcp_executor::error::Error::Privacy(format!(
+        "the PII pre-scan failed ({detail}), so the dispatch to the cloud executor was stopped \
+         before any content was sent. Check the privacy.engine_base_url setting, or start the \
+         PII-detection engine; if it stays unavailable, run the phase on a local executor, or set \
+         privacy.redact_executor_egress = false to send unredacted content deliberately."
+    ))
 }
 
 #[cfg(test)]
@@ -1167,6 +1172,82 @@ mod tests {
             has_standards_warning,
             "expected a STANDARDS warning in: {:?}",
             phase_result.warnings
+        );
+    }
+
+    // --- end-to-end: run_phase refuses when the egress pre-scan fails ---
+
+    #[test]
+    fn prescan_refusal_redacts_address_and_names_remedies() {
+        let addr = ["192", "0", "2", "10"].join(".");
+        let detail = format!(
+            "NER engine call failed: error sending request for url (http://{addr}:8080/v1/chat/completions)"
+        );
+        let refused = prescan_refusal(&rexymcp_executor::error::Error::Privacy(detail));
+
+        let rexymcp_executor::error::Error::Privacy(message) = &refused else {
+            panic!("expected Error::Privacy, got {refused:?}");
+        };
+        assert!(
+            !message.contains(&addr),
+            "the engine address must not survive into the refusal: {message}"
+        );
+        assert!(
+            message.contains("[REDACTED:ip]"),
+            "the redaction marker is missing: {message}"
+        );
+        assert!(
+            message.contains("privacy.engine_base_url"),
+            "the setting to check is not named: {message}"
+        );
+        assert!(
+            message.contains("redact_executor_egress"),
+            "the explicit opt-out is not named: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_phase_stops_when_prescan_fails() {
+        let dir = TempDir::new().unwrap();
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let phase_doc_path = dir.path().join("phase-01-test.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01: Test\n\n**Status:** todo\n\n## Goal\n\nTest goal.\n",
+        )
+        .unwrap();
+
+        let mut cfg = Config::default();
+        cfg.privacy.enabled = true;
+        cfg.privacy.redact_executor_egress = Some(true);
+        cfg.privacy.engine_base_url = None;
+        cfg.privacy.engine_model = Some("m".to_string());
+        cfg.executor.base_url = "http://localhost:9/v1".to_string();
+
+        let inp = RunPhaseConfig {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "standards",
+            model_override: None,
+            telemetry_dir: None,
+            progress: None,
+            project_id: None,
+            test_client: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+        };
+
+        let result = run_phase(&inp).await;
+
+        let Err(rexymcp_executor::error::Error::Privacy(message)) = &result else {
+            panic!("expected a privacy refusal, got {result:?}");
+        };
+        assert!(
+            message.contains("privacy.engine_base_url"),
+            "the setting to check is not named: {message}"
         );
     }
 }

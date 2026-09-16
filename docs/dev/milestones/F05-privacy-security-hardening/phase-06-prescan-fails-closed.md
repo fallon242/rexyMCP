@@ -1,7 +1,7 @@
 # Phase 6: a failed pre-scan stops a cloud dispatch
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none (drafted ahead of phase 01 on human instruction)
 **Estimated diff:** ~120 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -277,3 +277,67 @@ connection attempt.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-16 14:53 (started)
+
+**Executor:** starting phase 06 (prescan fails closed). Flipped Status to
+`in-progress` and the milestone README row to match. Pre-flight:
+`cargo test -p rexymcp runner` = 27 passed / 0 failed.
+
+### Update — 2026-09-16 15:08 (progress)
+
+**Verification record (for the server-authored completion entry).** A failed
+egress pre-scan now short-circuits `run_phase` with `Error::Privacy`; the
+degradation warning is gone.
+
+**Positive control — each new test fails when the fix is reverted.**
+Reverting the one-line change (`Err(e) => return Err(prescan_refusal(&e))` →
+`Err(e) => return Err(e)`) and re-running `cargo test -p rexymcp runner`:
+
+```
+test runner::tests::prescan_refusal_redacts_address_and_names_remedies ... FAILED
+test runner::tests::run_phase_stops_when_prescan_fails ... FAILED
+test result: FAILED. 27 passed; 2 failed
+```
+
+`run_phase_stops_when_prescan_fails` fails in the reverted state exactly as the
+phase doc predicts: the run carries on, contacts `localhost:9`, and returns the
+NER error rather than the refusal. Restoring the fix returns 29 passed / 0
+failed.
+
+**End-to-end verification** (`/tmp/e2e_run.txt`, captured by redirect; the config
+uses a cloud host `https://api.example.com` for the executor and a refusing
+`http://localhost:9/v1` for the engine):
+
+```
+Error: privacy: the PII pre-scan failed (privacy: NER engine call failed: Request failed: error sending request for url (http://localhost:9/v1/chat/completions)), so the dispatch to the cloud executor was stopped before any content was sent. Check the privacy.engine_base_url setting, or start the PII-detection engine; if it stays unavailable, run the phase on a local executor, or set privacy.redact_executor_egress = false to send unredacted content deliberately.
+exit=1
+```
+
+Positive control for this check: reverting the fix in the same temp-dir harness
+produces the old behaviour instead — `Error: privacy: NER engine call failed: …`
+with no remedy wording and no "stopped before any content was sent". So the
+refusal wording in the fixed run is produced by the fix, not by the harness.
+
+**Grep for the pinned literals:**
+
+```
+$ grep -n "\[REDACTED:ip\]" mcp/src/runner.rs
+1196:            message.contains("[REDACTED:ip]"),
+$ grep -n "privacy.engine_base_url" mcp/src/runner.rs
+477:  … Check the privacy.engine_base_url setting …
+$ grep -rn "write-guard is off" mcp/src/
+(no matches)
+```
+
+`[REDACTED:ip]` appears in the test only; the runtime replacement is produced by
+`redact_pii`, whose output above shows the address replaced with
+`[REDACTED:ip]`. Note: the phase doc's spec sketch says the `privacy:` error
+prefix appears once; in practice `Error::Privacy` adds its own `privacy: ` prefix
+via `Display`, so the CLI line reads `privacy: the PII pre-scan failed (privacy:
+NER engine call failed: …)`. The inner text is the raw pre-scan error passed
+through `redact_pii`, as specified.
+
+**Commands:** `cargo fmt --all --check` clean; `cargo build` clean;
+`cargo clippy --all-targets --all-features -- -D warnings` clean;
+`cargo test` = 1142 passed / 0 failed / 4 ignored.

@@ -32,7 +32,9 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   message to the executor to `[REDACTED:kind]` (irreversible — no token the model
   can "correct" into fabricated data, the failure a reversible round-trip hit),
   and refuses model writes to PII-bearing files (a cloud model only sees their
-  redacted contents). A local executor bypasses all of this. Best-effort:
+  redacted contents). A local executor bypasses all of this. If the pre-scan
+  fails — for example because the NER engine is unreachable — the dispatch stops
+  before anything is sent. Best-effort:
   names the pre-scan NER misses still egress. See
   `docs/dev/milestones/F03-executor-egress-protection/`.
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)
