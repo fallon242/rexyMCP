@@ -9,15 +9,23 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F06 — Compaction pairing**, opened 2026-09-16 on human
-sign-off. **Active phase: F06 phase-01 — evict tool-call pairs together**
-(`todo`, drafted; dispatch with `/rexymcp:dispatch phase-01`). Context
-compaction can leave a `tool` reply with no call before it, and the backend
-then rejects the request (HTTP 400, seen in the CRS deployment).
+**Active milestone: F05 — Privacy and security hardening.** **Active phase:
+F05 phase-01 — `[privacy] terms_file`** (`todo`, drafted; dispatch with
+`/rexymcp:dispatch phase-01`). F05 was opened on human sign-off 2026-09-16 and
+paused for F06; per that sign-off it resumes now that F06 is closed.
 
-**Queued: F05 — Privacy and security hardening**, opened 2026-09-16, paused at
-phase-01 — `[privacy] terms_file` (`todo`, drafted). It resumes when F06
-closes.
+**F06 — Compaction pairing: DONE 2026-09-16** at one phase,
+`approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
+leaves a `tool` reply first in the history, which caused the CRS HTTP 400.
+Retrospective in
+[F06/README.md § F06 retrospective](milestones/F06-compaction-pairing/README.md):
+no folds. Two things carry forward:
+- **Possible F05 finding, not filed:** the egress NER pre-scan failed against
+  `http://Ip_1:8080`: redaction replaced the IP address in the engine's own
+  URL (`tokenizer.rs:44` token format), so the write-guard was off for that
+  run. Where the rewrite happens has not been traced.
+- **Optional cleanup:** Pass 2's call-with-replies step is redundant with
+  Pass 2.5 (about 15 lines).
 
 F04 — Pre-scan Efficiency — **DONE** (both phases
 `approved_first_try` 2026-08-21: `scan_globs` bounds the egress pre-scan;
