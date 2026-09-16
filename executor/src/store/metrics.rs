@@ -3,8 +3,7 @@
 //! Readers (`runs`/`scorecard`/`status`/dashboard) call these instead of
 //! re-deriving; pinning the definition once.
 
-use crate::ai::types::TokenBreakdown;
-use crate::store::telemetry::{ContextEfficiency, GenerationParams, ModelRates, PhaseRun};
+use crate::store::telemetry::{ContextEfficiency, GenerationParams, PhaseRun};
 
 /// Total tokens reclaimed in a run: boundary-filter + evicted + deduped +
 /// compaction. The one definition of "reclaimed."
@@ -34,17 +33,6 @@ pub fn settings_label(params: &GenerationParams) -> String {
         (None, Some(s)) => format!("seed={s}"),
         (Some(t), Some(s)) => format!("temp={t},seed={s}"),
     }
-}
-
-/// USD cost of an executor `TokenBreakdown` at per-class rates. Mirrors
-/// `ArchitectTokens::cost`; note `cache_write_tokens` is the cache-creation
-/// class.
-pub fn token_cost(tokens: &TokenBreakdown, rates: &ModelRates) -> f64 {
-    let per_m = |toks: u32, rate: f64| (toks as f64 / 1_000_000.0) * rate;
-    per_m(tokens.input_tokens, rates.input_per_mtok)
-        + per_m(tokens.cache_write_tokens, rates.cache_creation_per_mtok)
-        + per_m(tokens.cache_read_tokens, rates.cache_read_per_mtok)
-        + per_m(tokens.output_tokens, rates.output_per_mtok)
 }
 
 /// Stable git-sha-style 8-hex-char handle for a run, derived from its identity
@@ -151,35 +139,6 @@ mod tests {
             seed: Some(42),
         };
         assert_eq!(settings_label(&both), "temp=0.2,seed=42");
-    }
-
-    #[test]
-    fn token_cost_prices_each_class() {
-        let tokens = TokenBreakdown {
-            input_tokens: 1_000_000,
-            output_tokens: 1_000_000,
-            cache_read_tokens: 1_000_000,
-            cache_write_tokens: 1_000_000,
-        };
-        let rates = ModelRates {
-            input_per_mtok: 1.0,
-            output_per_mtok: 2.0,
-            cache_read_per_mtok: 3.0,
-            cache_creation_per_mtok: 4.0,
-        };
-        assert_eq!(token_cost(&tokens, &rates), 10.0);
-    }
-
-    #[test]
-    fn token_cost_zero_when_unpriced() {
-        let tokens = TokenBreakdown {
-            input_tokens: 1_000_000,
-            output_tokens: 500_000,
-            cache_read_tokens: 100_000,
-            cache_write_tokens: 200_000,
-        };
-        let rates = ModelRates::default();
-        assert_eq!(token_cost(&tokens, &rates), 0.0);
     }
 
     #[test]

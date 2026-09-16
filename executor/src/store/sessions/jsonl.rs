@@ -518,4 +518,57 @@ mod tests {
             _ => panic!("expected ToolResult"),
         }
     }
+
+    #[test]
+    fn metrics_event_without_cache_fields_parses() {
+        // Pre-M46 metrics line: no cache_read_tokens/cache_write_tokens keys.
+        let line = r#"{"ts":1786920874821,"turn":1,"event":{"event_type":"metrics","input_tokens":15015,"output_tokens":231,"context_pct":0.0203,"context_used":17110,"context_window":838860}}"#;
+        let record: SessionRecord = serde_json::from_str(line).unwrap();
+        match record.event {
+            SessionEvent::Metrics {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                ..
+            } => {
+                assert_eq!(input_tokens, 15015);
+                assert_eq!(output_tokens, 231);
+                assert_eq!(cache_read_tokens, 0);
+                assert_eq!(cache_write_tokens, 0);
+            }
+            _ => panic!("expected Metrics"),
+        }
+    }
+
+    #[test]
+    fn metrics_event_roundtrips_cache_fields() {
+        let event = SessionEvent::Metrics {
+            input_tokens: 600_000,
+            output_tokens: 1_000,
+            cache_read_tokens: 300_000,
+            cache_write_tokens: 100_000,
+            context_pct: 0.1,
+            context_used: 1,
+            context_window: 10,
+        };
+        let record = make_record(event, 1);
+        let json = serde_json::to_string(&record).unwrap();
+        let round_tripped: SessionRecord = serde_json::from_str(&json).unwrap();
+        match round_tripped.event {
+            SessionEvent::Metrics {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                ..
+            } => {
+                assert_eq!(input_tokens, 600_000);
+                assert_eq!(output_tokens, 1_000);
+                assert_eq!(cache_read_tokens, 300_000);
+                assert_eq!(cache_write_tokens, 100_000);
+            }
+            _ => panic!("expected Metrics"),
+        }
+    }
 }

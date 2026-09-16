@@ -71,10 +71,6 @@ novelty_action = "advisory"       # "advisory" (default): log low-novelty churn 
 # novelty_window = 24                # override [governor] novelty_window
 # novelty_distinct_floor = 6         # override [governor] novelty_distinct_floor
 # novelty_action = "terminate"       # override [governor] novelty_action
-# input_per_mtok = 0.0             # M35 executor pricing ($/Mtok); unpriced classes cost $0
-# output_per_mtok = 0.0            # override per-model output pricing
-# cache_read_per_mtok = 0.0        # override per-model cache-read pricing
-# cache_creation_per_mtok = 0.0    # override per-model cache-creation pricing
 
 [commands]
 # format = "cargo fmt --all"
@@ -88,21 +84,8 @@ novelty_action = "advisory"       # "advisory" (default): log low-novelty churn 
 output_filter = true              # filter/truncate bash output to conserve context
 
 [architect]
-# model = "claude-opus-4-8"        # the Claude rate: prices architect spend AND
-#                                  # the executor discount (executor tokens are
-#                                  # work this model was not billed for)
-#   (cache rates derive from input: read = 0.1×, creation = 1.25×)
-# Or set rates directly (model overrides these when set & recognised):
-# input_per_mtok = 5.0             # $/MTok uncached input tokens
-# output_per_mtok = 25.0           # $/MTok output tokens
-# cache_read_per_mtok = 0.5        # $/MTok cache-read input tokens
-# cache_creation_per_mtok = 6.25   # $/MTok cache-creation input tokens
 # dispatch_model = "claude-sonnet-5"   # /rexymcp:auto delegates dispatch to this model (default: inherit)
 # review_model = "claude-sonnet-5"     # /rexymcp:auto delegates review to this model (default: inherit)
-
-# [architect.rates."claude-sonnet-5"]   # override/add a per-model architect rate
-# input_per_mtok = 3.0                   #   (cache rates derive: read 0.1x, 5m 1.25x, 1h 2x)
-# output_per_mtok = 15.0
 
 [telemetry]
 # dir = "/path/to/shared/telemetry"  # cross-project PhaseRun telemetry store
@@ -213,6 +196,16 @@ mod tests {
                 "[governor] block must spell out {key}: {toml}"
             );
         }
+    }
+
+    #[test]
+    fn init_template_has_no_rate_keys() {
+        // Delete-task 3/4 guard: the template must not resurrect `$/MTok`.
+        let toml = generate_config("test-id");
+        assert!(
+            !toml.contains("per_mtok"),
+            "template must not contain any per_mtok keys:\n{toml}"
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 # rexyMCP
 
-**Let Claude be the *Architect*. Let a local model do the *execution*.**
+**Let Claude be the *Architect*. Let a local, or any openAI API compatable
+model do the *execution*.**
 
 rexyMCP is named after Rexy, my cattle dog. Rexy lives to herd — to keep the
 flock moving in one direction, to circle back the stragglers, to never let the
@@ -23,19 +24,20 @@ whichever you drive.
 
 A bunch of recent change that need to be called out because they change some core mechanics: 
 
-- **Improved cost accounting.** The dashboard's Spend block now prices the *whole*
-  run — **Architect / Executor / Net** across Session · Milestone · Project — with
-  per-model `$/Mtok` rates, and architect cost is *harvested* from the actual
-  session transcripts, not estimated. The **Executor** row is the *discount*: what
-  the architect model *would* have been billed for the work the local model did, so
-  rexyMCP's "costs" read as savings against a cloud baseline. There's a new
-  **`rexymcp costs`** command to view this from the CLI (`--tokens` for raw counts;
-  the dashboard's `b` toggles the same). The executor's **local prefix-cache tokens
-  are now captured too** — vLLM's `cached_tokens` (read) and `created_cache_tokens`
-  (write), when the endpoint is run with `--enable-prompt-tokens-details` — so cached
-  input is priced at the cheaper cache rate instead of full input, and the ledger's
-  dollar and token columns are decimal-aligned in both views. These changes **break**
-  compatibility with the old stats file format. 
+- **Token-first accounting (M46).** Dollar cost accounting is gone; token
+  counts are the accounting currency. The dashboard's Budget panel and the
+  **`rexymcp costs`** CLI render a token ledger — **Architect / Executor /
+  Cache** across **Session / Milestone / Project** — where the Cache row is
+  the executor's prompt-side cache-hit ratio, plus a token-share by-skill
+  table. Press `b` in the dashboard to cycle **Totals ⇄ Cache split** (the
+  split view surfaces executor cache read/write per scope and the architect
+  ledger's 5m/1h cache-creation split). `rexymcp runs` and `rexymcp profile
+  --cost` show a `CACHE%` column. These changes **break** three things
+  loudly: `costs --json` now emits token-only keys (`saved`/`executor`/
+  `architect`/`net` are gone), the `costs --tokens` flag is removed (tokens
+  are the only mode), and all `$/Mtok` rate config keys (`[architect]`
+  rates, `[models."<id>"]` rates, `[dashboard]`) are deleted — leftover keys
+  in existing config files are silently ignored.
 - **Runs you can interrupt.** Dispatching a phase no longer blocks — `execute_phase`
   hands back a `run_id` you poll, so a runaway can be stopped mid-flight with
   `rexymcp stop` (from any terminal) or `stop_phase` (from the Architect). The
@@ -56,8 +58,12 @@ A bunch of recent change that need to be called out because they change some cor
   from your recorded corpus (`calibrate-governor` surfaces the `max_read_only_run`
   distribution to set it). This is all still WIP and needs tuning. Getting lower
   tier models to work reliably is still a challenge. 
-- **Under-the-hood upkeep.** The MCP server moved to the rmcp v2 stack, plus the
-  usual round of cleanup and reliability fixes. 
+- **Under-the-hood upkeep.** The MCP server moved to the **rmcp v3 stack**
+  (3.1.2 — the MCP `2026-07-28` spec line), plus the usual round of cleanup and
+  reliability fixes. The tool surface is unchanged; if you're upgrading an
+  existing checkout, note that a *running* `rexymcp serve` does not hot-swap a
+  rebuilt binary — reinstall (`cargo install --path mcp`) and restart it, or
+  your client keeps talking to the old build. 
 
 ## An architecture-defined, milestone-based workflow — run autonomously
 
@@ -112,7 +118,7 @@ Three things make rexyMCP stand out:
    (`dispatch_model` / `review_model` — point them at Sonnet or Haiku while
    drafting and judgment stay on Opus). The loop is budgeted (`max_assists` per
    phase), fully journaled (every architect activity is a telemetry record with
-   real token/cost accounting), and hard-gated: milestone boundaries, blockers,
+   real token accounting), and hard-gated: milestone boundaries, blockers,
    and budget exhaustion always stop for you with a structured **loop report**.
    The result is an **autonomous virtuous cycle** — rexyMCP executes a whole
    milestone, and improves its own workflow contract as it goes.
@@ -279,7 +285,6 @@ model.
 
 ```toml
 [architect]
-model          = "claude-opus-4-8"   # drafting + escalation judgment (and cost rates)
 dispatch_model = "claude-sonnet-5"   # /auto delegates dispatch here
 review_model   = "claude-sonnet-5"   # /auto delegates review here  (try haiku!)
 ```
@@ -299,15 +304,15 @@ so* in the loop report — it never claims a switch that didn't happen.
   `assist`, `takeover`, `boundary` — is written as a structured telemetry record
   (`rexymcp journal`), so `PhaseRun.escalation_count` and the dashboard's Assists
   counter reflect *real* autonomous work. On Claude Code, `rexymcp harvest` reads
-  the local session transcripts and joins **real per-class token/cost** onto each
-  activity (cache-read / cache-creation / input / output billed at their true
-  rates) — architect cost is *harvested, never estimated*.
+  the local session transcripts and joins **real per-class token counts** onto each
+  activity (cache-read / cache-creation / input / output) — architect tokens are
+  *harvested, never estimated*.
 - **Hard gates.** Milestone boundaries, any blocker the skills reserve for a
   human (contract-doc changes, dependency requests, spec-vs-architecture
   conflicts), per-phase budget exhaustion, and the max-phases backstop all stop
   the loop and emit a structured **loop report** — the milestone-level analogue
   of the executor's failure briefing: what ran, every verdict, assists spent, the
-  token/cost totals, why it stopped, and what needs you.
+  token totals, why it stopped, and what needs you.
 
 As of M30 `execute_phase` is an **async job** — Claude gets a `run_id` back
 immediately and polls `get_run_status` to reap each phase, so it is no longer
@@ -345,10 +350,9 @@ exactly what rexyMCP is working on:
 - **Session** — which milestone, phase, model, and session is running; current
   state, turn count, and stage, with a dog-chases-its-brain liveness spinner so
   you can tell motion from a stall.
-- **Budget** — tokens in/out and tok/s, plus a **Spend** block pricing the
-  local run against a hypothetical cloud baseline (Architect / Executor / Net
-  across Session · Milestone · Project). Press `b` to toggle between dollar
-  values and raw token counts.
+- **Budget** — tokens in/out and tok/s, plus a **token ledger** (Architect /
+  Executor / Cache across Session · Milestone · Project). Press `b` to cycle
+  between the totalled ledger and the cache split.
 - **Context** — context-window utilization (green/yellow/red) and how many
   tokens each reclaim lever has recovered.
 - **Activity** — the full, scrollable transcript of the run: every prompt, tool
@@ -593,7 +597,7 @@ close.
 
 ## The CLI
 
-`rexymcp` is one binary with seventeen subcommands. Flags are all long-form; there
+`rexymcp` is one binary with eighteen subcommands. Flags are all long-form; there
 are no short aliases.
 
 ### Command reference
@@ -609,14 +613,15 @@ are no short aliases.
 | `rexymcp stop` | Signal a running executor to stop — writes a `.rexymcp/stop` sentinel in the target repo that the serve-side watcher (and a blocking `run-phase`) honor, cancelling every live run there. The human's out-of-band interrupt (M30). | `--repo <path>` (default `.`) |
 | `rexymcp serve` | Start the MCP stdio server. | `--config <path>` (required) |
 | `rexymcp status` | One-shot session summary (human or `--json`). The lightweight, scriptable alternative to `dashboard` for CI / piping. | `--repo <path>` (required), `--session <substr>`, `--json` |
-| `rexymcp dashboard` | Live full-screen TUI over the session JSONL (see panels below). Stays open and auto-follows new sessions. | `--repo <path>` (required), `--session <id>`, `--config <path>` (drives cost rates) |
+| `rexymcp dashboard` | Live full-screen TUI over the session JSONL (see panels below). Stays open and auto-follows new sessions. | `--repo <path>` (required), `--session <id>`, `--config <path>` |
 | `rexymcp runs` | List individual `PhaseRun` records with per-run stats. | `--config` (required), `--model`, `--tag` (repeatable, AND), `--limit <n>` (default 20; `0` = all), `--telemetry-path`, `--json` |
 | `rexymcp scorecard` | Aggregate runs into a **model × settings** competency matrix — compare e.g. `temp=0.2` vs `temp=0.7` for your model on your work. | `--config` (required), `--model`, `--tag` (repeatable), `--min-runs <n>`, `--telemetry-path`, `--json` |
 | `rexymcp profile` | Aggregate runs into a **per-(model, tag) capability profile** — strengths and ranked failure classes. | same flags as `scorecard` |
-| `rexymcp costs` | Report the token-cost breakdown — **Architect / Executor / Net** across **Session / Milestone / Project** — for a repo's session log + project telemetry. Use `--tokens` for raw token counts instead of dollar values. The scriptable, one-shot equivalent of the dashboard's Spend block. | `--config` (default `rexymcp.toml`), `--repo <path>` (default `.`), `--session <id>`, `--telemetry-path`, `--json`, `--tokens` |
+| `rexymcp costs` | Report the token ledger — **Architect / Executor / Cache** across **Session / Milestone / Project** — for a repo's session log + project telemetry. The scriptable, one-shot equivalent of the dashboard's Budget ledger. | `--config` (default `rexymcp.toml`), `--repo <path>` (default `.`), `--session <id>`, `--telemetry-path`, `--json` |
 | `rexymcp review` | Record an Architect review verdict as a `PhaseReview` annotation (folds into the run's telemetry). Usually invoked by `/rexymcp:review`. | `--config`, `--phase-id`, `--verdict` (required); `--phase-doc`, `--project-id`, `--failure-class` (repeatable), `--bounces`, `--bugs-filed`, `--warnings`, `--telemetry-path` |
 | `rexymcp journal` | Append an `ArchitectActivity` record (`draft`/`dispatch`/`review`/`assist`/`takeover`/`boundary`) to the telemetry store — the substrate the `/rexymcp:auto` loop uses to meter its own work. Usually invoked by the loop skill. | `--config`, `--phase-id` (required); `--phase-doc`, `--project-id`, `--milestone`, `--activity`, `--outcome`, `--model` |
-| `rexymcp harvest` | Read Claude Code's local session transcripts and join **real** per-class token/cost onto journal activities by time window (fills the architect-cost rows; **harvested, never estimated**). Claude Code only; other clients keep counts + durations. | `--config` (required) |
+| `rexymcp harvest` | Read Claude Code's local session transcripts and join **real** per-class token counts onto journal activities by time window (fills the architect token rows; **harvested, never estimated**). Claude Code only; other clients keep counts + durations. | `--config` (required) |
+| `rexymcp compact` | Rewrite the telemetry store (`phase_runs.jsonl`), keeping only the records that still matter — the maintenance path for a store that has grown large over many milestones. Preview first with `--dry-run`. | `--config` (required), `--telemetry-path`, `--dry-run` |
 
 **Calibration tiers** set how much hand-holding the Architect provides and how
 many retries the Executor gets before escalation fires:
@@ -704,10 +709,10 @@ new sessions. Six panels:
 │ Milestone: M21 …        │ Tokens in:  742833             │ Usage: 74% (97k/13… │
 │ Phase: phase-01         │ Tokens out: 7122               │ Events: 2          │
 │ Session: 1781658-qwen   │ Tok/s: 38.4  (avg 35, max 52)  │ Freed: 41k tokens  │
-│ Model: Qwen/Qwen3.6-27B │ Spend     Session  Milestone … │ Filter: 18 calls … │
-│ State: running          │   Architect: ($0.00) ($0.00) …  │ Evict: 6 reads …   │
-│ Duration: 4m12s         │   Executor:  $0.50   $3.20  …  │ Dedupe: 3 reads …  │
-│ Turn 42, stage verify   │   Net:       ($0.50) ($3.20) …  │                    │
+│ Model: Qwen/Qwen3.6-27B │ Tokens    Session  Milestone … │ Filter: 18 calls … │
+│ State: running          │   Architect:    —       —    …  │ Evict: 6 reads …   │
+│ Duration: 4m12s         │   Executor:  90.2k   733.9k …  │ Dedupe: 3 reads …  │
+│ Turn 42, stage verify   │   Cache:        —     96.7% …  │                    │
 │      🐕      🧠          │                                   │                    │
 ├─ Activity [f=filter] ───┴───────────────────┬─ Tasks ────┴────────────────────┤
 │ [t42] bash  <your test command>             │ Tasks ▕███████▏░░░░░░░ 3/7    43%│
@@ -722,12 +727,10 @@ new sessions. Six panels:
 
 - **Session** — milestone / phase / session / model / state / duration / turn /
   stage, plus a dog-chases-its-brain liveness spinner while running.
-- **Budget** — token counts, tok/s (with avg/max/min), and a **Spend** block
-  pricing the local run against a cloud baseline:
-  Architect / Executor / Net across
-  Session · Milestone · Project columns. Press `b` to toggle between dollar
-  values and raw token counts. `--config`
-  loads `[architect]` rates for this breakdown.
+- **Budget** — token counts, tok/s (with avg/max/min), and a **token ledger**
+  (Architect / Executor / Cache) across
+  Session · Milestone · Project columns. Press `b` to cycle between the totalled
+  ledger and the cache split.
 - **Context** — context-window usage (green/yellow/red), compaction events, and
   per-lever reclaim (filter / evict / dedupe).
 - **Activity** — the full session transcript, scrollable, with a togglable
@@ -746,7 +749,7 @@ answer to that constraint:
 | Challenge | rexyMCP's answer |
 |---|---|
 | Small models emit malformed tool calls — trailing commas, fenced JSON, near-miss key names | **Forgiving parser** recognizes six output formats (Hermes, fenced/loose JSON, YAML, XML-variant, plain text) and applies repair transforms (fuzzy name match, param aliasing, type coercion, default-fill, JSON repair, string-escape) before giving up — and when it must give up, it feeds *model-visible* feedback instead of silently aborting the turn |
-| The model loops, retrying the same broken edit | **Governor loop detector** trips on N identical consecutive tool calls (default 6) — plus an A,B,A,B oscillation detector and a windowed cumulative-output flood detector (M26) — and converts it to a `hard_fail` briefing before it burns the turn budget. An optional wall-clock ceiling terminates a wedged run |
+| The model loops, retrying the same broken edit | **Governor loop detector** trips on N identical consecutive tool calls (default 6) — plus an A,B,A,B oscillation detector and a windowed cumulative-output flood detector (M26) — and converts it to a `hard_fail` briefing before it burns the turn budget. "Identical" is judged on **whitespace-normalized** arguments (M45), so a loop that re-issues the same edit with the indentation or a line break shuffled still trips instead of slipping past on a cosmetic difference; arguments that differ substantively stay distinct. An optional wall-clock ceiling terminates a wedged run |
 | A truncated tool call drops a required arg and the raw serde error is a dead end | **Recovery-oriented tool errors**: instead of surfacing `missing field \`path\``, the tool names the missing field, echoes what *was* supplied, and hands back an example call shape + next step (M28); a no-op `patch` returns the file's current text, location, and occurrence count (M24) — the model gets something to act on rather than a wall |
 | Correct code dies in the bookkeeping tail — the model can't reliably fill in the Update Log / Status flip | **Server-authored bookkeeping** (M27): on a clean `complete`, the *server* writes the phase's Status flip and a baseline Update Log entry from data it already holds (splicing in the summary the model returned) and makes a separate `docs:` commit. The executor's job ends at green code |
 | The model stalls in the tail — emits an empty or mid-`<think>`-truncated completion, or re-submits a no-op edit, instead of finishing | **Stall recovery** (M22–M24): an empty completion or a `finish_reason="length"` truncation is routed to a cause-specific recovery nudge rather than mis-read as "done" (consecutive empties escalate to a no-reasoning directive); a no-op `patch` (identical `old_str`/`new_str`) returns the file's current text + location and an occurrence count instead of a dead-end error; dedicated governor stalls (empty-completion, stuck-gate-feedback) cap the loop as the backstop |
@@ -789,7 +792,7 @@ the process docs that govern all future work.
 
 This cycle runs whether you drive the loop by hand *or* let `/rexymcp:auto` run
 it — the autonomous loop journals every architect activity (`rexymcp journal`),
-harvests its real token/cost (`rexymcp harvest`), and folds recurring failure
+harvests its real token usage (`rexymcp harvest`), and folds recurring failure
 classes into the contract exactly as an interactive run would. That is what makes
 it a *self-improving* autonomous loop, not just an unattended one: it executes a
 milestone and sharpens the process that governs the next one in the same pass.
@@ -868,13 +871,10 @@ max_turns        = 200                    # hard turn cap before budget_exceeded
 [telemetry]
 dir = "~/.rexymcp/telemetry"              # ~ is expanded; omit the section to disable telemetry
 
-# ── Architect model, per-role delegation & escalation cost ────────
+# ── Architect model, per-role delegation (M27) ─────────────────
 [architect]
-# model = "claude-opus-4-8"               # known Claude id → auto-fills the rates below (cost model, not the session model)
 # dispatch_model = "claude-sonnet-5"      # /rexymcp:auto delegates dispatch to a subagent on this model (M27; unset → inherit session model)
 # review_model   = "claude-sonnet-5"      # /rexymcp:auto delegates review to a subagent on this model   (M27; unset → inherit)
-input_per_mtok  = 5.0                      # USD / Mtok architect input
-output_per_mtok = 25.0                     # USD / Mtok architect output
 
 # ── M10 context output-filter kill-switch ─────────────────────────
 [context]
@@ -936,19 +936,11 @@ temperature                    = 0.2      # any of these override the global val
 | `[commands]` | The `format` / `build` / `lint` / `test` (+ optional `lint_fix`) commands run as the final gate. |
 | `[budget]` | `context_length`, `max_context_pct`, `max_turns`, `gate_retries`, and the optional `wall_clock_secs` ceiling (M26). |
 | `[telemetry]` | `dir` — the cross-project store. Omit to disable; `~` is expanded. |
-| `[architect]` | `$/Mtok` rates for architect work and the executor discount (or a Claude `model` to auto-fill), plus the per-role `dispatch_model` / `review_model` keys the `/rexymcp:auto` loop delegates those steps to (M27). |
+| `[architect]` | The per-role `dispatch_model` / `review_model` keys the `/rexymcp:auto` loop delegates those steps to (M27). |
 | `[context]` | `output_filter` kill-switch for the M10 boundary filter. |
 | `[governor]` | Hard-fail thresholds: identical-call, verifier-persistence, runaway-output, empty-completion, stuck-gate-feedback, the no-progress read-only stall, and the oscillation / output-flood / low-novelty windows (the last of these advisory-only by default — see `novelty_action`). |
 | `[escalation]` | `max_assists` — the flat, tier-independent per-phase escalation budget for the `/rexymcp:auto` loop (M27). |
-| `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, every governor threshold, and the four M35 `$/Mtok` executor rates. Any key omitted inherits the global value. |
-
-**Known-model rate table** (recognized by `[architect] model`, in USD/Mtok
-input/output): `claude-opus-5`/`claude-opus-4-8`/`-4-7`/`-4-6` → 5/25 ·
-`claude-sonnet-5` → 2/10 (introductory, through 2026-08-31; 3/15 after) ·
-`claude-sonnet-4-6` → 3/15 · `claude-haiku-4-5` → 1/5 ·
-`claude-fable-5`/`claude-mythos-5` → 10/50. Anything else falls back to the
-explicit rate fields — a model in neither this table nor `[architect.rates]`
-contributes its tokens but **$0.00** to the cost totals, silently.
+| `[models."<id>"]` | Per-model overrides (exact-id match) for sampling (`temperature`/`seed`/`max_tokens`/`enable_thinking`), task-tracking, and every governor threshold. Any key omitted inherits the global value. |
 
 ---
 

@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use super::filter::{FILTER_ITEM_COUNT, FilterState};
-use super::panels::{BudgetDisplay, BudgetRates};
 use super::render::{ViewState, clamp_scroll, render_dashboard};
 use crate::dashboard::load_data;
 
@@ -9,7 +8,6 @@ pub(crate) fn run_loop(
     terminal: &mut ratatui::DefaultTerminal,
     repo: &Path,
     session: Option<&str>,
-    rates: BudgetRates,
     telemetry_dir: Option<&Path>,
     project_id: Option<String>,
     architect: &rexymcp_executor::config::ArchitectConfig,
@@ -21,7 +19,7 @@ pub(crate) fn run_loop(
     let mut follow = true;
     let mut spinner_tick: usize = 0;
     let mut filter_state = FilterState::default();
-    let mut budget_display = BudgetDisplay::Dollars;
+    let mut token_view = super::panels::TokenView::default();
     // Track record count so we can re-enable follow whenever new content arrives,
     // regardless of whether the user previously scrolled away from the bottom.
     let mut prev_record_count: usize = 0;
@@ -74,20 +72,13 @@ pub(crate) fn run_loop(
             follow,
             spinner,
             filter: filter_state.clone(),
-            budget_display,
+            token_view,
             generation,
         };
         let mut total_wrapped = 0usize;
         terminal.draw(|frame| {
-            total_wrapped = render_dashboard(
-                frame,
-                frame.area(),
-                &data,
-                now_ms,
-                &state,
-                rates,
-                &mut cache,
-            );
+            total_wrapped =
+                render_dashboard(frame, frame.area(), &data, now_ms, &state, &mut cache);
         })?;
         offset = clamp_scroll(offset, total_wrapped);
 
@@ -118,9 +109,13 @@ pub(crate) fn run_loop(
                         filter_state.cursor = 0;
                     }
                     KeyCode::Char('b') => {
-                        budget_display = match budget_display {
-                            BudgetDisplay::Dollars => BudgetDisplay::Tokens,
-                            BudgetDisplay::Tokens => BudgetDisplay::Dollars,
+                        token_view = match token_view {
+                            super::panels::TokenView::Totals => {
+                                super::panels::TokenView::CacheSplit
+                            }
+                            super::panels::TokenView::CacheSplit => {
+                                super::panels::TokenView::Totals
+                            }
                         };
                     }
                     KeyCode::Up => {

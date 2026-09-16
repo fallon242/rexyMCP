@@ -51,9 +51,8 @@ pub fn run(args: &CalibrateArgs<'_>) -> anyhow::Result<()> {
     // [architect] — add skeleton when absent so the user sees the section.
     if doc.get("architect").is_none() {
         let mut t = Table::new();
-        t["model"] = value("");
-        t["input_per_mtok"] = value(0.0);
-        t["output_per_mtok"] = value(0.0);
+        t["dispatch_model"] = value("");
+        t["review_model"] = value("");
         doc.insert("architect", Item::Table(t));
     }
 
@@ -253,6 +252,17 @@ max_turns = 40
             doc.get("architect").is_some_and(|a| a.is_table()),
             "[architect] must be a section header, not an inline table"
         );
+        assert!(
+            doc["architect"].get("dispatch_model").is_some(),
+            "skeleton must offer dispatch_model"
+        );
+        assert!(
+            !doc["architect"]
+                .as_table()
+                .unwrap()
+                .contains_key("input_per_mtok"),
+            "skeleton must not write rate keys"
+        );
     }
 
     #[test]
@@ -301,12 +311,29 @@ max_context_pct = 70
 max_turns = 40
 
 [architect]
-model = "claude-opus-4-8"
-input_per_mtok = 5.0
-output_per_mtok = 25.0
+dispatch_model = "claude-sonnet-5"
+review_model = "claude-sonnet-5"
 "#,
         );
         let doc: toml_edit::DocumentMut = result.parse().unwrap();
-        assert_eq!(doc["architect"]["model"].as_str(), Some("claude-opus-4-8"));
+        assert_eq!(
+            doc["architect"]["dispatch_model"].as_str(),
+            Some("claude-sonnet-5")
+        );
+        assert_eq!(
+            doc["architect"]["review_model"].as_str(),
+            Some("claude-sonnet-5")
+        );
+        // Old rate keys left in a user's file are preserved (calibrate only
+        // adds the skeleton when [architect] is absent, never removes keys).
+        assert_eq!(
+            doc["architect"]
+                .as_table()
+                .unwrap()
+                .get("model")
+                .and_then(|m| m.as_str()),
+            None,
+            "no model key in preserved section"
+        );
     }
 }

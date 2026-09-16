@@ -854,7 +854,6 @@ mod tests {
                 novelty_window: None,
                 novelty_distinct_floor: None,
                 novelty_action: None,
-                ..Default::default()
             },
         );
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
@@ -989,7 +988,6 @@ mod tests {
                 novelty_window: None,
                 novelty_distinct_floor: None,
                 novelty_action: None,
-                ..Default::default()
             },
         );
 

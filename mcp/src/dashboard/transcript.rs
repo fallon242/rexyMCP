@@ -462,6 +462,8 @@ mod tests {
         let metrics = SessionEvent::Metrics {
             input_tokens: 500,
             output_tokens: 100,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
             context_pct: 0.3,
             context_used: 0,
             context_window: 0,
@@ -602,6 +604,8 @@ mod tests {
             SessionEvent::Metrics {
                 input_tokens: 10,
                 output_tokens: 5,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
                 context_pct: 0.0,
                 context_used: 0,
                 context_window: 0,

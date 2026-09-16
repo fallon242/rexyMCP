@@ -4,16 +4,14 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::costs::{self, LedgerUnits};
+use crate::costs;
 use crate::status::{self, StatusSummary};
 use rexymcp_executor::store::sessions::event::TaskState;
 use rexymcp_executor::store::telemetry::ArchitectTokens;
 
 /// Token costs for one budget scope (Session / Milestone / Project).
-/// `executor_*` are local-model tokens (cost = $0.00 until a local rate is
-/// configured; future: paid OpenRouter/provider rates). `architect` is summed
+/// `executor_*` are local-model tokens. `architect` is summed
 /// from folded `ArchitectActivity` records (aggregate tokens).
-/// `architect_cost` is the pre-computed per-model ledger cost (dollars).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ScopeCosts {
     pub executor_in: u64,
@@ -21,24 +19,6 @@ pub struct ScopeCosts {
     pub executor_cache_read: u64,
     pub executor_cache_write: u64,
     pub architect: ArchitectTokens,
-    pub architect_cost: Option<f64>,
-}
-
-/// Whether the Budget savings block renders dollar amounts or token counts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BudgetDisplay {
-    #[default]
-    Dollars,
-    Tokens,
-}
-
-/// Cloud-baseline $/Mtok rates for the Budget panel's "Saved:" line.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BudgetRates {
-    pub input_per_mtok: f64,
-    pub output_per_mtok: f64,
-    /// The executor model's $/Mtok (from `cfg.model_rates`), for the Executor row.
-    pub executor: rexymcp_executor::store::telemetry::ModelRates,
 }
 
 /// Wall-clock session duration in ms.
@@ -484,18 +464,28 @@ pub(crate) fn budget_lines(summary: &StatusSummary) -> Vec<Line<'static>> {
     lines
 }
 
-/// Budget-panel savings block. Delegates to the shared `ledger_lines` renderer
-/// so the dashboard and CLI produce identical output.
+/// Which token view the Budget panel renders. `b` cycles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TokenView {
+    #[default]
+    Totals,
+    CacheSplit,
+}
+
+/// Budget-panel savings block. Delegates to the shared `ledger_lines`
+/// (`Totals`) / `cache_split_lines` (`CacheSplit`) renderer so the dashboard and
+/// CLI produce identical output.
 /// Returns empty when there are no session metrics yet — never a lone header.
 pub(crate) fn savings_lines(
     summary: &StatusSummary,
-    rates: BudgetRates,
     milestone_costs: Option<ScopeCosts>,
     project_costs: ScopeCosts,
     _project_escalation_count: u32, // retained to avoid call-site cascade; full removal deferred
-    display: BudgetDisplay,
+    view: TokenView,
+    arch_cache_5m: u64,
+    arch_cache_1h: u64,
 ) -> Vec<Line<'static>> {
-    // Nothing to render without input tokens.
+    // Nothing to render without input tokens — applies to both views.
     let Some(sess_in) = summary.last_input_tokens else {
         return Vec::new();
     };
@@ -505,18 +495,20 @@ pub(crate) fn savings_lines(
     let session_costs = ScopeCosts {
         executor_in: sess_in,
         executor_out: sess_out,
+        executor_cache_read: summary.last_cache_read_tokens.unwrap_or(0) as u64,
+        executor_cache_write: summary.last_cache_write_tokens.unwrap_or(0) as u64,
         ..Default::default()
     };
-    let sess = costs::scope_report(&session_costs, &rates.executor, &rates);
-    let mile = milestone_costs.map(|c| costs::scope_report(&c, &rates.executor, &rates));
-    let proj = costs::scope_report(&project_costs, &rates.executor, &rates);
+    let sess = costs::scope_report(&session_costs);
+    let mile = milestone_costs.map(|c| costs::scope_report(&c));
+    let proj = costs::scope_report(&project_costs);
 
-    let units = match display {
-        BudgetDisplay::Dollars => LedgerUnits::Dollars,
-        BudgetDisplay::Tokens => LedgerUnits::Tokens,
+    let lines = match view {
+        TokenView::Totals => costs::ledger_lines(&sess, mile.as_ref(), &proj),
+        TokenView::CacheSplit => {
+            costs::cache_split_lines(&sess, mile.as_ref(), &proj, arch_cache_5m, arch_cache_1h)
+        }
     };
-
-    let lines = costs::ledger_lines(&sess, mile.as_ref(), &proj, units);
     lines.into_iter().map(Line::from).collect()
 }
 /// Wrap lines in a bordered `Block` with the given title.
@@ -527,9 +519,7 @@ pub(crate) fn panel(title: &'static str, lines: Vec<Line<'static>>) -> Paragraph
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rexymcp_executor::config::ArchitectConfig;
     use rexymcp_executor::store::sessions::event::FileNumstat;
-    use rexymcp_executor::store::telemetry::ModelRates;
 
     // --- session_lines tests ---
 
@@ -1574,14 +1564,29 @@ mod tests {
     // --- savings_lines tests ---
 
     #[test]
+    fn token_view_defaults_to_totals_and_has_two_variants() {
+        // The `b` cycler flips between the two — state-level contract the key
+        // arm and the render branch both rely on.
+        assert_eq!(TokenView::default(), TokenView::Totals);
+        assert_ne!(TokenView::Totals, TokenView::CacheSplit);
+        let next = |v: TokenView| match v {
+            TokenView::Totals => TokenView::CacheSplit,
+            TokenView::CacheSplit => TokenView::Totals,
+        };
+        assert_eq!(next(TokenView::Totals), TokenView::CacheSplit);
+        assert_eq!(next(TokenView::CacheSplit), TokenView::Totals);
+    }
+
+    #[test]
     fn savings_lines_empty_without_session_metrics() {
         let result = savings_lines(
             &StatusSummary::default(),
-            BudgetRates::default(),
             None,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
+            TokenView::Totals,
+            0,
+            0,
         );
         assert!(result.is_empty(), "no session tokens → empty");
     }
@@ -1596,14 +1601,18 @@ mod tests {
         // No milestone → 2-scope header
         let lines = savings_lines(
             &summary,
-            BudgetRates::default(),
             None,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
+            TokenView::Totals,
+            0,
+            0,
         );
         let header = format!("{}", lines[0]);
-        assert!(header.contains("Spend"), "header must start with Spend");
+        assert!(
+            header.contains("Tokens"),
+            "header must read Tokens: {header}"
+        );
         assert!(header.contains("Session"), "header must name Session");
         assert!(header.contains("Project"), "header must name Project");
         assert!(
@@ -1622,16 +1631,16 @@ mod tests {
         let mile = Some(ScopeCosts {
             executor_in: 500_000,
             executor_out: 200_000,
-            architect_cost: None,
             ..ScopeCosts::default()
         });
         let lines = savings_lines(
             &summary,
-            BudgetRates::default(),
             mile,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
+            TokenView::Totals,
+            0,
+            0,
         );
         let header = format!("{}", lines[0]);
         assert!(
@@ -1642,7 +1651,7 @@ mod tests {
 
     #[test]
     fn savings_lines_never_omits_rows() {
-        // All three rows (Architect/Executor/Net) always render — no suppression.
+        // All three rows (Architect/Executor/Cache) always render — no suppression.
         let summary = StatusSummary {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
@@ -1650,19 +1659,21 @@ mod tests {
         };
         let lines = savings_lines(
             &summary,
-            BudgetRates::default(),
             None,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
+            TokenView::Totals,
+            0,
+            0,
         );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         // Header + 3 data rows = 4 lines
         assert_eq!(lines.len(), 4, "should have header + 3 rows");
         assert!(texts[1].contains("Architect:"), "row 1 is Architect");
         assert!(texts[2].contains("Executor:"), "row 2 is Executor");
-        assert!(texts[3].contains("Net:"), "row 3 is Net");
+        assert!(texts[3].contains("Cache:"), "row 3 is Cache");
     }
+
     #[test]
     fn savings_lines_has_no_assists_row() {
         let summary = StatusSummary {
@@ -1672,11 +1683,12 @@ mod tests {
         };
         let lines = savings_lines(
             &summary,
-            BudgetRates::default(),
             None,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
+            TokenView::Totals,
+            0,
+            0,
         );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
         assert!(
@@ -1686,397 +1698,7 @@ mod tests {
     }
 
     #[test]
-    fn savings_lines_saved_dash_when_rates_unset() {
-        // With no rates, Executor row shows — (not attributable) and Net shows —.
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(500_000),
-            ..StatusSummary::default()
-        };
-        let lines = savings_lines(
-            &summary,
-            BudgetRates::default(),
-            None,
-            ScopeCosts::default(),
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let executor_line = texts
-            .iter()
-            .find(|s| s.contains("Executor:"))
-            .expect("Executor row present");
-        assert!(
-            executor_line.contains("—"),
-            "Executor should show — when rates are unset: {executor_line}"
-        );
-    }
-
-    #[test]
-    fn savings_lines_architect_cost_shown_from_project_costs() {
-        // architect_*_tokens > 0 with configured architect rates → non-zero Architect value
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(0),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 5.0,
-            output_per_mtok: 25.0,
-            executor: ModelRates::default(),
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 0,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 1_000_000,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-            },
-            architect_cost: Some(5.0),
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let arch_line = texts
-            .iter()
-            .find(|s| s.contains("Architect:"))
-            .expect("Architect row must be present with non-zero architect cost");
-        assert!(
-            arch_line.contains("($5.00)"),
-            "Architect project column shows ($5.00): {}",
-            arch_line
-        );
-    }
-
-    #[test]
-    fn savings_lines_net_subtracts_architect_from_saved() {
-        // Saved $5.00, Architect $1.00, Net $4.00
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(0),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 5.0,
-            output_per_mtok: 25.0,
-            executor: ModelRates::default(),
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 0,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 1_000_000,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-            },
-            architect_cost: Some(1.0),
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let executor_line = texts
-            .iter()
-            .find(|s| s.contains("Executor:"))
-            .expect("Executor row missing");
-        let net_line = texts
-            .iter()
-            .find(|s| s.contains("Net:"))
-            .expect("Net row missing");
-        // Executor = saved - executor = 1M*5/1M - 0 = $5.00; Architect = $1.00; Net = $4.00
-        assert!(
-            executor_line.contains("$5.00"),
-            "Executor project $5.00: {}",
-            executor_line
-        );
-        assert!(
-            net_line.contains("$4.00"),
-            "Net project $4.00: {}",
-            net_line
-        );
-    }
-
-    #[test]
-    fn savings_lines_net_row_parenthesized_when_negative() {
-        // Net row: parenthesised when negative, plain when positive.
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(0),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 5.0,
-            output_per_mtok: 25.0,
-            executor: ModelRates::default(),
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 0,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 1_000_000,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-            },
-            architect_cost: None,
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let net_line = texts
-            .iter()
-            .find(|s| s.contains("Net:"))
-            .expect("Net row missing");
-        // Net = saved - executor - architect. With these numbers:
-        // saved = 1M*5/1M = 5.0; executor = 0; architect = 1M*5/1M = 5.0
-        // net = 5.0 - 0 - 5.0 = 0.0 (non-negative)
-        // Non-negative net is NOT parenthesized.
-        assert!(
-            !net_line.contains("($"),
-            "Net row must not be parenthesized when non-negative: {}",
-            net_line
-        );
-    }
-
-    #[test]
-    fn savings_lines_data_rows_equal_width_for_alignment() {
-        // All three rows (Architect/Executor/Net) must be equal width
-        // so values land in the same columns.
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(500_000),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 3.0,
-            output_per_mtok: 15.0,
-            executor: ModelRates::default(),
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 0,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 1_000_000,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-            },
-            architect_cost: None,
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let money_texts: Vec<String> = texts
-            .iter()
-            .filter(|s| s.contains("Architect:") || s.contains("Executor:") || s.contains("Net:"))
-            .cloned()
-            .collect();
-        let widths: Vec<usize> = money_texts.iter().map(|s| s.chars().count()).collect();
-        assert!(
-            !widths.is_empty() && widths.iter().all(|&w| w == widths[0]),
-            "all money rows must be equal width for column alignment: {widths:?}, rows: {money_texts:?}",
-        );
-    }
-
-    // --- effective_rates tests (model_rates moved to executor crate) ---
-
-    // --- effective_rates tests (model_rates moved to executor crate) ---
-
-    #[test]
-    fn savings_lines_debit_digits_align_with_non_debit() {
-        // In dollars mode, a debit row's marker and a non-debit row's marker must
-        // share a column. The Session column here is the discriminating one:
-        //   Architect: `(—)`     — debit dash (no session architect cost)
-        //   Executor:  `$103.50` — non-debit credit (avoided >> executor cost)
-        // Rates make the executor a *credit*, not a debit, so this exercises the
-        // debit-vs-non-debit case the sign-gutter fixes (a debit-vs-debit fixture
-        // would pass even against the misaligned rendering).
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(500_000),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 30.0,
-            output_per_mtok: 150.0,
-            executor: ModelRates {
-                input_per_mtok: 1.0,
-                output_per_mtok: 1.0,
-                cache_read_per_mtok: 0.0,
-                cache_creation_per_mtok: 0.0,
-            },
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 500_000,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 100_000,
-                output: 50_000,
-                cache_creation: 0,
-                cache_read: 0,
-            },
-            architect_cost: Some(5.00),
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-
-        let data_lines: Vec<&String> = texts.iter().filter(|s| s.contains(':')).collect();
-        let widths: Vec<usize> = data_lines.iter().map(|s| s.chars().count()).collect();
-        assert!(
-            !widths.is_empty() && widths.iter().all(|&w| w == widths[0]),
-            "all data rows must be equal width for column alignment: {widths:?}"
-        );
-
-        // Marker-column equality in the Session column: the Architect row's debit
-        // dash `(—)` and the Executor row's credit decimal `$103.50` must sit at the
-        // same offset. Each line's first `—`/`.` is its Session-column marker (the
-        // label field is fixed-width ASCII, so the byte offset equals the column).
-        let architect = data_lines
-            .iter()
-            .find(|s| s.contains("Architect:"))
-            .expect("Architect row");
-        let executor = data_lines
-            .iter()
-            .find(|s| s.contains("Executor:"))
-            .expect("Executor row");
-        let arch_marker = architect
-            .find('—')
-            .expect("Architect Session column is a debit dash");
-        let exec_marker = executor
-            .find('.')
-            .expect("Executor Session column is a credit decimal");
-        assert_eq!(
-            arch_marker, exec_marker,
-            "debit dash and non-debit decimal must be at the same column index\nArchitect: {architect}\nExecutor:  {executor}"
-        );
-    }
-
-    #[test]
-    fn architect_effective_rates_opus_48_returns_correct_pricing() {
-        let a = ArchitectConfig {
-            model: Some("claude-opus-4-8".into()),
-            ..ArchitectConfig::default()
-        };
-        assert_eq!(a.effective_rates(), (5.0, 25.0));
-    }
-
-    #[test]
-    fn architect_effective_rates_fable_5_returns_correct_pricing() {
-        let a = ArchitectConfig {
-            model: Some("claude-fable-5".into()),
-            ..ArchitectConfig::default()
-        };
-        assert_eq!(a.effective_rates(), (10.0, 50.0));
-    }
-
-    #[test]
-    fn architect_effective_rates_unknown_model_uses_explicit() {
-        let a = ArchitectConfig {
-            model: Some("gpt-4".into()),
-            input_per_mtok: 1.0,
-            output_per_mtok: 2.0,
-            ..ArchitectConfig::default()
-        };
-        assert_eq!(a.effective_rates(), (1.0, 2.0));
-    }
-
-    #[test]
-    fn savings_lines_priced_executor_shows_non_zero() {
-        // With a priced executor, the Executor row must show a non-zero value.
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(500_000),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 3.0,
-            output_per_mtok: 15.0,
-            executor: ModelRates {
-                input_per_mtok: 5.0,
-                output_per_mtok: 15.0,
-                cache_read_per_mtok: 2.0,
-                cache_creation_per_mtok: 8.0,
-            },
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 500_000,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: Default::default(),
-            architect_cost: None,
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let exec_line = texts
-            .iter()
-            .find(|s| s.contains("Executor:"))
-            .expect("Executor row must be present with priced executor");
-        // Session: saved = 1M*3 + 0.5M*15 = 10.5; executor = 1M*5 + 0.5M*15 = 12.5
-        // credit = 10.5 - 12.5 = -2.0 → (2.00)
-        assert!(
-            exec_line.contains("(2.00)"),
-            "Executor row should show (2.00) for negative credit: {exec_line}"
-        );
-    }
-
-    #[test]
-    fn budget_display_default_is_dollars() {
-        assert_eq!(BudgetDisplay::default(), BudgetDisplay::Dollars);
-    }
-
-    #[test]
-    fn savings_lines_tokens_mode_shows_token_counts() {
+    fn savings_lines_token_counts_render() {
         let summary = StatusSummary {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
@@ -2093,212 +1715,64 @@ mod tests {
                 cache_read: 25_000,
                 output: 25_000,
             },
-            architect_cost: None,
         };
-        let lines = savings_lines(
-            &summary,
-            BudgetRates::default(),
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Tokens,
-        );
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
 
-        // Header should indicate tokens mode (M37 phase-06: `Tokens`, not `Spend (tok)`)
         let header = &texts[0];
         assert!(
             header.contains("Tokens"),
-            "Tokens-mode header should read Tokens: {header}"
+            "header should read Tokens: {header}"
         );
 
-        // Find the Executor row and verify it shows the summed executor tokens
-        // 1M + 500k + 200k + 300k = 2.0M for project
+        // Executor row project column: 1M + 500k + 200k + 300k = 2.0M
         let exec_line = texts
             .iter()
             .find(|s| s.contains("Executor:"))
-            .expect("Executor row missing in tokens mode");
+            .expect("Executor row missing");
         assert!(
             exec_line.contains("2.0M"),
             "Executor row should show 2.0M tokens for project, got: {exec_line}"
         );
 
-        // Find the Architect row and verify it shows the summed architect tokens
-        // 100k + 50k + 25k + 25k = 200k for project
+        // Architect row project column: 100k + 50k + 25k + 25k = 200k
         let arch_line = texts
             .iter()
             .find(|s| s.contains("Architect:"))
-            .expect("Architect row missing in tokens mode");
+            .expect("Architect row missing");
         assert!(
             arch_line.contains("200.0k"),
             "Architect row should show 200.0k tokens for project, got: {arch_line}"
         );
 
-        // Net row should show "—" in tokens mode
-        let net_line = texts
+        // Cache row project column: 200k/(1M+200k+300k) = 13.3%
+        let cache_line = texts
             .iter()
-            .find(|s| s.contains("Net:"))
-            .expect("Net row missing in tokens mode");
-        // The project column should be "—"
+            .find(|s| s.contains("Cache:"))
+            .expect("Cache row missing");
         assert!(
-            net_line.contains("—"),
-            "Net row should show — in tokens mode, got: {net_line}"
+            cache_line.contains("13.3%"),
+            "Cache row should show hit ratio for project, got: {cache_line}"
         );
     }
 
     #[test]
-    fn savings_lines_tokens_mode_header_differs_from_dollars() {
+    fn savings_lines_row_order_is_architect_executor_cache() {
         let summary = StatusSummary {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let lines_dollars = savings_lines(
+        let lines = savings_lines(
             &summary,
-            BudgetRates::default(),
             None,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
-        );
-        let lines_tokens = savings_lines(
-            &summary,
-            BudgetRates::default(),
-            None,
-            ScopeCosts::default(),
+            TokenView::Totals,
             0,
-            BudgetDisplay::Tokens,
-        );
-        let header_dollars = format!("{}", lines_dollars[0]);
-        let header_tokens = format!("{}", lines_tokens[0]);
-        assert_ne!(
-            header_dollars, header_tokens,
-            "Tokens and Dollars headers should differ: dollars={header_dollars} tokens={header_tokens}"
-        );
-    }
-
-    #[test]
-    fn align_value_pads_dash_to_decimal_column() {
-        // Verify paren produces tight `(—)` for no-value and wraps dollar amounts.
-        let lines = savings_lines(
-            &StatusSummary {
-                last_input_tokens: Some(1_000_000),
-                last_output_tokens: Some(0),
-                ..StatusSummary::default()
-            },
-            BudgetRates::default(),
-            None,
-            ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
         );
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let architect = texts
-            .iter()
-            .find(|s| s.contains("Architect:"))
-            .expect("Architect row");
-        assert!(
-            architect.contains("(—)"),
-            "debit no-value must render tight parens (—): {architect}"
-        );
-    }
-
-    #[test]
-    fn savings_lines_dash_aligns_with_decimal() {
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(0),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 5.0,
-            output_per_mtok: 25.0,
-            executor: ModelRates::default(),
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 0,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 1_000_000,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-            },
-            architect_cost: Some(5.0),
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        let executor = texts
-            .iter()
-            .find(|s| s.contains("Executor:"))
-            .expect("Executor row");
-        let architect = texts
-            .iter()
-            .find(|s| s.contains("Architect:"))
-            .expect("Architect row");
-        // Executor has a dollar value; Architect has a parenthesized value.
-        // The decimal point of Executor must align with the start of the
-        // parenthesized value in Architect.
-        assert!(
-            executor.contains('.'),
-            "Executor row must have a decimal point: {executor}"
-        );
-        // Tight parens — no spaces between the parens and the —
-        assert!(
-            architect.contains("(—)") || architect.contains("($"),
-            "debit must render tight parens: {architect}"
-        );
-    }
-
-    #[test]
-    fn savings_lines_row_order_is_architect_executor_net() {
-        let summary = StatusSummary {
-            last_input_tokens: Some(1_000_000),
-            last_output_tokens: Some(500_000),
-            ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 5.0,
-            output_per_mtok: 25.0,
-            executor: ModelRates {
-                input_per_mtok: 5.0,
-                output_per_mtok: 15.0,
-                cache_read_per_mtok: 2.0,
-                cache_creation_per_mtok: 8.0,
-            },
-        };
-        let project_costs = ScopeCosts {
-            executor_in: 1_000_000,
-            executor_out: 500_000,
-            executor_cache_read: 0,
-            executor_cache_write: 0,
-            architect: ArchitectTokens {
-                input: 100_000,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-            },
-            architect_cost: Some(1.0),
-        };
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
-        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        // Skip the header; collect row labels in order.
         let row_labels: Vec<&str> = texts[1..]
             .iter()
             .filter_map(|s| {
@@ -2312,76 +1786,100 @@ mod tests {
             .collect();
         assert_eq!(
             row_labels,
-            vec!["Architect", "Executor", "Net"],
+            vec!["Architect", "Executor", "Cache"],
             "row order mismatch: {row_labels:?}"
         );
     }
 
     #[test]
-    fn savings_lines_header_says_spend() {
+    fn savings_lines_header_says_tokens() {
         let summary = StatusSummary {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let rates = BudgetRates::default();
         let lines = savings_lines(
             &summary,
-            rates,
             None,
             ScopeCosts::default(),
             0,
-            BudgetDisplay::Dollars,
+            TokenView::Totals,
+            0,
+            0,
         );
         let header = format!("{}", lines[0]);
         assert!(
-            header.starts_with("Spend"),
-            "header should start with 'Spend': {header}"
+            header.contains("Tokens"),
+            "header should read Tokens: {header}"
         );
         assert!(
-            !header.contains("Savings"),
-            "header should not contain 'Savings': {header}"
+            !header.contains("Spend"),
+            "header should not read Spend: {header}"
         );
     }
 
     #[test]
-    fn savings_lines_tokens_mode_has_three_rows() {
+    fn savings_lines_data_rows_equal_width_for_alignment() {
+        // All three rows must be equal width so values land in the same columns.
         let summary = StatusSummary {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
         };
-        let lines = savings_lines(
-            &summary,
-            BudgetRates::default(),
-            None,
-            ScopeCosts::default(),
-            0,
-            BudgetDisplay::Tokens,
-        );
-        // Header + 3 data rows = 4 lines total
-        assert_eq!(
-            lines.len(),
-            4,
-            "tokens mode should have header + 3 rows, got {} lines",
-            lines.len()
-        );
-        // No row labelled "Saved:"
+        let project_costs = ScopeCosts {
+            executor_in: 1_000_000,
+            executor_out: 0,
+            executor_cache_read: 0,
+            executor_cache_write: 0,
+            architect: ArchitectTokens {
+                input: 1_000_000,
+                cache_creation: 0,
+                cache_read: 0,
+                output: 0,
+            },
+        };
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
-        for line in &texts {
-            assert!(
-                !line.contains("Saved:"),
-                "tokens mode must not have a 'Saved:' row: {line}"
-            );
-        }
-        // Net row shows "—" for all scopes
-        let net_line = texts
+        let data_texts: Vec<String> = texts
             .iter()
-            .find(|s| s.contains("Net:"))
-            .expect("Net row present");
+            .filter(|s| s.contains("Architect:") || s.contains("Executor:") || s.contains("Cache:"))
+            .cloned()
+            .collect();
+        let widths: Vec<usize> = data_texts.iter().map(|s| s.chars().count()).collect();
         assert!(
-            net_line.contains('—'),
-            "Net row in tokens mode must show —: {net_line}"
+            !widths.is_empty() && widths.iter().all(|&w| w == widths[0]),
+            "all rows must be equal width for column alignment: {widths:?}, rows: {data_texts:?}",
+        );
+    }
+
+    #[test]
+    fn savings_lines_cache_dash_when_no_cache_activity() {
+        // Cache row dashes when the executor has input+output but zero cache classes.
+        let summary = StatusSummary {
+            last_input_tokens: Some(1_000_000),
+            last_output_tokens: Some(500_000),
+            ..StatusSummary::default()
+        };
+        let project_costs = ScopeCosts {
+            executor_in: 1_000_000,
+            executor_out: 500_000,
+            executor_cache_read: 0,
+            executor_cache_write: 0,
+            architect: Default::default(),
+        };
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
+        let texts: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
+        let cache_line = texts
+            .iter()
+            .find(|s| s.contains("Cache:"))
+            .expect("Cache row present");
+        assert!(
+            cache_line.contains('—'),
+            "no-cache-activity scope must render dash: {cache_line}"
+        );
+        assert!(
+            !cache_line.contains("0.0%"),
+            "no-cache-activity must not render 0.0%: {cache_line}"
         );
     }
 
@@ -2392,11 +1890,6 @@ mod tests {
             last_input_tokens: Some(1_000_000),
             last_output_tokens: Some(500_000),
             ..StatusSummary::default()
-        };
-        let rates = BudgetRates {
-            input_per_mtok: 3.5,
-            output_per_mtok: 18.0,
-            ..BudgetRates::default()
         };
         let project_costs = ScopeCosts {
             executor_in: 1_000_000,
@@ -2410,23 +1903,63 @@ mod tests {
             ..ScopeCosts::default()
         };
 
-        let sess = crate::costs::scope_report(&project_costs, &rates.executor, &rates);
-        let proj = sess; // same for project in this test
+        let sess = crate::costs::scope_report(&session_costs_from(&summary));
+        let proj = crate::costs::scope_report(&project_costs);
 
-        let lines = savings_lines(
-            &summary,
-            rates,
-            None,
-            project_costs,
-            0,
-            BudgetDisplay::Dollars,
-        );
+        let lines = savings_lines(&summary, None, project_costs, 0, TokenView::Totals, 0, 0);
         let dashboard_strings: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
 
-        let expected = crate::costs::ledger_lines(&sess, None, &proj, LedgerUnits::Dollars);
+        let expected = crate::costs::ledger_lines(&sess, None, &proj);
         assert_eq!(
             dashboard_strings, expected,
             "dashboard must delegate to ledger_lines"
         );
+    }
+
+    #[test]
+    fn savings_lines_cache_split_delegates_to_cache_split_lines() {
+        // CacheSplit view must equal cache_split_lines for the same inputs.
+        let summary = StatusSummary {
+            last_input_tokens: Some(600_000),
+            last_output_tokens: Some(1_000),
+            last_cache_read_tokens: Some(300_000),
+            last_cache_write_tokens: Some(100_000),
+            ..StatusSummary::default()
+        };
+        let project_costs = ScopeCosts {
+            executor_cache_read: 53_500_000,
+            executor_cache_write: 810_400,
+            ..ScopeCosts::default()
+        };
+
+        let sess = crate::costs::scope_report(&session_costs_from(&summary));
+        let proj = crate::costs::scope_report(&project_costs);
+
+        let lines = savings_lines(
+            &summary,
+            None,
+            project_costs,
+            0,
+            TokenView::CacheSplit,
+            1_500_000,
+            500_300,
+        );
+        let dashboard_strings: Vec<String> = lines.iter().map(|l| format!("{l}")).collect();
+
+        let expected = crate::costs::cache_split_lines(&sess, None, &proj, 1_500_000, 500_300);
+        assert_eq!(
+            dashboard_strings, expected,
+            "dashboard CacheSplit must delegate to cache_split_lines"
+        );
+    }
+
+    fn session_costs_from(summary: &StatusSummary) -> ScopeCosts {
+        ScopeCosts {
+            executor_in: summary.last_input_tokens.unwrap_or(0) as u64,
+            executor_out: summary.last_output_tokens.unwrap_or(0) as u64,
+            executor_cache_read: summary.last_cache_read_tokens.unwrap_or(0) as u64,
+            executor_cache_write: summary.last_cache_write_tokens.unwrap_or(0) as u64,
+            ..ScopeCosts::default()
+        }
     }
 }

@@ -39,6 +39,159 @@ fail, because `thinking` is a valid key. Reconcile that doc when landing M43.
 
 **Baseline:** 1761 tests (685 + 2 + 1074) at `a2fdbe2`.
 
+**M46 — Token-First Accounting closed 2026-08-16 at four phases**, all
+`approved_first_try`, zero bugs, zero bounces, zero assists — the first
+milestone on executor `deepseek-v4-flash-0731` (scorecard: N=4, gates 1.00,
+AFT 1.00) and the first driven end-to-end by `/rexymcp:auto` past phase-01
+(dispatch/review on `claude-sonnet-5` subagents). Dollar accounting is gone;
+tokens are the accounting currency, with the Cache ledger row, the `b`
+Totals ⇄ Cache-split cycler, session cache classes, and `CACHE%` columns
+shipped in its place. Retrospective in
+[M46/README.md § M46 retrospective](milestones/M46-token-first-accounting/README.md);
+`architecture.md` §46 done.
+
+**Action outstanding for the human: reinstall the CLI binary and restart any
+live serve** — `~/.cargo/bin/rexymcp` is the pre-M46 build, so day-to-day
+`costs`/`runs` still show dollars until `cargo install --path mcp`. Also
+outstanding: regenerate `docs/rexymcp_dashboard.png` (live capture).
+
+**Calibration held as data:** architect E2E-block syntax errors at 2×
+(trend — fold a dry-run rule on the 3rd); executor undisclosed scope
+deviation at 1×. **At threshold (3×), needs human go-ahead as a runtime
+fix:** server-authored completion entries heading themselves `ts=<epoch-ms>`
+instead of the WORKFLOW.md date format.
+
+**The next milestone is a human decision — no auto-advance across the
+boundary.** Recorded candidates: the entry-header date-format server fix;
+architect tokens-by-milestone attribution (needs a ledger milestone
+dimension).
+
+**M46 / phase-04 — Docs sweep: done 2026-08-16, `approved_first_try`** (code
+`5e4fe87`, approval `1bb32ce`), 127 turns — a pure-markdown phase landed
+clean by pre-injecting the replacement prose verbatim.
+
+**M46 / phase-03 — Pricing plumbing removal: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces, 370 executor turns (code `8901564`, approval `d7ff06e`). The reviewer recorded one undisclosed-but-benign scope deviation: the executor also removed the README known-model rate-table prose (nominally phase-04 work) — let stand because phase-03's own `[architect] model` deletion had made that paragraph document a nonexistent feature. Note: the live `rexymcp.toml` cleanup is gitignored, so it exists on disk only.
+
+**M46 / phase-02 — Dashboard token views: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces (code `f3f98dd`, approval `54f99a5`), inside the `/rexymcp:auto` loop with dispatch/review delegated to `claude-sonnet-5` subagents. The reviewer re-ran the E2E fixture block independently; the `SessionEvent::Metrics` cache extension is backward-compatible (`#[serde(default)]`, old-line parse test).
+
+**M46 / phase-01 — Token-native costs core: done 2026-08-16, `approved_first_try`**, zero bugs, zero bounces (code `e40ec96`, approval `ee62dde`). First scorecard data point for executor `deepseek-v4-flash-0731`. Reviewed by independent re-run; three acceptable scope deviations and a 3rd occurrence of the server-authored `ts=<epoch-ms>` entry-header format (runtime-fix candidate) recorded in the verdict.
+
+**Drafting note (2026-08-16):** phase-01 absorbed the dashboard's dollars-mode
+removal (README had sketched it under phase-02) — deleting `LedgerUnits` breaks
+`savings_lines`' compile, and an unread `architect_cost` field would trip
+`-D warnings` dead-code in the binary crate, so the cascade is compile-forced
+into one phase. Phase-02 is now purely additive: the `b` key returns as a
+token-view cycler and the session scope gains cache classes. The `Cache:` row's
+hit-ratio formula is pinned in the phase doc (prompt-side classes only;
+no-cache-activity renders `—`, never `0.0%`).
+
+**M46 — Token-First Accounting opened 2026-08-16 on human instruction** (the
+milestone-boundary gate after M45 was crossed by the user asking for this
+milestone by name). Scope: retire dollar-denominated accounting/reporting
+entirely; tokens become the sole accounting currency, with token reporting
+enhanced (cache-hit ratio, cache-split view, token-native by-skill table) so
+nothing observable is lost. The de-risking finding from the milestone-open
+survey: **no dollar value was ever persisted** — every `$` was derived at
+read time from token counts × config rates, so this is a presentation +
+config change, not a storage migration. Four planned phases
+(presentation-first, then plumbing), design decisions and the full surface
+map in
+[M46/README.md](milestones/M46-token-first-accounting/README.md);
+`architecture.md` § Status #46 added. Draft phase-01 with
+`/rexymcp:architect next`.
+
+**M45 — Executor Work-Preservation Guards closed 2026-08-09 at two phases**,
+both `approved_first_try`, zero bugs, zero bounces, zero assists (phase-01: 106
+turns / 3.5M tokens; phase-02: 53 turns / 977k). Retrospective in
+[M45/README.md § M45 retrospective](milestones/M45-executor-work-preservation-guards/README.md);
+`architecture.md` §45 done.
+
+**The milestone lost two of its three exit criteria at open, and that was the
+main finding.** DaemonEye's proposal asked for three runtime guards; the git
+self-revert guard was already shipped (M22 phase-05,
+`executor/src/agent/tools.rs:107`) and the read-only stall was already shipped
+(M37). The proposal's "verified" current-state had inspected
+`security/bash_classify.rs` and missed the guard one layer up in the agent loop,
+where `architecture.md` §M4 puts it. **An inherited proposal is a claim about
+this tree, not a finding about it** — re-deriving cost minutes and saved
+re-implementing working code.
+
+**Calibration: no folds.** Three observations held as data, none at threshold —
+throwaway-build sizing for dependency migrations (1×); pre-injection density vs.
+turn cost (n=2, suggestive only); and server-authored completion entries heading
+themselves `ts=<epoch-ms>` instead of the `WORKFLOW.md` date format (2×, a
+runtime fix, not a doc fold). Details in the retrospective.
+
+**Action outstanding for the human: rmcp 3.1.2 is on disk but not in the running
+server.** A live `rexymcp serve` does not hot-swap a rebuilt binary, so the MCP
+tools Claude Code talks to are still the 2.2 build until a deliberate reinstall
+(`cargo install --path mcp`) and restart. Best done between sessions — a restart
+drops the in-memory run registry.
+
+**`generic-array` 0.14.9 was dropped as unreachable, not deferred** —
+`crypto-common 0.1.7` pins it at `=0.14.7` and is the last release in its line.
+Reopening trigger: `cargo tree -i generic-array` showing a dependent that is not
+`crypto-common 0.1.x`.
+
+**The next milestone is a human decision — no auto-advance across the boundary.**
+No candidate is queued.
+
+**M45 / phase-01 — identical-repetition argument normalization: done
+2026-08-09**, `approved_first_try`, zero bugs, 106 executor turns on
+`Qwen/Qwen3.6-27B-FP8` (code `f3e2ef3`, approval `8b16f41`). Reviewed by
+independent re-run, not by reading the pasted transcript: the E2E block and the
+both-directions mutation pair were re-executed at review and matched. The
+milestone's remaining exit criterion is phase-02.
+
+**M45 / phase-02 (`rmcp` 2.2 → 3.1.2) — drafted 2026-08-09 on human
+authorization.** The `/rexymcp:auto` loop had halted here on its `blocker` stop
+condition (landing a dependency change is an enumerated STOP); the human
+advanced past that gate with `/rexymcp:architect next`. The phase doc authorizes
+the `rmcp` version line and the resulting `Cargo.lock` update, and nothing else.
+
+The migration was **measured, not estimated**: a throwaway `git archive` copy of
+`HEAD` built against 3.1.2 and driven to green, so all five replacements in the
+spec are code that was actually compiled and tested. Cost is 5 edits in 2 files;
+the tool macros, `serve_server`, `QuitReason`, `ErrorData`, `Parameters` and
+`schema_for_type` all compile unchanged, and `schemars` stays at `1.0`. The
+falsifiable finish condition is a live stdio handshake: `serverInfo.version` is
+rmcp's own crate version, which the server never sets itself, so it reads
+`2.2.0` until the dependency really changes.
+
+**Landing it does not reach the live MCP server.** A running `rexymcp serve`
+does not hot-swap a rebuilt binary — the upgrade takes effect only after a
+deliberate reinstall and restart, which the phase deliberately leaves to the
+human.
+
+**M45 — Executor Work-Preservation Guards opened 2026-08-09**
+([README](milestones/M45-executor-work-preservation-guards/README.md)), spun out
+of DaemonEye's M12 upstream-folds proposal
+(`docs/daemoneye-proposed-upstream-folds.md`). **Re-verification at open cut the
+milestone roughly in half:** two of the proposal's three runtime asks are already
+shipped — the **git self-revert guard in M22 phase-05**
+(`executor/src/agent/tools.rs:107` `destructive_restore_refusal`, covering
+`git checkout <path>` / `git restore <path>` / `git checkout HEAD -- <path>` /
+`git stash` push against the session's edited set, as a model-visible
+`ToolResult`) and the **read-only stall in M37**. The proposal's draft
+"current state" missed the former because it inspected only
+`security/bash_classify.rs`, not the agent loop where `architecture.md` §M4 puts
+the guard. What remains: phase-01 (identical-repetition whitespace
+normalization) and phase-02 (`rmcp` 2.2 → 3.1.2, not yet drafted).
+`architecture.md` §45 entry added at activation.
+
+**`generic-array` 0.14.9 was requested at open and dropped as unreachable**, not
+deferred: `crypto-common 0.1.7` pins `generic-array = "=0.14.7"` exactly and is
+the last release in the 0.1.x line, so nothing in this workspace can force the
+bump — not a direct dependency, not `[patch.crates-io]`. It waits on `termwiz`
+moving to the `sha2` 0.11 / `crypto-common` 0.2 stack. Reopening trigger:
+`cargo tree -i generic-array` showing a dependent that is not `crypto-common
+0.1.x`. Evidence in the M45 README's Notes.
+
+The earlier folds from the same proposal landed in both
+`plugin/templates/WORKFLOW.md` and `docs/dev/WORKFLOW.md` (bug template now Root
+cause / Definition of done; the bounce sequence; seven new calibration
+sections).
+
 **M44 — Atomic JSONL Appends closed 2026-08-05 at one phase**
 (`approved_first_try`, zero bugs). All four telemetry append functions delegate to
 one `append_stamped` helper: one buffer, one `write_all`. Proven by mutation —
@@ -76,8 +229,8 @@ server-authored bookkeeping tail records it correctly, so telemetry is unaffecte
 If it recurs the fold is mechanical: stop asking the executor to write that field
 and let the server own it, as it already owns the completion tail.
 
-**The next milestone is a human decision — no auto-advance across the boundary.**
-No candidate is queued.
+**The M44 → M45 boundary was crossed on human sign-off (2026-08-09)**, with the
+scope narrowed and the `rmcp` upgrade added at the user's direction.
 
 ---
 

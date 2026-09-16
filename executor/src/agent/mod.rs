@@ -631,6 +631,8 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
             SessionEvent::Metrics {
                 input_tokens: metrics.tokens.input_tokens,
                 output_tokens: metrics.tokens.output_tokens,
+                cache_read_tokens: metrics.tokens.cache_read_tokens,
+                cache_write_tokens: metrics.tokens.cache_write_tokens,
                 context_pct: deps.budget.fraction_used(&system, &messages),
                 context_used: deps
                     .budget

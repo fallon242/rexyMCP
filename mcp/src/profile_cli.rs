@@ -7,7 +7,6 @@ use rexymcp_executor::store::metrics;
 use rexymcp_executor::store::telemetry::PhaseRun;
 
 use crate::profile::{self, FailureClassCount, ModelProfile, PhaseCost};
-use crate::runs::fmt_cost;
 use crate::scorecard::ScorecardFilter;
 
 /// Resolve the telemetry store path from config, read, aggregate into profiles,
@@ -133,26 +132,29 @@ fn format_weaknesses(classes: &[FailureClassCount]) -> String {
 }
 
 /// Format phase cost-to-ship rows as a human-readable table.
-pub fn format_phase_costs(rows: &[PhaseCost], config: &Config) -> String {
+pub fn format_phase_costs(rows: &[PhaseCost]) -> String {
     if rows.is_empty() {
         return "(no shipped phases)".to_string();
     }
 
     let mut lines = Vec::new();
-    lines.push("PHASE  MILESTONE  ATTEMPTS  VERDICT  TOKENS  COST".to_string());
+    lines.push("PHASE  MILESTONE  ATTEMPTS  VERDICT  TOKENS  CACHE%".to_string());
 
     for row in rows {
-        let cost = rexymcp_executor::store::metrics::token_cost(
-            &row.tokens,
-            &config.model_rates(&row.model),
-        );
         let tokens = metrics::fmt_tokens(row.tokens.total() as u64);
-        let cost_str = fmt_cost(cost);
+        let cache_str = match crate::costs::cache_hit_pct(
+            row.tokens.input_tokens as u64,
+            row.tokens.cache_read_tokens as u64,
+            row.tokens.cache_write_tokens as u64,
+        ) {
+            Some(pct) => format!("{pct:.1}%"),
+            None => "—".to_string(),
+        };
         let milestone = row.milestone_id.as_deref().unwrap_or("—");
         let phase_label = phase_label_str(row);
         lines.push(format!(
             "{:<40} {:<12} {:>8}  {:<20}  {:>10}  {:>8}",
-            phase_label, milestone, row.attempts, row.verdict, tokens, cost_str
+            phase_label, milestone, row.attempts, row.verdict, tokens, cache_str
         ));
     }
 
@@ -380,14 +382,12 @@ enabled = false
 
     #[test]
     fn format_phase_costs_empty_is_no_shipped_phases() {
-        let cfg = Config::default();
-        let out = format_phase_costs(&[], &cfg);
+        let out = format_phase_costs(&[]);
         assert!(out.contains("(no shipped phases)"));
     }
 
     #[test]
-    fn format_phase_costs_renders_columns() {
-        let cfg = Config::default();
+    fn format_phase_costs_shows_cache_pct() {
         let rows = vec![PhaseCost {
             phase_id: "phase-05a-iii".to_string(),
             phase_doc_path: None,
@@ -402,13 +402,35 @@ enabled = false
                 cache_write_tokens: 100,
             },
         }];
-        let out = format_phase_costs(&rows, &cfg);
+        let out = format_phase_costs(&rows);
         assert!(out.contains("PHASE"));
         assert!(out.contains("ATTEMPTS"));
         assert!(out.contains("VERDICT"));
         assert!(out.contains("TOKENS"));
-        assert!(out.contains("COST"));
-        assert!(out.contains("—"));
+        assert!(out.contains("CACHE%"));
+        assert!(!out.contains("COST"), "COST column must be gone: {out}");
+        assert!(!out.contains('$'), "no dollars in the table: {out}");
+        // (1000, 200, 100) prompt side → 200/1300 = 15.4%
+        assert!(out.contains("15.4%"), "cache cell must render: {out}");
+    }
+
+    #[test]
+    fn format_phase_costs_cache_dash_when_no_activity() {
+        let rows = vec![PhaseCost {
+            phase_id: "phase-01".to_string(),
+            phase_doc_path: None,
+            milestone_id: Some("M31".to_string()),
+            model: "AEON-7".to_string(),
+            attempts: 1,
+            verdict: "approved_first_try".to_string(),
+            tokens: Default::default(),
+        }];
+        let out = format_phase_costs(&rows);
+        assert!(
+            out.contains("—"),
+            "no cache activity renders the dash: {out}"
+        );
+        assert!(!out.contains('$'), "no dollars in the table: {out}");
     }
 
     #[test]

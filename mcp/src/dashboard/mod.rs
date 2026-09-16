@@ -19,7 +19,7 @@ mod panels;
 mod render;
 mod transcript;
 
-pub use panels::{BudgetRates, ScopeCosts};
+pub use panels::ScopeCosts;
 
 /// Snapshot of the latest session data or an error loading it.
 pub struct DashboardData {
@@ -39,6 +39,10 @@ pub struct DashboardData {
     /// Top (most expensive) architect skill for the project. `None` when there
     /// is no architect ledger data.
     pub top_skill: Option<crate::costs::SkillCost>,
+    /// Architect-ledger cache-creation split, Project scope only, summed from
+    /// the folded ledgers (see `ArchitectLedger.cache_creation_5m/1h`).
+    pub arch_cache_5m: u64,
+    pub arch_cache_1h: u64,
 }
 
 /// Cheap change-detection stamp for the files `load_data` reads. Comparing two
@@ -89,7 +93,7 @@ pub fn load_data(
     session: Option<&str>,
     telemetry_dir: Option<&Path>,
     project_id: Option<&str>,
-    architect: &rexymcp_executor::config::ArchitectConfig,
+    _architect: &rexymcp_executor::config::ArchitectConfig,
 ) -> DashboardData {
     let store = telemetry_dir
         .map(|dir| telemetry::read_all(&dir.join("phase_runs.jsonl")).unwrap_or_default())
@@ -100,7 +104,8 @@ pub fn load_data(
         Some(pid) => {
             let folded_activities = telemetry::fold_activities(store.activities);
             let ledgers = telemetry::fold_ledger(store.ledgers);
-            let project_costs = costs::scope_costs(&phase_runs, &ledgers, architect, pid, None);
+            let project_costs = costs::scope_costs(&phase_runs, &ledgers, pid, None);
+            let (arch_cache_5m, arch_cache_1h) = project_cache_split(&ledgers, pid);
             let project_escalation_count = folded_activities
                 .iter()
                 .filter(|a| a.project_id.as_deref() == Some(pid) && a.activity == "assist")
@@ -111,14 +116,12 @@ pub fn load_data(
                     let summary = status::summarize(&records);
                     let milestone = resolve_milestone(repo, summary.phase.as_deref());
                     let milestone_costs = resolve_milestone_dir(repo, summary.phase.as_deref())
-                        .zip(project_id)
-                        .map(|(milestone_dir, pid)| {
+                        .map(|milestone_dir| {
                             costs::scope_costs(
                                 &phase_runs,
                                 &ledgers,
-                                architect,
                                 pid,
-                                Some(&milestone_dir),
+                                Some(milestone_dir.as_str()),
                             )
                         });
                     DashboardData {
@@ -129,7 +132,9 @@ pub fn load_data(
                         milestone_costs,
                         project_costs,
                         project_escalation_count,
-                        top_skill: skill_costs(&ledgers, architect, pid).into_iter().next(),
+                        top_skill: skill_costs(&ledgers, pid).into_iter().next(),
+                        arch_cache_5m,
+                        arch_cache_1h,
                     }
                 }
                 Err(e) => DashboardData {
@@ -141,6 +146,8 @@ pub fn load_data(
                     project_costs,
                     project_escalation_count,
                     top_skill: None,
+                    arch_cache_5m,
+                    arch_cache_1h,
                 },
             }
         }
@@ -160,6 +167,8 @@ pub fn load_data(
                         project_costs,
                         project_escalation_count,
                         top_skill: None,
+                        arch_cache_5m: 0,
+                        arch_cache_1h: 0,
                     }
                 }
                 Err(e) => DashboardData {
@@ -171,17 +180,32 @@ pub fn load_data(
                     project_costs,
                     project_escalation_count,
                     top_skill: None,
+                    arch_cache_5m: 0,
+                    arch_cache_1h: 0,
                 },
             }
         }
     }
 }
 
+/// Sum the architect-ledger cache-creation split over this project's ledgers.
+fn project_cache_split(ledgers: &[telemetry::ArchitectLedger], pid: &str) -> (u64, u64) {
+    ledgers.iter().fold((0, 0), |(m5, h1), l| {
+        if l.project_id.as_deref() == Some(pid) {
+            (
+                m5.saturating_add(l.cache_creation_5m),
+                h1.saturating_add(l.cache_creation_1h),
+            )
+        } else {
+            (m5, h1)
+        }
+    })
+}
+
 /// Run the dashboard event loop.
 pub fn run_dashboard(
     repo: &Path,
     session: Option<&str>,
-    rates: BudgetRates,
     telemetry_dir: Option<&Path>,
     project_id: Option<String>,
     architect: &rexymcp_executor::config::ArchitectConfig,
@@ -191,7 +215,6 @@ pub fn run_dashboard(
         &mut terminal,
         repo,
         session,
-        rates,
         telemetry_dir,
         project_id,
         architect,
@@ -500,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn load_data_reads_project_architect_costs_from_ledger() {
+    fn load_data_reads_project_architect_tokens_from_ledger() {
         // Architect token totals come from the ArchitectLedger. Seed one ledger
         // record and assert the dashboard sums it into project_costs.architect.
         let dir = TempDir::new().unwrap();
@@ -542,6 +565,15 @@ mod tests {
             data.project_costs.architect.output, 500_000,
             "architect output tokens must be summed from the ledger"
         );
+        // The 5m/1h split is folded into the dashboard split fields.
+        assert_eq!(
+            data.arch_cache_5m, 0,
+            "first ledger has no 5m cache creation"
+        );
+        assert_eq!(
+            data.arch_cache_1h, 0,
+            "first ledger has no 1h cache creation"
+        );
         // Negative: a ledger with a different project_id contributes nothing.
         let ledger_other = r#"{"schema_version":1,"record":"architect_ledger","project_id":"other-project","session_id":"s2","model":"claude-opus-4-8","skill":"dispatch","tokens":{"input":999999,"cache_creation":0,"cache_read":0,"output":0},"cache_creation_5m":0,"cache_creation_1h":0,"messages":1,"last_ts":2}"#.to_string();
         std::fs::write(
@@ -560,6 +592,47 @@ mod tests {
             data2.project_costs.architect.input, 1_000_000,
             "other-project activity must not contribute to this project's costs"
         );
+        assert_eq!(
+            data2.arch_cache_5m, 0,
+            "foreign-project ledger excluded from 5m split"
+        );
+        assert_eq!(
+            data2.arch_cache_1h, 0,
+            "foreign-project ledger excluded from 1h split"
+        );
+    }
+
+    #[test]
+    fn dashboard_data_sums_arch_cache_split() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let pid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        let ledger = |proj: &str, id: &str, m5: u64, one_h: u64| {
+            format!(
+                r#"{{"schema_version":1,"record":"architect_ledger","project_id":"{proj}","session_id":"{id}","model":"claude-opus-4-8","skill":"dispatch","tokens":{{"input":1,"cache_creation":0,"cache_read":0,"output":0}},"cache_creation_5m":{m5},"cache_creation_1h":{one_h},"messages":1,"last_ts":1}}"#
+            )
+        };
+        let mut buf = String::new();
+        buf.push_str(&ledger(pid, "s1", 1_500_000, 500_300));
+        buf.push('\n');
+        buf.push_str(&ledger(pid, "s2", 2_000_000, 700_000));
+        buf.push('\n');
+        buf.push_str(&ledger("other-project", "s3", 9_999_999, 8_888_888));
+        buf.push('\n');
+        std::fs::write(telemetry_dir.join("phase_runs.jsonl"), buf).unwrap();
+
+        let data = load_data(
+            dir.path(),
+            None,
+            Some(&telemetry_dir),
+            Some(pid),
+            &default_architect_cfg(),
+        );
+        assert_eq!(data.arch_cache_5m, 3_500_000, "two ledgers sum 5m");
+        assert_eq!(data.arch_cache_1h, 1_200_300, "two ledgers sum 1h");
     }
 
     #[test]

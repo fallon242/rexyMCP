@@ -1232,6 +1232,76 @@ The project plan. Each entry becomes a milestone with its own
     stay non-goals (no live channel / client never sends it). The milestone
     closes with a serve restart + live handshake/dispatch smoke test, which
     doubles as the M30 live interrupt-path validation that closed unexercised.
+46. **M46 — Token-first accounting** *(done 2026-08-16; opened and closed the
+    same day at four phases, all `approved_first_try`, phases 02–04 inside one
+    `/rexymcp:auto` run on executor `deepseek-v4-flash-0731`)*.
+    Retire dollar-denominated accounting and reporting; tokens become the
+    sole accounting currency. Every `$` in the system was derived at read
+    time (token counts × config rates) and **no dollar value was ever
+    persisted** — `PhaseRun`/`ArchitectLedger` are all-token, so this is a
+    presentation + config change with no storage migration
+    (`TELEMETRY_SCHEMA_VERSION` stays 1). Deleted: `known_model_rates`, the
+    `ModelOverride`/`ArchitectConfig` `*_per_mtok` fields (per the M38
+    "documented-but-ignored knobs actively mislead" precedent — hard
+    removal, no shims), `metrics::token_cost`, `ArchitectLedger::cost` and
+    the three cache-rate multipliers, the dollars branch of `ledger_lines`,
+    and `costs --json`'s dollar fields (a loud breaking change). Enhanced in
+    the same stroke, because pricing was the *only* reader of the M39 token
+    split: a derived **cache-hit ratio** on `costs` and the dashboard, the
+    dashboard `b` key repurposed to cycle token views (totals ⇄ cache
+    split — the ledger's 5m/1h cache-creation fields get their first
+    visible surface), a token-native by-skill table, and the dead
+    tokens-mode `Net:` row reassigned to cache reporting. M38's discount
+    concept ("saved"/Net) retires with dollars; M39's settled cache-pricing
+    caveat is mooted (its subject is deleted), not re-litigated; M40's
+    tokens-mode alignment invariant survives verbatim. Architect
+    tokens-by-milestone stays out of scope (the ledger has no milestone
+    key; transcripts prune ~30d) — recorded as a future candidate. Four
+    planned phases, presentation-first then plumbing:
+    `docs/dev/milestones/M46-token-first-accounting/README.md`.
+45. **M45 — Executor work-preservation guards** *(done 2026-08-09 at two phases;
+    opened the same day from DaemonEye's M12 upstream-folds proposal, §4)*. The proposal asked for three
+    runtime guards; **two were already shipped**, and re-verifying that at
+    milestone open is most of what this entry records. The git self-revert
+    guard landed in **M22 phase-05** — `destructive_restore_refusal`
+    (`executor/src/agent/tools.rs:107`) refuses `git checkout <path>` /
+    `git restore <path>` / `git checkout HEAD -- <path>` against the session's
+    edited set and `git stash` push forms while that set is non-empty, as a
+    model-visible `ToolResult` naming the fix-forward remedy; the wholesale
+    forms were already blocked in `security/bash_classify.rs`. The read-only
+    stall landed in **M37**. The proposal's draft "current state" missed both
+    because it inspected only the bash classifier, not the agent loop where §4
+    of this document puts the guard — a reminder that a proposal's claims about
+    the tree are claims, and get re-derived at activation. What is genuinely
+    open is **identical-repetition normalization**:
+    `governor/hard_fail.rs:154` compares raw `serde_json::Value` arguments, so a
+    mutating loop varying only by whitespace never trips
+    `identical_call_threshold` (one such loop ran 529 turns downstream). Note
+    argument *ordering* is not part of the gap — `serde_json` is built without
+    `preserve_order`, so `Map` is a `BTreeMap` and `Value` equality already
+    ignores it. **Phase 01** normalizes string-leaf whitespace before comparing,
+    proven by a both-directions mutation pair. **Phase 02** carries a
+    dependency ask added at milestone open: `rmcp` 2.2 → 3.1.2, a major-version
+    migration across 45 call sites including the `tool_router`/`tool` macros and
+    a hand-written `ServerHandler`. A companion `generic-array` 0.14.9 bump was
+    **dropped as unreachable, not deferred** — `crypto-common 0.1.7` pins
+    `generic-array = "=0.14.7"` exactly and is the last release in its line, so
+    the bump waits on `termwiz` moving to the `sha2` 0.11 stack; neither a
+    direct dependency nor a `[patch.crates-io]` entry can force it.
+    **Closed at two phases, both `approved_first_try`, zero bugs and zero
+    bounces** (01: 106 turns; 02: 53 turns). Phase 02's cost was measured rather
+    than estimated: a throwaway `git archive` copy of `HEAD` built against 3.1.2
+    reduced "45 `rmcp::` sites, major-version migration" to **5 edits in 2
+    files**, re-sizing the phase from l to s — the "45" had been a count of
+    mentions, not of breakages. Its finish condition was a live stdio handshake
+    rather than the unit suite, because every test mocks the transport and none
+    would notice a server that stopped speaking MCP; `serverInfo.version` is
+    rmcp's own crate version, which `get_info` never sets, so it reads `2.2.0`
+    until the dependency genuinely moves. **rmcp 3.1.2 is on disk but not in the
+    running server** — a live `serve` does not hot-swap a rebuilt binary, so the
+    upgrade reaches the MCP tool surface only after a deliberate reinstall and
+    restart. Retrospective in
+    [M45/README.md § M45 retrospective](dev/milestones/M45-executor-work-preservation-guards/README.md).
 44. **M44 — Atomic JSONL appends** *(done 2026-08-05 at one phase; opened the same
     day from a defect found while drafting M43 phase-06)*. A telemetry append is **not** atomic: all
     four append functions (`executor/src/store/telemetry.rs:195`, `:392`, `:553`,

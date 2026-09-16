@@ -248,7 +248,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
 
-        /// Report tokens & cost to ship, per approved phase, instead of the
+        /// Report token cost to ship, per approved phase, instead of the
         /// model×tag capability table.
         #[arg(long)]
         cost: bool,
@@ -276,10 +276,8 @@ enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Report token cost (Architect/Executor/Net) across
+    /// Report token cost (Architect/Executor/Cache) across
     /// Session / Milestone / Project.
-    ///
-    /// Use `--tokens` to show raw token counts instead of dollar values.
     ///
     /// See also: runs, scorecard, profile, calibrate-governor.
     Costs {
@@ -298,9 +296,6 @@ enum Commands {
         /// Emit JSON instead of a human table
         #[arg(long)]
         json: bool,
-        /// Show raw token counts instead of dollar values
-        #[arg(long)]
-        tokens: bool,
     },
     /// Report whether the configured toolchain + verifier enhancers are on PATH
     Doctor {
@@ -924,14 +919,7 @@ async fn main() -> anyhow::Result<()> {
                         })
                     );
                 } else {
-                    let cfg = match rexymcp_executor::config::Config::load_with_env(&config) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            eprintln!("failed to load config: {e}");
-                            std::process::exit(1);
-                        }
-                    };
-                    println!("{}", profile_cli::format_phase_costs(&rows, &cfg));
+                    println!("{}", profile_cli::format_phase_costs(&rows));
                 }
                 return Ok(());
             }
@@ -1018,12 +1006,6 @@ async fn main() -> anyhow::Result<()> {
         } => {
             let config_path = config.unwrap_or_else(|| PathBuf::from("rexymcp.toml"));
             let cfg = Config::load_with_env(&config_path)?;
-            let (i, o) = cfg.architect.effective_rates();
-            let rates = dashboard::BudgetRates {
-                input_per_mtok: i,
-                output_per_mtok: o,
-                executor: cfg.model_rates(&cfg.executor.model),
-            };
             let telemetry_dir = cfg.telemetry.dir.as_deref();
             let project_id = rexymcp_executor::config::Config::load(&repo.join("rexymcp.toml"))
                 .ok()
@@ -1031,7 +1013,6 @@ async fn main() -> anyhow::Result<()> {
             dashboard::run_dashboard(
                 &repo,
                 session.as_deref(),
-                rates,
                 telemetry_dir,
                 project_id,
                 &cfg.architect,
@@ -1048,13 +1029,7 @@ async fn main() -> anyhow::Result<()> {
             session,
             telemetry_path,
             json,
-            tokens,
         } => {
-            let units = if tokens {
-                costs::LedgerUnits::Tokens
-            } else {
-                costs::LedgerUnits::Dollars
-            };
             match costs::load_cost_report(
                 &config,
                 &repo,
@@ -1065,7 +1040,7 @@ async fn main() -> anyhow::Result<()> {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&report).unwrap());
                     } else {
-                        println!("{}", costs::format_costs_with(&report, units));
+                        println!("{}", costs::format_costs(&report));
                         let config_path = config.clone();
                         match Config::load_with_env(&config_path) {
                             Ok(ref cfg) => {
@@ -1673,5 +1648,23 @@ mod tests {
             }
             _ => panic!("expected Costs"),
         }
+    }
+
+    #[test]
+    fn cli_rejects_removed_tokens_flag() {
+        // `--tokens` was removed in M46 phase-01; it must fail to parse (clap
+        // unknown-argument error), not be silently accepted.
+        let res = Cli::try_parse_from(["rexymcp", "costs", "--tokens"]);
+        assert!(res.is_err(), "--tokens must fail to parse after removal");
+        let err = {
+            let Err(e) = res else {
+                panic!("expected clap failure");
+            };
+            e.to_string()
+        };
+        assert!(
+            err.contains("unexpected argument") || err.contains("--tokens"),
+            "clap error should name the unknown flag: {err}"
+        );
     }
 }
