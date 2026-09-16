@@ -1,8 +1,8 @@
 # Phase 1: `[privacy] terms_file`
 
-**Milestone:** M47 — Privacy and security hardening
+**Milestone:** F05 — Privacy and security hardening
 **Status:** todo
-**Depends on:** none (M45 and M46 are done)
+**Depends on:** none (F03 and F04 are done)
 **Estimated diff:** ~320 lines
 **Tags:** language=rust, kind=feature, size=m
 
@@ -152,7 +152,7 @@ In `executor/src/privacy/terms.rs` unit tests unless noted:
 
 Run a real dispatch against a cloud endpoint with a term file set, and quote
 the outbound message from the session log showing `[CODE]` where the term was.
-The M45 phase-05 dogfood is the pattern to follow. If no cloud endpoint is
+The F03 phase-05 dogfood is the pattern to follow. If no cloud endpoint is
 available, say so in the Update Log and quote the `RedactingAiClient` test
 output instead — and mark the phase `blocked` on the dogfood, not `done`.
 
@@ -169,7 +169,7 @@ output instead — and mark the phase `blocked` on the dogfood, not `done`.
 ## Out of scope
 
 - **Reversibility at the executor boundary.** Nothing asks the model to restore
-  a term. See the M45 decision.
+  a term. See the F03 decision.
 - **A CLI to mask a file on demand.** A later phase, if wanted.
 - **Masking the architect's own return path.** `scrub_phase_result` handles
   structured PII only; widening it is a separate decision.

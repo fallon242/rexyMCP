@@ -9,7 +9,11 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none.** F04 — Pre-scan Efficiency — **DONE** (both phases
+**Active milestone: F05 — Privacy and security hardening**, opened 2026-09-16
+on human sign-off. **Active phase: F05 phase-01 — `[privacy] terms_file`**
+(`todo`, drafted; dispatch with `/rexymcp:dispatch phase-01`).
+
+F04 — Pre-scan Efficiency — **DONE** (both phases
 `approved_first_try` 2026-08-21: `scan_globs` bounds the egress pre-scan;
 encrypted `PiiIndex` persistence reuses unchanged files, skipping NER).
 **F03 phase-05 (wiring + dogfood) also approved 2026-08-21** — the live DeepSeek
@@ -21,9 +25,8 @@ automatic for cloud endpoints.
 tests 717+2+1148 passed, write-guard mutation-checked to bite); F03 fully
 closed with review verdicts recorded in each phase doc.
 
-**Next: F05 — Privacy and security hardening, proposed 2026-09-16, awaiting
-human sign-off** (milestone boundaries always do). Six findings from the CRS
-deployment: literal terms invisible to the NER pre-scan; session logs storing
+**F05 — Privacy and security hardening, opened 2026-09-16 on human sign-off.**
+Six findings from the CRS deployment: literal terms invisible to the NER pre-scan; session logs storing
 unredacted tool output world-readable; a vault key hardened but its container
 not; a prompt guard that fails open three ways; `privacy.kinds` inert; and
 `docs/privacy.md` contradicting itself on egress protection. Phase 01

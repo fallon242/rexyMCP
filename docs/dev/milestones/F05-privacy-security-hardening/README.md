@@ -1,13 +1,13 @@
-# M47 — Privacy and security hardening
+# F05 — Privacy and security hardening
 
 **Goal:** close the gaps a real deployment found between what the privacy
 features promise and what they do. Six findings, each with evidence, each
 small. Together they are the difference between a safety net and a belief.
 
-**Status:** proposed, 2026-09-16. Awaiting human sign-off (milestone boundaries
-always are).
+**Status:** in-progress — opened 2026-09-16 on human sign-off. Phase 01 is
+drafted and dispatchable; phases 02–05 are named and drafted on demand.
 
-**Depends on:** M44 (ingestion gate), M45 (egress protection), M46 (pre-scan
+**Depends on:** F02 (ingestion gate), F03 (egress protection), F04 (pre-scan
 efficiency). All done.
 
 **Source:** the CRS modernisation deployment, 2026-09. Every finding below was
@@ -88,10 +88,10 @@ control.
 
 ### 6. The privacy doc contradicts itself
 
-`docs/privacy.md` describes executor egress as automated under M45, and its
+`docs/privacy.md` describes executor egress as automated under F03, and its
 Limitations section still says egress "is not automated … a documented residual
 risk; use a local executor or pre-scrub with the CLI". A reader acts on
-whichever they find first. One of them is four milestones stale.
+whichever they find first. One of them is two milestones stale.
 
 **Phase 05**, with finding 5 — both are documentation-truth fixes.
 
@@ -99,7 +99,7 @@ whichever they find first. One of them is four milestones stale.
 
 Phase-06b proved a *reversible* executor round-trip corrupts files: asked to
 normalise a tokenised value, the model replaces the token with fabricated data.
-M45's answer was one-way redaction.
+F03's answer was one-way redaction.
 
 This milestone keeps that answer. Literal terms are redacted one-way like every
 other dictionary hit, and the executor is never asked to restore one. Where a
