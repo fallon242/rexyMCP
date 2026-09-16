@@ -220,7 +220,7 @@ dispatch run with reduced protection.
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
 | 05 | inert config + doc truth | not drafted |
 | 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
-| 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | in-progress (local executor only) |
+| 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | review                            |
 | 08 | project names out of the dictionary (finding 9) | not drafted |
 | 09 | NER truncation fails closed, chunking (finding 8) | not drafted |
 

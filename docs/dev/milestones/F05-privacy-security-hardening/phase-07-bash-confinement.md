@@ -1,7 +1,7 @@
 # Phase 7: confine `bash` for a cloud executor
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~350 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -594,3 +594,113 @@ fixes: executor tests pass (1151), and the build passes. What remains: the
 `rexymcp` test compile (a missing `let dir`, and `sandbox: None` in six `Seams`
 literals), rustfmt on three files, clippy in `sandbox.rs`, `docs/privacy.md`,
 E2E, and the Update Log.
+
+### Update — ts=1789591071739 (complete, server-authored)
+
+**Summary:** **Summary + Notes for review**
+
+Resumed the F05 phase-07 finishing work left by the prior budget-exhausted run and completed it. Restored the wrongly-edited test in `mcp/src/runner.rs` to its HEAD form (`build_registry_excludes_update_task_when_none` renamed back, the `// --- run_phase_with integration test ---` comment and blank line restored, the missing `let dir = TempDir::new().unwrap();` re-added), removed two out-of-scope `{:?}` → `{:#?}` changes, and added `sandbox: None,` to all six `Seams` literals (seven including one the prior run had already done). Fixed the two clippy failures in `executor/src/security/sandbox.rs` (collapsible_if → let-chain; let_and_return → returned the expression directly), added the two Spec §6 sentences to the "② Executor egress" bullet in `docs/privacy.md`, and re-ran all four gates: `cargo fmt --all --check` clean, `cargo build` clean, clippy clean, `cargo test` 711 + 2 + 1151 (6 ignored) + 0 doc-tests, all passing.
+
+E2E: `cargo test -p rexymcp-executor sandbox -- --ignored` → 2 passed (tests 5 and 6), exit 0. CLI refusal: with `bwrap` hidden from PATH and a cloud `base_url`, `run-phase` printed "privacy: the bash sandbox is unavailable (bwrap: No such file or directory (os error 2)), so the dispatch to the cloud executor was stopped before any content was sent. Install bubblewrap … or run the phase on a local executor." with exit=1.
+
+**Deviations from spec (both inside authorized test modules; production code is untouched by them):**
+1. Test 12 (`run_phase_stops_when_sandbox_unavailable`): the spec said "privacy is off (`Config::default()`)", but `Config::default()`'s `base_url` is `http://localhost:1234/v1`, which `endpoint_is_local` treats as local — so the sandbox is skipped and the test fails. I added `cfg.executor.base_url = "https://api.example.com/v1"` (the spec's own cloud URL from the same test). This also satisfies the acceptance criterion "A cloud base_url … makes run_phase return Err(Error::Privacy(_))".
+2. Test 5 (`sandbox_blocks_home_and_state_dir`): the prior run's version pointed `$HOME` at the real `/home/gpratt` (which `--tmpfs /home` hides entirely, so `touch $HOME/x` failed for the wrong reason — no directory — and `test -e $HOME/.config` was always skipped because the home tmpfs is empty). I pointed the sandboxed `HOME` at an existing writable host dir `/var/tmp/rexymcp-p07-home` (outside `/home`), so the `touch` non-zero assertion now genuinely proves the sandbox makes the host read-only and hides the home, per the acceptance criterion "cannot write under $HOME". The `.rexymcp/vault/key` cat/rm assertions and the writable-repo `echo ok > written.txt` assertion are unchanged and still pass.
+
+**Mutation check:** temporarily changed `b".rexymcp"` → `b".rexymcpZ"` in `confine_to_root` (via `patch`), ran `cargo test -p rexymcp-executor rejects_rexymcp_state_paths` → FAILED as expected; restored the line → test passes (1 passed).
+
+**Files changed:** `executor/src/security/sandbox.rs` (new), `executor/src/security/mod.rs`, `executor/src/security/scope.rs`, `executor/src/tools/bash.rs`, `executor/src/tools/mod.rs`, `executor/src/tools/read_file.rs`, `executor/templates/executor_contract.md`, `mcp/src/runner.rs`, `mcp/src/server.rs`, `mcp/src/main.rs`, `docs/privacy.md`, phase-07 doc + F05 README (status flips). Commit `501917a`.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.42s
+
+
+TEST
+ts_path_outside_root ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::symbols::tests::references_python_identifier ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1151 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 6.20s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/privacy.md` — +5 -1
+- `executor/src/security/sandbox.rs` — +12 -20
+- `mcp/src/runner.rs` — +26 -12
+
+**Commit:** 501917a46099527c8efe9cf220beee05b7adb3ff
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
