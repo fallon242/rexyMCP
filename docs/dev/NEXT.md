@@ -15,8 +15,9 @@ quoted code, a fixed design and a capture-server end-to-end harness; dispatch
 with `/rexymcp:dispatch phase-01`). **Phase 06 is done** (2026-09-16,
 `approved_first_try`, approval `add4fe6`): a failed pre-scan now stops a cloud
 dispatch. **Dispatch precondition:** the NER engine
-(`privacy.engine_base_url`) must be reachable. It was down on 2026-09-16, and
-since phase 06 a cloud dispatch refuses to start without it.
+(`privacy.engine_base_url`) must be reachable, because since phase 06 a cloud dispatch refuses to start
+without it. On 2026-09-16 it was found serving on port 8000 (not 8080) with
+model `RedHatAI/Qwen3.8-27B-INT4`, and the local `rexymcp.toml` was corrected.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
