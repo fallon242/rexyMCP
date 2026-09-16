@@ -9,9 +9,15 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F05 — Privacy and security hardening**, opened 2026-09-16
-on human sign-off. **Active phase: F05 phase-01 — `[privacy] terms_file`**
-(`todo`, drafted; dispatch with `/rexymcp:dispatch phase-01`).
+**Active milestone: F06 — Compaction pairing**, opened 2026-09-16 on human
+sign-off. **Active phase: F06 phase-01 — evict tool-call pairs together**
+(`todo`, drafted; dispatch with `/rexymcp:dispatch phase-01`). Context
+compaction can leave a `tool` reply with no call before it, and the backend
+then rejects the request (HTTP 400, seen in the CRS deployment).
+
+**Queued: F05 — Privacy and security hardening**, opened 2026-09-16, paused at
+phase-01 — `[privacy] terms_file` (`todo`, drafted). It resumes when F06
+closes.
 
 F04 — Pre-scan Efficiency — **DONE** (both phases
 `approved_first_try` 2026-08-21: `scan_globs` bounds the egress pre-scan;

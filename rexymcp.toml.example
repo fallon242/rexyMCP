@@ -7,7 +7,7 @@ id = "00000000-0000-0000-0000-000000000000"             # stable UUID — identi
 
 [executor]
 provider = "openai"               # openai | ollama | lmstudio (all OpenAI-compatible)
-model = "deepseek-v4-flash"       # model id as the endpoint knows it
+model = "deepseek-flash"       # model id as the endpoint knows it
 base_url = "https://api.deepseek.com"
 # api_key = ""                    # optional; most local endpoints ignore it
 # temperature = 0.2               # sampling temperature (omit for endpoint default)
@@ -39,7 +39,7 @@ runaway_output_bytes = 102400     # single tool output bytes → hard-fail (100 
 # runaway_output_bytes = 204800      # override [governor] runaway_output_bytes
 
 # Mirrored from the DevOps project's known-working DeepSeek config.
-[models."deepseek-v4-flash"]
+[models."deepseek-flash"]
 thinking = "disabled"
 
 [models."deepseek-v4-pro"]

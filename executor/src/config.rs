@@ -1706,7 +1706,7 @@ max_tokens = 2048
             &path,
             r#"[executor]
 provider = "openai"
-model = "deepseek-v4-flash"
+model = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 thinking = "disabled"
 
@@ -1733,7 +1733,7 @@ escalation_slots = 1
             &path,
             r#"[executor]
 provider = "openai"
-model = "deepseek-v4-flash"
+model = "deepseek-flash"
 base_url = "https://api.deepseek.com"
 
 [commands]
@@ -1744,7 +1744,7 @@ max_context_pct = 70
 max_turns = 40
 escalation_slots = 1
 
-[models."deepseek-v4-flash"]
+[models."deepseek-flash"]
 thinking = "disabled"
 "#,
         )
@@ -1752,7 +1752,7 @@ thinking = "disabled"
 
         let mut cfg = Config::load(&path).unwrap();
         assert_eq!(cfg.executor.thinking, None);
-        cfg.resolve_for_model("deepseek-v4-flash");
+        cfg.resolve_for_model("deepseek-flash");
         assert_eq!(cfg.executor.thinking.as_deref(), Some("disabled"));
     }
 
