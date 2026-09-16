@@ -1,7 +1,7 @@
 # Phase 1: evict tool-call pairs together
 
 **Milestone:** F06 — Compaction pairing
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~150 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -213,3 +213,48 @@ the 13th compaction, which cannot be triggered on demand.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-16 14:36 (claude-opus-4-6)
+
+**Started:** Phase 1 of F06 — evict tool-call pairs together.
+
+**Pre-flight:** `cargo test -p rexymcp-executor compactor` → `21 passed; 0 failed`.
+Read `compact()` in full before editing.
+
+**Plan:** write the four tests from the Test plan first, confirm the regression
+test fails against the unfixed `compact()`, then fix Pass 2 and add the
+leading-orphan-reply sweep.
+
+### Update — 2026-09-16 14:52 (claude-opus-4-6)
+
+**Tests first, against the unfixed `compact()`.** Added `make_call_msg` and the
+four tests from the Test plan, ran `cargo test -p rexymcp-executor compactor`,
+then made the fix. Output captured before the fix (`/tmp/prefixfail.txt`):
+
+```
+test context::compactor::tests::compact_eviction_drops_leading_orphan_reply failed at executor/src/context/compactor.rs:880:9 — the large user message alone reaches target, the orphan reply is swept with it
+test context::compactor::tests::compact_eviction_takes_every_reply_of_a_multi_call failed at executor/src/context/compactor.rs:843:9 — assertion `left == right` failed: the multi-call assistant message and both replies count as evicted, left: 1, right: 3
+test context::compactor::tests::compact_eviction_takes_replies_with_call failed at executor/src/context/compactor.rs:815:9 — assertion `left == right` failed, left: "tool", right: "assistant", (x2)
+
+test result: FAILED. 22 passed; 3 failed; 0 ignored; 0 measured; 1121 filtered out
+```
+
+`compact_eviction_takes_replies_with_call` fails at index 1 holding `"tool"` —
+the exact production shape.
+
+**Fix.** Pass 2 now takes the directly following `role == "tool"` messages with
+an evicted assistant call, matched by position. Pass 2.5 (new) then sweeps any
+`tool` message that is the first non-system message, but only when Pass 2
+evicted something. Pass 1 / 1.5, `system` protection, and `CompactionReport`
+are unchanged.
+
+**Gate results** (`/tmp/e2e_fmt.txt`, `/tmp/e2e_build.txt`, `/tmp/e2e_clippy.txt`,
+`/tmp/e2e_test.txt`), full output incl. the `test result:` block captured in the
+completion entry:
+
+```
+fmt exit=0
+build exit=0
+clippy exit=0
+test exit=0
+```

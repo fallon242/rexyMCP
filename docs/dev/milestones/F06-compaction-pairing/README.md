@@ -31,7 +31,7 @@ messages; the 12 compactions before it had worked.
 
 | #  | Phase                                                           | Status |
 |----|-----------------------------------------------------------------|--------|
-| 01 | evict-tool-pairs ([phase-01-evict-tool-pairs.md](phase-01-evict-tool-pairs.md)) | todo   |
+| 01 | evict-tool-pairs ([phase-01-evict-tool-pairs.md](phase-01-evict-tool-pairs.md)) | in-progress |
 
 ## Notes
 

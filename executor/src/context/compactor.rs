@@ -104,6 +104,7 @@ pub fn compact(
     }
 
     // ── Pass 2: evict oldest non-system messages until under target ──
+    let mut evicted_any = false;
     while running_total > target {
         let evict_idx = messages.iter().position(|m| m.role != "system");
         let Some(idx) = evict_idx else {
@@ -112,6 +113,39 @@ pub fn compact(
         let removed = messages.remove(idx);
         running_total = running_total.saturating_sub(message_tokens(&removed));
         messages_evicted += 1;
+        evicted_any = true;
+
+        // A call's replies are meaningless without the call, and the backend
+        // rejects a `tool` message with no preceding `tool_calls`. Evict the
+        // directly following replies with the call that issued them. Matched by
+        // position, not id: an assistant id may not equal the reply's
+        // `tool_call_id` in every producer of the history.
+        if removed.role == "assistant"
+            && removed
+                .tool_calls
+                .as_ref()
+                .is_some_and(|tcs| !tcs.is_empty())
+        {
+            while idx < messages.len() && messages[idx].role == "tool" {
+                let reply = messages.remove(idx);
+                running_total = running_total.saturating_sub(message_tokens(&reply));
+                messages_evicted += 1;
+            }
+        }
+    }
+
+    // ── Pass 2.5: an eviction can expose a reply whose call was already gone
+    // (the reply led the history). Only sweep when Pass 2 removed something —
+    // otherwise a history that legitimately opens with a reply stays as-is. ──
+    if evicted_any {
+        while let Some(idx) = messages.iter().position(|m| m.role != "system") {
+            if messages[idx].role != "tool" {
+                break;
+            }
+            let orphan = messages.remove(idx);
+            running_total = running_total.saturating_sub(message_tokens(&orphan));
+            messages_evicted += 1;
+        }
     }
 
     let tokens_after = running_total;
@@ -447,6 +481,25 @@ mod tests {
         }
     }
 
+    fn make_call_msg(content: &str, ids: &[&str], turn: usize) -> Message {
+        Message {
+            role: "assistant".to_string(),
+            content: content.to_string(),
+            tool_calls: Some(
+                ids.iter()
+                    .map(|id| crate::ai::types::ToolCall {
+                        id: id.to_string(),
+                        name: "bash".to_string(),
+                        arguments: r#"{"command":"ls"}"#.to_string(),
+                        thought_signature: None,
+                    })
+                    .collect(),
+            ),
+            tool_results: None,
+            turn: Some(turn),
+        }
+    }
+
     // ── message_tokens tests ──
 
     #[test]
@@ -766,6 +819,132 @@ mod tests {
         assert!(
             report2.messages_signaturized <= report1.messages_signaturized,
             "second run should not re-signaturize already-compacted results"
+        );
+    }
+
+    #[test]
+    fn compact_eviction_takes_replies_with_call() {
+        let big = "x".repeat(2000);
+        let mut messages = vec![
+            make_system("sys"),
+            make_call_msg(&big, &["tc1"], 1),
+            make_tool_msg("bash", "ok", 1),
+            make_call_msg("small", &["tc2"], 2),
+            make_tool_msg("bash", "ok", 2),
+            make_user_with_turn("recent", 3),
+        ];
+
+        let budget = Budget::new(400);
+        let report = compact(&mut messages, &budget, "sys");
+
+        assert!(
+            report.messages_evicted > 0,
+            "the large call must force at least one eviction"
+        );
+        assert_ne!(
+            messages[0].role, "tool",
+            "eviction must not leave a reply at the front"
+        );
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[1].role, "assistant");
+        assert!(
+            messages[1]
+                .tool_calls
+                .as_ref()
+                .is_some_and(|tcs| tcs.iter().any(|tc| tc.id == "tc2")),
+            "the second call must survive eviction"
+        );
+        assert_eq!(messages[2].role, "tool");
+    }
+
+    #[test]
+    fn compact_eviction_takes_every_reply_of_a_multi_call() {
+        let big = "x".repeat(2000);
+        let mut messages = vec![
+            make_system("sys"),
+            make_call_msg(&big, &["tc1", "tc2"], 1),
+            make_tool_msg("bash", "ok", 1),
+            make_tool_msg("bash", "ok", 1),
+            make_call_msg("small", &["tc3"], 2),
+            make_tool_msg("bash", "ok", 2),
+            make_user_with_turn("recent", 3),
+        ];
+
+        let budget = Budget::new(400);
+        let report = compact(&mut messages, &budget, "sys");
+
+        assert_ne!(messages[0].role, "tool");
+        assert_eq!(
+            report.messages_evicted, 3,
+            "the multi-call assistant message and both replies count as evicted"
+        );
+        assert!(
+            messages.iter().all(|m| m.role != "tool"
+                || m.tool_results
+                    .as_ref()
+                    .is_some_and(|trs| trs.iter().all(|tr| tr.tool_call_id == "c1"))),
+            "both replies of the evicted multi-call must be gone"
+        );
+        assert_eq!(messages[1].role, "assistant");
+        assert!(
+            messages[1]
+                .tool_calls
+                .as_ref()
+                .is_some_and(|tcs| tcs.iter().any(|tc| tc.id == "tc3")),
+            "the surviving call/reply pair must remain intact"
+        );
+    }
+
+    #[test]
+    fn compact_eviction_drops_leading_orphan_reply() {
+        let big = "x".repeat(2000);
+        let mut messages = vec![
+            make_system("sys"),
+            make_user_with_turn(&big, 1),
+            make_tool_msg("bash", "orphan", 1),
+            make_call_msg("small", &["tc2"], 2),
+            make_tool_msg("bash", "ok", 2),
+            make_user_with_turn("recent", 3),
+        ];
+
+        let budget = Budget::new(400);
+        let report = compact(&mut messages, &budget, "sys");
+
+        assert!(
+            report.messages_evicted >= 2,
+            "the large user message alone reaches target, the orphan reply is swept with it"
+        );
+        assert_ne!(
+            messages[0].role, "tool",
+            "an orphan reply must never lead the history"
+        );
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[1].role, "assistant");
+        assert!(
+            messages[1]
+                .tool_calls
+                .as_ref()
+                .is_some_and(|tcs| tcs.iter().any(|tc| tc.id == "tc2")),
+            "the turn-2 pair must survive"
+        );
+        assert_eq!(messages[2].role, "tool");
+    }
+
+    #[test]
+    fn compact_without_eviction_keeps_leading_reply() {
+        let mut messages = vec![
+            make_system("sys"),
+            make_tool_msg("bash", "ok", 1),
+            make_user_with_turn("recent", 2),
+        ];
+
+        let budget = Budget::new(10_000);
+        let report = compact(&mut messages, &budget, "sys");
+
+        assert_eq!(report.messages_evicted, 0);
+        assert_eq!(
+            messages[1].role, "tool",
+            "with no eviction the leading reply must be left alone"
         );
     }
 }
