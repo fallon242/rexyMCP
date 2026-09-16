@@ -69,10 +69,9 @@ required.
   **4×** (3× recorded at M46). Still waiting on the human go-ahead as a runtime
   fix.
 
-**Found during the run, outside F06 scope.** The egress pre-scan failed with
-`NER engine call failed ... http://Ip_1:8080/v1/chat/completions`. The
-configured `engine_base_url` is a LAN IP address, and `Ip_1` is the tokenizer's
-`<Kind>_<n>` token (`executor/src/privacy/tokenizer.rs:44`). Redaction rewrote
-the NER engine's own URL, so the run had only structured-PII redaction and the
-write-guard was off. Where the rewrite happens has not been traced. This belongs to
-F05 (privacy hardening) and is not filed yet.
+**Found during the run, outside F06 scope.** The egress pre-scan failed
+because the NER engine was unreachable, and the dispatch ran against the cloud
+model anyway with reduced protection. A first reading blamed redaction for
+rewriting the engine URL (`Ip_1`); that was wrong. `Ip_1` comes from
+`scrub_phase_result` cleaning the warning on its way to Claude, which is
+correct behaviour. Filed as F05 finding 7 (phase 06).

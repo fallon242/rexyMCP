@@ -1,7 +1,7 @@
 # F05 — Privacy and security hardening
 
 **Goal:** close the gaps a real deployment found between what the privacy
-features promise and what they do. Six findings, each with evidence, each
+features promise and what they do. Seven findings, each with evidence, each
 small. Together they are the difference between a safety net and a belief.
 
 **Status:** in-progress — opened 2026-09-16 on human sign-off. Phase 01 is
@@ -22,6 +22,8 @@ observed there, not imagined.
 - [ ] The prompt guard cannot fail open, and is installed rather than copied.
 - [ ] No privacy setting is inert while appearing to work.
 - [ ] `docs/privacy.md` states one thing about egress protection, not two.
+- [ ] A failed PII pre-scan stops a cloud dispatch instead of running it with
+      reduced protection.
 - [ ] All four gates pass; each mechanism has a test that fails when reverted.
 
 ## The findings
@@ -95,6 +97,38 @@ whichever they find first. One of them is two milestones stale.
 
 **Phase 05**, with finding 5 — both are documentation-truth fixes.
 
+### 7. A failed pre-scan runs the cloud dispatch anyway
+
+Found 2026-09-16 during F06 phase-01. The NER engine was unreachable
+(`curl` to `engine_base_url` exits 7, "couldn't connect"), `build_egress_index`
+failed (`executor/src/privacy/egress.rs:114-124`), and the run continued:
+
+```rust
+// mcp/src/runner.rs:402-408
+Err(e) => {
+    egress_warning = Some(format!(
+        "executor-egress redaction engaged but the PII pre-scan failed ({e}); only \
+         structured PII is redacted live and the write-guard is off"
+    ));
+}
+```
+
+The run made 48 turns against `api.deepseek.com` with no dictionary redaction
+and no write-guard. The only signal was a line in `PhaseResult.warnings`. The
+comment at `runner.rs:385` says this fallback is deliberate. The stated privacy
+rule says the opposite: "When the detection engine is unavailable, cloud work
+stops rather than proceeding unprotected"
+(`plugin/skills/architect/SKILL.md:177`).
+
+The warning is also hard to diagnose. `scrub_phase_result`
+(`mcp/src/server.rs:248`) redacts the engine's IP address in the error, so it
+reads `http://Ip_1:8080`. That is redaction working correctly, not a bug, but
+the message does not say which setting to check.
+
+**Phase 06** — a failed pre-scan fails the dispatch before turn 1, and the
+error names `privacy.engine_base_url`. Whether to keep the reduced mode behind
+an explicit opt-in is a question for drafting. Small: one match arm plus a test.
+
 ## Why literal masking is not the abandoned reversible round-trip
 
 Phase-06b proved a *reversible* executor round-trip corrupts files: asked to
@@ -117,6 +151,7 @@ Expanded on demand, per WORKFLOW. Only phase 01 is drafted.
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
 | 05 | inert config + doc truth | not drafted |
+| 06 | failed pre-scan stops a cloud dispatch | not drafted |
 
 ## Reference implementation
 
@@ -128,7 +163,7 @@ design. Its shell prompt-guard carries the phase-04 fixes.
 
 ## Estimate
 
-About **three to four executor days** for all five phases, plus review. Phase 01
+About **three to four executor days** for all six phases, plus review. Phase 01
 is the only one with real design content; 02 and 03 are permissions and one
 call to an existing chokepoint; 04 is a shell script; 05 is a deletion and a
-paragraph.
+paragraph; 06 is one match arm.

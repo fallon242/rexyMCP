@@ -20,10 +20,10 @@ leaves a `tool` reply first in the history, which caused the CRS HTTP 400.
 Retrospective in
 [F06/README.md § F06 retrospective](milestones/F06-compaction-pairing/README.md):
 no folds. Two things carry forward:
-- **Possible F05 finding, not filed:** the egress NER pre-scan failed against
-  `http://Ip_1:8080`: redaction replaced the IP address in the engine's own
-  URL (`tokenizer.rs:44` token format), so the write-guard was off for that
-  run. Where the rewrite happens has not been traced.
+- **Filed as F05 finding 7 (phase 06):** a failed PII pre-scan lets a cloud
+  dispatch run with reduced protection (`mcp/src/runner.rs:402-408`). The NER
+  engine is unreachable right now, so every cloud dispatch runs that way until
+  it is back up.
 - **Optional cleanup:** Pass 2's call-with-replies step is redundant with
   Pass 2.5 (about 15 lines).
 
