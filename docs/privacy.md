@@ -34,7 +34,7 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   and refuses model writes to PII-bearing files (a cloud model only sees their
   redacted contents). A local executor bypasses all of this. Best-effort:
   names the pre-scan NER misses still egress. See
-  `docs/dev/milestones/M45-executor-egress-protection/`.
+  `docs/dev/milestones/F03-executor-egress-protection/`.
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)
   or the `UserPromptSubmit` hook (best-effort; see below).
 
