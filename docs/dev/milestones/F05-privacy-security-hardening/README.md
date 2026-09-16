@@ -142,7 +142,9 @@ locally from the same term file. The executor boundary gains no reversibility.
 
 ## Phases
 
-Expanded on demand, per WORKFLOW. Only phase 01 is drafted.
+Expanded on demand, per WORKFLOW. Phases 01 and 06 are drafted. Phase 06 runs
+first, on human instruction: until it lands, a dead NER engine lets a cloud
+dispatch run with reduced protection.
 
 | #  | Phase | Status |
 |----|-------|--------|
@@ -151,7 +153,7 @@ Expanded on demand, per WORKFLOW. Only phase 01 is drafted.
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
 | 05 | inert config + doc truth | not drafted |
-| 06 | failed pre-scan stops a cloud dispatch | not drafted |
+| 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | todo |
 
 ## Reference implementation
 
