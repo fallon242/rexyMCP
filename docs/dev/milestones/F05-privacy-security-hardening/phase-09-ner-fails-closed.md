@@ -1,12 +1,57 @@
 # Phase 9: a cut-off or unreadable NER reply fails closed, and large input is split
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** in-progress (bounced: [bug-09-1](bugs/bug-09-1.md))
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
 
 > **Dispatch on a LOCAL executor only.** This phase changes PII detection.
+
+## Bounce — bug-09-1 (read this first)
+
+**The gates are green and the tree is clean. That is expected here and is NOT
+evidence that the phase is done.** The implementation is correct and approved:
+the constants, the 4096-token cap, `parse_items` returning `Option`, `Reply`,
+`halve`, the split-and-retry loop in `detect`, and every hermetic test. Do not
+change any of them. The architect replayed this exact logic against the live
+engine: **300 of 300 names found in 3 calls, 346 seconds.**
+
+There is **one** broken test and **one** missing step.
+
+1. **`live_engine_survives_a_name_dense_file` counts the wrong names.**
+   `ner.rs:468-476` uses `FIRSTS.iter().zip(LASTS.iter())`, which pairs the
+   lists positionally and yields 15 names. The text holds the cross product,
+   300 names. Run by the architect on 2026-09-17, the test fails:
+
+   ```
+   thread 'privacy::ner::tests::live_engine_survives_a_name_dense_file' panicked at executor/src/privacy/ner.rs:477:9:
+   only 15 of 300 names found; reply must survive the name-dense file
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1178 filtered out; finished in 342.57s
+   ```
+
+   Count the cross product instead, and count each name once:
+
+   ```rust
+        let texts: std::collections::HashSet<&str> =
+            spans.iter().map(|s| s.text.as_str()).collect();
+        let found = FIRSTS
+            .iter()
+            .flat_map(|f| LASTS.iter().map(move |l| format!("{f} {l}")))
+            .filter(|name| texts.contains(name.as_str()))
+            .count();
+   ```
+
+2. **The End-to-end verification was never run.** Run the block below exactly
+   as written and paste `/tmp/p09_live.txt` into the Update Log.
+
+**Finish conditions. Check each one yourself before reporting:**
+
+- `grep -c 'zip(LASTS' executor/src/privacy/ner.rs` prints `0`.
+- `/tmp/p09_live.txt` shows **both** live tests passing, and is pasted into the
+  Update Log. The run takes about 6 minutes.
+- `cargo test` still reports 716 / 2 / 1170 (9 ignored): this fix adds no test.
+- All four gates pass.
 
 ## Goal
 
@@ -254,7 +299,9 @@ existing test fails for any other reason, stop and file a blocker.
 - [ ] `from_config` sets `max_tokens: 4096`.
 - [ ] A cut-off reply makes `build_pii_index` return `Err`.
 - [ ] The live test finds at least 270 of the 300 names (ignored test, run in
-      E2E).
+      E2E). bug-09-1: it must count the **cross product** of the two lists, not
+      `zip` — `grep -c 'zip(LASTS' executor/src/privacy/ner.rs` is `0` — and
+      the E2E output must be pasted into the Update Log.
 - [ ] Each new non-ignored test fails when its fix is reverted (show one in the
       Update Log).
 - [ ] `cargo fmt --all --check`, `cargo build`,
@@ -368,6 +415,8 @@ phase is running.
 - [x] May add `"[]"` replies to existing mocks in `executor/src/privacy/`, as
       described in the Gotcha.
 - [x] May add `#[ignore = …]` to test 9 only.
+- [x] bug-09-1: may fix the name counting in
+      `live_engine_survives_a_name_dense_file`. No other code change.
 - [ ] May add a dependency or a config key — **no.**
 - [ ] May edit `executor/src/ai/**`, `executor/src/privacy/egress.rs`,
       `executor/src/privacy/gateway.rs` or `mcp/**` — **no.**
@@ -511,3 +560,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 6dda6514599d0e228460d7438beece194f7efc4e
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-09-17 (review: bounced)
+
+**Bug filed:** [bug-09-1](bugs/bug-09-1.md) (major). The implementation is
+correct: an independent re-run passes fmt/build/clippy and `cargo test`
+(716 + 2 + 1170, 9 ignored), and the architect replayed the phase's own logic
+against the live engine — 300 of 300 names found in 3 calls, 346 s. What
+bounces: the live test counts `zip` pairs (15 names) instead of the 300 in the
+text, so it fails whatever the engine returns, and the End-to-end verification
+was never run. See the Bounce section at the top.
+
