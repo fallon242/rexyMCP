@@ -281,7 +281,7 @@ dispatch run with reduced protection.
 | 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
 | 08 | project names out of the dictionary (finding 9) | not drafted |
-| 09 | ner-fails-closed ([phase-09-ner-fails-closed.md](phase-09-ner-fails-closed.md)) | todo        |
+| 09 | ner-fails-closed ([phase-09-ner-fails-closed.md](phase-09-ner-fails-closed.md)) | review      |
 | 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | done        |
 | 11 | protect-git-and-config ([phase-11-protect-git-and-config.md](phase-11-protect-git-and-config.md)) | done        |
 

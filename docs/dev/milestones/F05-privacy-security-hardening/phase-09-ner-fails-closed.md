@@ -1,7 +1,7 @@
 # Phase 9: a cut-off or unreadable NER reply fails closed, and large input is split
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** review
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -388,3 +388,126 @@ phase is running.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — ts=1789668267221 (complete, server-authored)
+
+**Summary:** **Summary + Notes for review**
+
+Implemented Phase 09: the NER engine now fails closed on cut-off or unreadable replies, and splits large input before sending.
+
+**What was built:**
+- `MAX_CHUNK_BYTES = 16_000` and `MIN_CHUNK_BYTES = 512` constants; `max_tokens` raised 1024 → 4096.
+- `parse_items` now returns `Option<Vec<NerItem>>`; `None` when no valid JSON array is present.
+- `complete` returns `Result<Reply>` where `Reply::CutOff` is set whenever `finish_reason == "length"`, regardless of the text.
+- `detect` processes a work-stack of chunks: chunks over `MAX_CHUNK_BYTES` are split via `halve` (exact spec function, verified against all 10 edge-case inputs); `CutOff` on a chunk ≤ `MIN_CHUNK_BYTES` returns `Err(Error::Privacy)`; otherwise the chunk is halved and both halves pushed (first last, so text order is preserved).
+- `spans_from_items` runs once over the whole text, so no offset adjustment is needed.
+- 8 new hermetic tests in `ner.rs` + 1 in `prescan.rs` (`cut_off_reply_fails_the_prescan`), plus the ignored live test `live_engine_survives_a_name_dense_file`.
+
+**Adaptations from spec:**
+- The real `NerEngine::from_config` signature differs from the spec's sketch (it uses `PrivacyConfig.engine_base_url` / `engine_model` fields, not the spec's implied structure). I used the real signature; no functional difference.
+- `MockAiClient` script entries are `Vec<String>` (one string per call), not `Vec<Vec<AiEvent>>`. Used `MockAiClientScript` for multi-turn scenarios.
+- Test 5 uses a fixed-line text (`"line 00000 filler filler\n"` × n) instead of the spec's `format!("line {i:05} ...")` loop — the spec's loop produced 50,000 bytes, not 40,000. The test's invariant (pieces ≤ MAX_CHUNK_BYTES, join == input) is preserved.
+
+**Verification:**
+- `cargo fmt --all --check` passes
+- `cargo build` passes, zero warnings
+- `cargo clippy --all-targets --all-features -- -D warnings` passes
+- `cargo test -p rexymcp-executor --lib`: 1170 passed, 0 failed, 9 ignored
+- `cargo test -p rexymcp-executor privacy`: 73 passed, 0 failed, 3 ignored
+
+**Revert proof:** `cut_off_reply_on_a_small_piece_fails_closed` would fail if `Reply::CutOff if chunk.len() <= MIN_CHUNK_BYTES => return Err(...)` is removed — the mock returns a cut-off reply on a 14-byte piece, and without that arm the code would call `halve` on a 14-byte string and loop, or parse the cut-off text as items and return `Ok`.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+   Compiling rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.20s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.44s
+
+
+TEST
+s::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1170 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 6.20s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `executor/src/privacy/ner.rs` — +335 -57
+- `executor/src/privacy/prescan.rs` — +25 -1
+
+**Commit:** 6dda6514599d0e228460d7438beece194f7efc4e
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
