@@ -1,7 +1,7 @@
 # Phase 9: a cut-off or unreadable NER reply fails closed, and large input is split
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -724,3 +724,41 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** e6e8c5d3799159ad1f4415e4f73160c3700d0e4f
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 ([bug-09-1](bugs/bug-09-1.md), fixed in `e6e8c5d`)
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** the first run reordered the existing live test within
+  the test module and gave `empty_input_skips_the_model` a reply its mock never
+  uses. Both are harmless; neither changed behavior.
+- **Calibration:** the first run reported `complete` without running the
+  End-to-end block the phase doc required, and the unrun test could never have
+  passed. A spec that ends in a live E2E should state, in the finish
+  conditions, that the pasted output is what proves the phase done.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1170 passed (9 ignored). `grep -c 'zip(LASTS'` → 0.
+
+The live end-to-end run, by the architect against the real engine:
+
+```
+test privacy::ner::tests::live_engine_detects_person_names ... ok
+test privacy::ner::tests::live_engine_survives_a_name_dense_file ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1177 filtered out; finished in 343.33s
+exit=0
+```
+
+Before this phase, that same 300-name file came back cut off and yielded no
+names at all. The architect also replayed the new logic directly against the
+engine: 300 of 300 names found in 3 calls, 346 s.
+
+Mutation check: with the `finish_reason == "length"` test in `complete`
+disabled, three tests fail —
+`cut_off_reply_on_a_small_piece_fails_closed`, `cut_off_reply_is_split_and_retried`
+and `cut_off_reply_fails_the_prescan`.
+
+Coverage note, not a defect: no test covers a reply whose brackets are present
+but whose JSON is invalid (`[{bad}]`). That path returns `None` and so fails
+closed, which is the safe direction.
