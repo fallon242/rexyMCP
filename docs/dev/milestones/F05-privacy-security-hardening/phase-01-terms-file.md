@@ -1,7 +1,7 @@
 # Phase 1: `[privacy] terms_file`
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 06 (done). A failed pre-scan now stops the dispatch, and
 a term file that fails to load goes the same way.
 **Estimated diff:** ~380 lines, about half of it tests
@@ -742,3 +742,37 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** c1579cf10012924a0499d6fa14b2da1ab3c83c89
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 ([bug-01-1](bugs/bug-01-1.md), fixed in `c1579cf`)
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** none. The fix run touched only `terms.rs` plus the
+  status lines, and left the pre-existing `expect` at `mcp/src/runner.rs:466`
+  alone as instructed.
+- **Calibration:** this phase ended `budget_exceeded` at 200 turns on
+  2026-09-16 with nothing committed, and completed in 138 turns on 2026-09-17
+  with the same spec. The only difference was the environment: phase 08 stopped
+  the pre-scan from redacting the project's own name, so the executor could read
+  its own paths and crate names. A phase that fails while the executor cannot
+  name the files it is asked to edit is not evidence that the spec is wrong.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1188 passed (10 ignored). All 14 tests the Test plan names are
+present. No panic path remains in the production part of `terms.rs`
+(`mod tests` starts at line 176; the `awk` check above it prints nothing), and
+the phase's whole diff carries no `#[allow]`, `unsafe`, `TODO` or stray print.
+
+Two architect mutation checks, both caught:
+- dropping the left `\b` from the alias pattern fails
+  `default_entry_requires_both_boundaries`,
+  `embed_entry_matches_inside_an_identifier` and `loads_entries_and_flags`;
+- bypassing `self.literal.mask(...)` in `RedactingAiClient` fails
+  `literal_terms_redact_through_the_client`.
+
+The executor's end-to-end capture, pasted in the entry above, is the real
+artifact check: with `terms_file` the wire carries `site_code=about [SITE_1]`
+and `plaintext_hits=0`; without it, `plaintext_hits=1` and no `[SITE_1]`. The
+`email_marker=REDACTED:email` line is the positive control that the captured
+body is the redacted request.
