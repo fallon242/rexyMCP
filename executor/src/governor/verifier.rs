@@ -10,6 +10,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use crate::security::Sandbox;
+
 /// Severity of a single diagnostic. Mapped from the compiler's level field:
 /// "error" → Error, "warning" → Warning, "note" → Note, "help" → Help.
 /// Only errors are fed back to the model (warnings would be noise); the type
@@ -150,6 +152,10 @@ impl Baseline {
 /// cache-rebuilds; for a python project with a vendored venv
 /// it's hundreds of `ruff` spawns.
 pub async fn capture_baseline(paths: &[PathBuf]) -> Baseline {
+    capture_baseline_in(paths, None).await
+}
+
+pub async fn capture_baseline_in(paths: &[PathBuf], sandbox: Option<&Sandbox>) -> Baseline {
     let mut baseline = Baseline::new();
 
     // Dedup key: (extension, project_root_or_path). For files
@@ -170,7 +176,7 @@ pub async fn capture_baseline(paths: &[PathBuf]) -> Baseline {
     }
 
     for path in &representatives {
-        match verify(path).await {
+        match verify_in(path, sandbox).await {
             VerifierResult::Checked { diagnostics } => {
                 for d in &diagnostics {
                     baseline.record(d);
@@ -222,15 +228,19 @@ fn find_ancestor_with(start: &Path, marker: &str) -> Option<PathBuf> {
 /// extension to the appropriate per-language checker.
 /// Supports `.rs`, `.ts`, `.tsx`, and `.py`.
 pub async fn verify(path: &Path) -> VerifierResult {
+    verify_in(path, None).await
+}
+
+pub async fn verify_in(path: &Path, sandbox: Option<&Sandbox>) -> VerifierResult {
     let ext = match path.extension().and_then(|s| s.to_str()) {
         Some(ext) => ext,
         None => return VerifierResult::Unsupported,
     };
 
     match ext {
-        "rs" => verify_rust(path).await,
-        "ts" | "tsx" => verify_typescript(path).await,
-        "py" => verify_python(path).await,
+        "rs" => verify_rust(path, sandbox).await,
+        "ts" | "tsx" => verify_typescript(path, sandbox).await,
+        "py" => verify_python(path, sandbox).await,
         _ => VerifierResult::Unsupported,
     }
 }
@@ -250,7 +260,42 @@ fn spawn_failure(tool: &str, install_hint: &str, err: &std::io::Error) -> Verifi
     }
 }
 
-async fn verify_rust(path: &Path) -> VerifierResult {
+/// True when a sandboxed checker never started: bwrap exits non-zero and
+/// reports the failed `execvp` on stderr.
+fn sandbox_exec_failed(sandboxed: bool, success: bool, stderr: &[u8]) -> bool {
+    sandboxed && !success && stderr.starts_with(b"bwrap: execvp ")
+}
+
+/// A `Command` for `program`, run in `cwd`. With a sandbox: `bwrap <prefix>
+/// --chdir <cwd> <program>`, with the environment cleared to the bash
+/// allowlist. The caller appends the checker's own arguments.
+fn checker_command(sandbox: Option<&Sandbox>, program: &Path, cwd: &Path) -> Command {
+    match sandbox {
+        None => {
+            let mut c = Command::new(program);
+            c.current_dir(cwd);
+            c
+        }
+        Some(sb) => {
+            let mut argv = sb.command_prefix(cwd);
+            argv.push(program.to_string_lossy().into_owned());
+            let (first, rest) = argv.split_first().map_or_else(
+                || (program.to_string_lossy().into_owned(), Vec::<String>::new()),
+                |(f, r)| (f.clone(), r.iter().map(|s| s.to_string()).collect()),
+            );
+            let mut c = Command::new(first);
+            c.args(rest).current_dir(cwd).env_clear();
+            for (key, value) in std::env::vars() {
+                if crate::tools::is_allowed_env_key(&key) {
+                    c.env(&key, &value);
+                }
+            }
+            c
+        }
+    }
+}
+
+async fn verify_rust(path: &Path, sandbox: Option<&Sandbox>) -> VerifierResult {
     let crate_root = match find_crate_root(path) {
         Some(root) => root,
         None => {
@@ -261,15 +306,13 @@ async fn verify_rust(path: &Path) -> VerifierResult {
         }
     };
 
-    let output = match Command::new("cargo")
-        .arg("check")
+    let mut cmd = checker_command(sandbox, Path::new("cargo"), &crate_root);
+    cmd.arg("check")
         .arg("--message-format=json")
-        .current_dir(&crate_root)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-    {
+        .stderr(Stdio::piped());
+
+    let output = match cmd.output().await {
         Ok(o) => o,
         Err(e) => {
             return spawn_failure(
@@ -279,6 +322,14 @@ async fn verify_rust(path: &Path) -> VerifierResult {
             );
         }
     };
+
+    if sandbox_exec_failed(sandbox.is_some(), output.status.success(), &output.stderr) {
+        return VerifierResult::Skipped(
+            "cargo is not available inside the bash sandbox; \
+             incremental verification is disabled this run"
+                .to_string(),
+        );
+    }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut diagnostics = Vec::new();
@@ -482,7 +533,7 @@ fn resolve_tsc_command(project_root: &Path, npx_on_path: bool) -> TscCommand {
     }
 }
 
-async fn verify_typescript(path: &Path) -> VerifierResult {
+async fn verify_typescript(path: &Path, sandbox: Option<&Sandbox>) -> VerifierResult {
     let project_root = match find_typescript_project_root(path) {
         Some(root) => root,
         None => {
@@ -494,16 +545,17 @@ async fn verify_typescript(path: &Path) -> VerifierResult {
     };
 
     let cmd = resolve_tsc_command(&project_root, binary_in_dirs("npx", &path_dirs()));
-    let output = match Command::new(&cmd.program)
-        .args(cmd.prefix_args)
+    let tsc_program = cmd.program.clone();
+    let prefix_args: Vec<String> = cmd.prefix_args.iter().map(|s| s.to_string()).collect();
+    let mut tsc_cmd = checker_command(sandbox, &tsc_program, &project_root);
+    tsc_cmd
+        .args(prefix_args)
         .arg("--noEmit")
         .arg("--pretty=false")
-        .current_dir(&project_root)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-    {
+        .stderr(Stdio::piped());
+
+    let output = match tsc_cmd.output().await {
         Ok(o) => o,
         Err(e) => {
             return spawn_failure(
@@ -514,6 +566,14 @@ async fn verify_typescript(path: &Path) -> VerifierResult {
             );
         }
     };
+
+    if sandbox_exec_failed(sandbox.is_some(), output.status.success(), &output.stderr) {
+        return VerifierResult::Skipped(
+            "tsc is not available inside the bash sandbox; \
+             incremental verification is disabled this run"
+                .to_string(),
+        );
+    }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut diagnostics = Vec::new();
@@ -576,7 +636,7 @@ fn parse_tsc_line(line: &str, project_root: &Path) -> Option<Diagnostic> {
     })
 }
 
-async fn verify_python(path: &Path) -> VerifierResult {
+async fn verify_python(path: &Path, sandbox: Option<&Sandbox>) -> VerifierResult {
     // Prefer the project root (so ruff lints all sibling files
     // in one invocation, matching cargo/tsc semantics). Falls
     // back to the file itself when no pyproject.toml/setup.py
@@ -585,21 +645,34 @@ async fn verify_python(path: &Path) -> VerifierResult {
         .or_else(|| find_ancestor_with(path, "setup.py"))
         .unwrap_or_else(|| path.to_path_buf());
     let path_str = target.to_string_lossy().to_string();
+    let cwd = if target.is_dir() {
+        target.clone()
+    } else {
+        target.parent().map(PathBuf::from).unwrap_or_default()
+    };
 
-    let output = match Command::new("ruff")
+    let mut ruff_cmd = checker_command(sandbox, Path::new("ruff"), &cwd);
+    ruff_cmd
         .arg("check")
         .arg("--output-format=json")
         .arg(&path_str)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-    {
+        .stderr(Stdio::piped());
+
+    let output = match ruff_cmd.output().await {
         Ok(o) => o,
         Err(e) => {
             return spawn_failure("ruff", "install ruff (pip install ruff)", &e);
         }
     };
+
+    if sandbox_exec_failed(sandbox.is_some(), output.status.success(), &output.stderr) {
+        return VerifierResult::Skipped(
+            "ruff is not available inside the bash sandbox; \
+             incremental verification is disabled this run"
+                .to_string(),
+        );
+    }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let diagnostics = parse_ruff_output(&stdout);

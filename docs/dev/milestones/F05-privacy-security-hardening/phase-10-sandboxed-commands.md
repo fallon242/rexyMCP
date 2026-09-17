@@ -1,7 +1,7 @@
 # Phase 10: run gate, hook and verifier commands in the sandbox
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase 07 (done)
 **Estimated diff:** ~400 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -529,3 +529,106 @@ environment.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-17 11:52 (started)
+
+Starting phase 10. Pre-flight: `git status --short` clean; `bwrap --version` → bubblewrap 0.12.0; `cargo test -p rexymcp-executor verifier` → 62 passed, 2 ignored; `cargo test -p rexymcp runner` → 711 passed (0 failed); `cargo test -p rexymcp` → 711 + 2 passed. Beginning with Spec §1 (`Sandbox::command_prefix`).
+
+### Update — 2026-09-17 (escalation)
+
+**Chosen lever:** resume
+**Rationale:** the first run (`a6907996`) hit `budget_exceeded` at 200 turns
+with all Spec work on disk. The architect's gate run on the partial tree: build
+passes; `cargo test` 714 + 2 + 1156 (7 ignored) passes; all 9 test-plan tests
+exist; `docs/privacy.md` has the sentence. What remains is rustfmt, one clippy
+error, E2E, a mutation check, the Update Log and the commit. The spec was not
+the problem.
+
+### Update — 2026-09-17 13:44 (resume, closing out)
+
+Completed the remaining closeout steps on the tree left by run `a6907996`.
+No Spec code was reworked; §1–§4 were already on disk and verified by the
+architect's gate run.
+
+**What changed in this run:**
+
+- **Clippy fix** — `executor/src/governor/verifier.rs` (ruff `cwd` fallback):
+  `target.parent().map(PathBuf::from).unwrap_or_else(PathBuf::new)` →
+  `target.parent().map(PathBuf::from).unwrap_or_default()`. Nothing else in
+  `verify_python` changed.
+- **Formatting** — ran `rustfmt --edition 2024` on the four unformatted files
+  (`executor/src/agent/command.rs`, `executor/src/governor/verifier.rs`,
+  `executor/src/governor/verifier_tests.rs`, `mcp/src/runner.rs`).
+  `cargo fmt --all --check` is now clean.
+
+**Gate results (all run as separate commands, all pass):**
+
+- `cargo fmt --all --check` → clean (exit 0)
+- `cargo build` → clean
+- `cargo clippy --all-targets --all-features -- -D warnings` → clean
+- `cargo test` → unchanged counts, per the architect's baseline:
+  `714 passed` (executor lib), `2 passed` (executor bin),
+  `1156 passed; 7 ignored` (mcp lib), `0` doc-tests.
+
+**Mutation check** — `sandbox_exec_failed` in `executor/src/governor/verifier.rs`:
+with the body replaced by `false`, `cargo test -p rexymcp-executor
+sandbox_exec_failure_is_detected` **fails** as required:
+
+```
+assertion failed: sandbox_exec_failed(true, false, stderr)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1162 filtered out
+```
+
+After restoring the line, the same command passes:
+
+```
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1162 filtered out
+```
+
+**End-to-end verification** — both blocks run exactly as written in the phase
+doc. `cargo test -p rexymcp-executor sandbox -- --ignored` (output file
+`/tmp/p10_ignored.txt`, pasted below) shows the three sandbox-gated tests
+passing: phase 07's two plus this phase's test 4.
+
+```
+Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.87s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 3 tests
+test security::sandbox::tests::probe_succeeds_where_bwrap_works ... ok
+test agent::command::tests::sandboxed_runner_passes_only_allowlisted_env ... ok
+test security::sandbox::tests::sandbox_blocks_home_and_state_dir ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1160 filtered out; finished in 0.05s
+
+exit=0
+```
+
+Then the canary run — the test with a secret-looking variable set on the
+command line (`REXYMCP_P10_CANARY=leak`) as a positive control that the
+environment really is cleared inside the sandbox. Output file
+`/tmp/p10_canary.txt`, pasted below; the final line is `1`, confirming the
+canary was present in the parent (host) environment:
+
+```
+Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 1 test
+test agent::command::tests::sandboxed_runner_passes_only_allowlisted_env ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1162 filtered out; finished in 0.01s
+
+exit=0
+1
+```
+
+**Deviation note:** none of the Spec's code deviates from the doc. One small
+adaptations worth flagging: the spec's `checker_command` sketch took
+`program: &str`; the existing tsc site holds `cmd.program` as a `PathBuf`, so
+the implemented signature is `checker_command(sandbox, program: &Path, cwd)`
+and the cargo/ruff sites pass `Path::new("cargo")` / `Path::new("ruff")` while
+the tsc site passes the resolved program path. Behavior is identical; no
+`unwrap`/`expect`/indexing is used at any spawn site.
+

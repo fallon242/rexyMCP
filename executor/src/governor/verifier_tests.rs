@@ -207,7 +207,7 @@ async fn verify_rust_returns_checked_with_errors_on_broken_code() {
     .unwrap();
     fs::write(src_dir.join("lib.rs"), "fn broken() { let x = y; }").unwrap();
 
-    let result = verify_rust(&src_dir.join("lib.rs")).await;
+    let result = verify_rust(&src_dir.join("lib.rs"), None).await;
     match result {
         VerifierResult::Checked { diagnostics } => {
             assert!(!diagnostics.is_empty());
@@ -236,7 +236,7 @@ async fn verify_rust_returns_checked_empty_on_clean_code() {
     .unwrap();
     fs::write(src_dir.join("lib.rs"), "pub fn hello() {}").unwrap();
 
-    let result = verify_rust(&src_dir.join("lib.rs")).await;
+    let result = verify_rust(&src_dir.join("lib.rs"), None).await;
     match result {
         VerifierResult::Checked { diagnostics } => {
             for d in &diagnostics {
@@ -378,7 +378,7 @@ async fn verify_typescript_returns_checked_on_broken_code() {
     fs::create_dir_all(&src).unwrap();
     fs::write(src.join("main.ts"), "const x: unknown_type = 1;").unwrap();
 
-    let result = verify_typescript(&src.join("main.ts")).await;
+    let result = verify_typescript(&src.join("main.ts"), None).await;
     match result {
         VerifierResult::Checked { diagnostics } => {
             assert!(!diagnostics.is_empty());
@@ -397,7 +397,7 @@ async fn verify_python_returns_checked_on_broken_code() {
     let py_path = dir.path().join("foo.py");
     fs::write(&py_path, "import os\n").unwrap();
 
-    let result = verify_python(&py_path).await;
+    let result = verify_python(&py_path, None).await;
     match result {
         VerifierResult::Checked { diagnostics } => {
             let f401 = diagnostics
@@ -919,4 +919,40 @@ fn resolve_tsc_command_falls_back_to_bare_tsc_when_no_npx() {
     let cmd = resolve_tsc_command(root, false);
     assert_eq!(cmd.program, PathBuf::from("tsc"));
     assert!(cmd.prefix_args.is_empty());
+}
+
+// --- Sandbox-aware verifier tests ---
+
+#[test]
+fn sandbox_exec_failure_is_detected() {
+    let stderr = b"bwrap: execvp ruff: No such file or directory\n";
+    assert!(sandbox_exec_failed(true, false, stderr));
+    assert!(!sandbox_exec_failed(false, false, stderr));
+    assert!(!sandbox_exec_failed(true, true, stderr));
+    assert!(!sandbox_exec_failed(
+        true,
+        false,
+        b"error[E0425]: cannot find value"
+    ));
+}
+
+#[tokio::test]
+async fn verify_in_uses_the_sandbox_program() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"t\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let lib_rs = src.join("lib.rs");
+    fs::write(&lib_rs, "pub fn ok() {}\n").unwrap();
+
+    let sb = crate::security::Sandbox::new(dir.path(), None).with_program("rexymcp-no-such-bwrap");
+    let result = verify_in(&lib_rs, Some(&sb)).await;
+    assert!(
+        !matches!(result, VerifierResult::Checked { .. }),
+        "a sandbox whose program does not exist must not yield Checked: {result:?}"
+    );
 }

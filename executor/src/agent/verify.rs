@@ -16,6 +16,22 @@ pub trait FileVerifier: Send + Sync {
     async fn capture_baseline(&self, paths: &[PathBuf]) -> Baseline;
 }
 
+/// Cloud-executor verifier: the same checks, run inside the bash sandbox.
+pub struct SandboxedVerifier {
+    pub sandbox: crate::security::Sandbox,
+}
+
+#[async_trait]
+impl FileVerifier for SandboxedVerifier {
+    async fn verify(&self, path: &Path) -> VerifierResult {
+        verifier::verify_in(path, Some(&self.sandbox)).await
+    }
+
+    async fn capture_baseline(&self, paths: &[PathBuf]) -> Baseline {
+        verifier::capture_baseline_in(paths, Some(&self.sandbox)).await
+    }
+}
+
 /// The production verifier — delegates to `governor::verifier`, which shells out
 /// to the per-language checker.
 pub struct RealVerifier;

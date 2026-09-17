@@ -30,29 +30,63 @@ pub struct RealCommandRunner;
 #[async_trait]
 impl CommandRunner for RealCommandRunner {
     async fn run(&self, command: &str, cwd: &Path) -> CommandResult {
-        match tokio::process::Command::new("sh")
+        let out = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(command)
             .current_dir(cwd)
             .output()
-            .await
-        {
-            Ok(out) => {
-                let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                if !stderr.is_empty() {
-                    combined.push_str(&stderr);
-                }
-                CommandResult {
-                    output: combined,
-                    success: out.status.success(),
-                }
-            }
-            Err(e) => CommandResult {
-                output: format!("failed to run `{command}`: {e}"),
+            .await;
+        to_result(command, out)
+    }
+}
+
+/// Cloud-executor runner: the same `sh -c <command>`, run inside the bash
+/// sandbox with the bash tool's environment allowlist.
+pub struct SandboxedCommandRunner {
+    pub sandbox: crate::security::Sandbox,
+}
+
+#[async_trait]
+impl CommandRunner for SandboxedCommandRunner {
+    async fn run(&self, command: &str, cwd: &Path) -> CommandResult {
+        let mut argv = self.sandbox.command_prefix(cwd);
+        argv.push("sh".to_string());
+        argv.push("-c".to_string());
+        argv.push(command.to_string());
+        let Some((program, args)) = argv.split_first() else {
+            return CommandResult {
+                output: "internal error: sandbox argv is empty".to_string(),
                 success: false,
-            },
+            };
+        };
+        let mut cmd = tokio::process::Command::new(program);
+        cmd.args(args).current_dir(cwd).env_clear();
+        for (key, value) in std::env::vars() {
+            if crate::tools::is_allowed_env_key(&key) {
+                cmd.env(&key, &value);
+            }
         }
+        to_result(command, cmd.output().await)
+    }
+}
+
+fn to_result(command: &str, out: std::io::Result<std::process::Output>) -> CommandResult {
+    match out {
+        Ok(out) => {
+            let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if !stderr.is_empty() {
+                combined.push_str(&stderr);
+            }
+            CommandResult {
+                output: combined,
+                success: out.status.success(),
+            }
+        }
+        Err(e) => CommandResult {
+            output: format!("failed to run `{command}`: {e}"),
+            success: false,
+        },
     }
 }
 
@@ -220,6 +254,7 @@ mod tests {
     use super::*;
     use crate::agent::tasks::Task;
     use crate::phase::CommandOutputs;
+    use crate::security::Sandbox;
     use crate::store::sessions::event::TaskState;
     use crate::store::telemetry::Gates;
     use std::collections::HashMap;
@@ -326,5 +361,45 @@ mod tests {
             msg.contains("Pending task"),
             "pending task must appear: {msg}"
         );
+    }
+
+    #[tokio::test]
+    async fn sandboxed_runner_runs_through_the_sandbox_program() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let runner = SandboxedCommandRunner {
+            sandbox: Sandbox::new(dir.path(), None).with_program("rexymcp-no-such-bwrap"),
+        };
+        let res = runner.run("echo $((40+2))", dir.path()).await;
+        assert!(!res.success);
+        assert!(
+            !res.output.contains("42"),
+            "the command must not have run: {}",
+            res.output
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs bwrap and user namespaces"]
+    async fn sandboxed_runner_passes_only_allowlisted_env() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let canonical = std::fs::canonicalize(dir.path()).unwrap();
+        let runner = SandboxedCommandRunner {
+            sandbox: Sandbox::new(
+                &canonical,
+                std::env::var_os("HOME").map(std::path::PathBuf::from),
+            ),
+        };
+        let res = runner.run("env", &canonical).await;
+        assert!(res.success, "env must run in the sandbox: {}", res.output);
+        for line in res.output.lines() {
+            let Some(key) = line.split_once('=').map(|(k, _)| k) else {
+                continue;
+            };
+            let shell_set = matches!(key, "PWD" | "OLDPWD" | "SHLVL" | "_");
+            assert!(
+                crate::tools::is_allowed_env_key(key) || shell_set,
+                "unexpected env var in sandbox: {key}"
+            );
+        }
     }
 }

@@ -33,10 +33,12 @@ impl Sandbox {
         self
     }
 
-    /// The full argv to spawn: element 0 is `program`, the last three are
-    /// `"sh"`, `"-c"`, `command`. bwrap applies mounts in order, so a later
-    /// mount covers an earlier one — the order below is the security property.
-    pub fn argv(&self, command: &str) -> Vec<String> {
+    /// The prefix of the full argv to spawn: element 0 is `program`, then rows
+    /// 1-9 of the mount table, then `--chdir`, `chdir`. Append a program and its
+    /// arguments to run it in the sandbox. bwrap applies mounts in order, so a
+    /// later mount covers an earlier one — the order below is the security
+    /// property.
+    pub fn command_prefix(&self, chdir: &std::path::Path) -> Vec<String> {
         let p = |path: &std::path::Path| path.to_string_lossy().into_owned();
         let root = self.root.clone();
         let home = self.home.clone();
@@ -97,11 +99,19 @@ impl Sandbox {
 
         // 10-11.
         a.push("--chdir".into());
-        a.push(p(&root));
+        a.push(p(chdir));
+
+        a
+    }
+
+    /// `command_prefix(root)` followed by `"sh"`, `"-c"`, `command`: the full
+    /// argv to spawn, element 0 is `program`, the last three are `"sh"`, `"-c"`,
+    /// `command`.
+    pub fn argv(&self, command: &str) -> Vec<String> {
+        let mut a = self.command_prefix(&self.root);
         a.push("sh".into());
         a.push("-c".into());
         a.push(command.to_string());
-
         a
     }
 }
@@ -217,6 +227,26 @@ mod tests {
             !a.iter().any(|x| x == "--ro-bind-try"),
             "no toolchain binds without a home"
         );
+    }
+
+    #[test]
+    fn argv_is_prefix_plus_shell() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), Some("/home/u".into()));
+        let prefix = sb.command_prefix(Path::new("/srv/repo"));
+        let mut expected = prefix;
+        expected.push("sh".into());
+        expected.push("-c".into());
+        expected.push("echo hi".into());
+        assert_eq!(sb.argv("echo hi"), expected);
+    }
+
+    #[test]
+    fn command_prefix_ends_with_chdir() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), None);
+        let prefix = sb.command_prefix(Path::new("/srv/repo/sub"));
+        let tail: Vec<&str> = prefix.iter().rev().take(2).map(|s| s.as_str()).collect();
+        assert_eq!(tail, vec!["/srv/repo/sub", "--chdir"]);
+        assert_eq!(prefix[0], "bwrap");
     }
 
     #[tokio::test]

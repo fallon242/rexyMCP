@@ -36,7 +36,9 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   fails — for example because the NER engine is unreachable — the dispatch stops
   before anything is sent. For a cloud executor, `bash` runs inside a bubblewrap
   sandbox that hides home directories and `.rexymcp/` and makes the host
-  read-only, and the dispatch stops if the sandbox is unavailable. Only the Rust
+  read-only, and the dispatch stops if the sandbox is unavailable. The gate,
+  hook and verifier commands run in the same sandbox, with the same environment
+  allowlist. Only the Rust
   toolchain under `$HOME` (`~/.cargo`, `~/.rustup`) is visible inside the
   sandbox. Best-effort:
   names the pre-scan NER misses still egress. See

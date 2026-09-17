@@ -282,7 +282,7 @@ dispatch run with reduced protection.
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
 | 08 | project names out of the dictionary (finding 9) | not drafted |
 | 09 | NER truncation fails closed, chunking (finding 8) | not drafted |
-| 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | todo        |
+| 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | in-progress   |
 | 11 | protect `.git/` and `rexymcp.toml` from the model (finding 11) | not drafted |
 
 ## Reference implementation

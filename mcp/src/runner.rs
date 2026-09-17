@@ -99,6 +99,9 @@ struct Seams<'a> {
     client: &'a dyn AiClient,
     verifier: &'a dyn FileVerifier,
     runner: &'a dyn CommandRunner,
+    /// Runs rexymcp's own bookkeeping commands (finalize's git calls) on the
+    /// host, even when `runner` is sandboxed.
+    host_runner: &'a dyn CommandRunner,
     clock: &'a (dyn Fn() -> u64 + Send + Sync),
     /// M45: PII-bearing files for the write-guard (empty = protection off).
     pii_files: std::collections::HashSet<std::path::PathBuf>,
@@ -330,7 +333,7 @@ async fn run_phase_with(
         repo_root: inp.repo_path,
         result: &result,
         now_ms: (seams.clock)(),
-        runner: seams.runner,
+        runner: seams.host_runner,
         model: inp.model,
     };
     if let Err(e) = crate::finalize::finalize_complete(&finalize_input).await {
@@ -461,8 +464,8 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             .expect("owned is None only when test_client is Some"),
     };
 
-    let verifier = rexymcp_executor::agent::verify::RealVerifier;
-    let runner = rexymcp_executor::agent::command::RealCommandRunner;
+    let exec = ExecTools::new(sandbox.clone());
+    let host_runner = rexymcp_executor::agent::command::RealCommandRunner;
 
     let clock = || {
         SystemTime::now()
@@ -473,8 +476,9 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
 
     let seams = Seams {
         client,
-        verifier: &verifier,
-        runner: &runner,
+        verifier: exec.verifier(),
+        runner: exec.runner(),
+        host_runner: &host_runner,
         clock: &clock,
         pii_files,
         sandbox,
@@ -500,6 +504,50 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
 
     let result = run_phase_with(&assembly, &seams).await?;
     Ok(result)
+}
+
+/// The runner and verifier for one dispatch: the host ones for a local
+/// endpoint, the sandboxed ones when `run_phase` built a sandbox.
+enum ExecTools {
+    Host(
+        rexymcp_executor::agent::verify::RealVerifier,
+        rexymcp_executor::agent::command::RealCommandRunner,
+    ),
+    Sandboxed(
+        rexymcp_executor::agent::verify::SandboxedVerifier,
+        rexymcp_executor::agent::command::SandboxedCommandRunner,
+    ),
+}
+
+impl ExecTools {
+    fn new(sandbox: Option<rexymcp_executor::security::Sandbox>) -> Self {
+        match sandbox {
+            None => Self::Host(
+                rexymcp_executor::agent::verify::RealVerifier,
+                rexymcp_executor::agent::command::RealCommandRunner,
+            ),
+            Some(sb) => Self::Sandboxed(
+                rexymcp_executor::agent::verify::SandboxedVerifier {
+                    sandbox: sb.clone(),
+                },
+                rexymcp_executor::agent::command::SandboxedCommandRunner { sandbox: sb },
+            ),
+        }
+    }
+
+    fn verifier(&self) -> &dyn FileVerifier {
+        match self {
+            Self::Host(v, _) => v,
+            Self::Sandboxed(v, _) => v,
+        }
+    }
+
+    fn runner(&self) -> &dyn CommandRunner {
+        match self {
+            Self::Host(_, r) => r,
+            Self::Sandboxed(_, r) => r,
+        }
+    }
 }
 
 /// Turn a failed egress pre-scan into the refusal `run_phase` returns. The
@@ -551,6 +599,38 @@ mod tests {
         }
         async fn capture_baseline(&self, _paths: &[PathBuf]) -> GovBaseline {
             GovBaseline::default()
+        }
+    }
+
+    /// A `CommandRunner` that records every command it is asked to run and
+    /// returns success. Copied from `crate::finalize`'s test module (that one
+    /// is private to its module).
+    #[derive(Default)]
+    struct RecordingRunner {
+        commands: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl RecordingRunner {
+        fn commands(&self) -> Vec<String> {
+            self.commands.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl CommandRunner for RecordingRunner {
+        async fn run(&self, command: &str, _cwd: &Path) -> CommandResult {
+            self.commands.lock().unwrap().push(command.to_string());
+            if command == "git rev-parse HEAD" {
+                CommandResult {
+                    output: "abcdef1234567890\n".to_string(),
+                    success: true,
+                }
+            } else {
+                CommandResult {
+                    output: String::new(),
+                    success: true,
+                }
+            }
         }
     }
 
@@ -729,9 +809,9 @@ mod tests {
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
-
         let inp = AssemblyInput {
             cfg: &cfg,
             phase_doc_path: &phase_doc_path,
@@ -780,13 +860,13 @@ mod tests {
 
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
         let clock = || 1234567890u64;
-
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
 
@@ -827,6 +907,71 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn run_phase_with_finalizes_through_host_runner() {
+        let dir = TempDir::new().unwrap();
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let phase_doc_path = dir.path().join("phase-01-test.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01: Test\n\n**Status:** in-progress\n\n**Tags:** language=rust, kind=test, size=s\
+             \n\n## Goal\n\nTest goal.\n\n## Acceptance criteria\n\n- [ ] It runs.\
+             \n\n## Update Log\n\n<!-- entries appended below this line -->\
+             \n\n### Update — 2026-01-01 00:00 (started)\n",
+        )
+        .unwrap();
+
+        let cfg = Config::default();
+
+        let mock = MockAiClient::new(vec!["Done.".to_string()]);
+        let clock = || 1234567890u64;
+        let gate_rec = RecordingRunner::default();
+        let host_rec = RecordingRunner::default();
+        let seams = Seams {
+            pii_files: std::collections::HashSet::new(),
+            sandbox: None,
+            client: &mock,
+            verifier: &NoopVerifier,
+            runner: &gate_rec,
+            host_runner: &host_rec,
+            clock: &clock,
+        };
+
+        let inp = AssemblyInput {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "standards",
+            model: "test-model",
+            telemetry_dir: None,
+            progress: None,
+            context_window: None,
+            project_id: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+        };
+
+        let result = run_phase_with(&inp, &seams).await;
+        assert!(
+            result.is_ok(),
+            "run_phase_with should succeed: {:?}",
+            result
+        );
+
+        let host_cmds = host_rec.commands();
+        assert!(
+            host_cmds.iter().any(|c| c.starts_with("git commit")),
+            "finalize's git commit must go through host_runner: {host_cmds:?}"
+        );
+        let gate_cmds = gate_rec.commands();
+        assert!(
+            !gate_cmds.iter().any(|c| c.starts_with("git ")),
+            "no git command may go through the (sandboxed) agent runner: {gate_cmds:?}"
+        );
+    }
+
     // --- negative: non-existent root ---
 
     #[tokio::test]
@@ -845,9 +990,9 @@ mod tests {
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
-
         let nonexistent = dir.path().join("does_not_exist_repo");
         let inp = AssemblyInput {
             cfg: &cfg,
@@ -910,13 +1055,13 @@ mod tests {
         );
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
         let clock = || 1234567890u64;
-
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
 
@@ -975,6 +1120,7 @@ mod tests {
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
         let inp = AssemblyInput {
@@ -1054,9 +1200,9 @@ mod tests {
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
-
         let inp = AssemblyInput {
             cfg: &cfg,
             phase_doc_path: &phase_doc_path,
@@ -1184,6 +1330,7 @@ mod tests {
             client: &mock,
             verifier: &NoopVerifier,
             runner: &NoopRunner,
+            host_runner: &NoopRunner,
             clock: &clock,
         };
 
@@ -1407,5 +1554,34 @@ mod tests {
                 "a local endpoint must not trigger the sandbox refusal: {message}"
             );
         }
+    }
+
+    // --- ExecTools dispatch ---
+
+    #[tokio::test]
+    async fn exec_tools_host_runs_on_host() {
+        let dir = TempDir::new().unwrap();
+        let exec = ExecTools::new(None);
+        let res = exec.runner().run("echo $((40+2))", dir.path()).await;
+        assert!(res.success);
+        assert!(
+            res.output.contains("42"),
+            "host sh must run the command: {}",
+            res.output
+        );
+    }
+
+    #[tokio::test]
+    async fn exec_tools_sandboxed_uses_the_sandbox() {
+        let dir = TempDir::new().unwrap();
+        let sb = rexymcp_executor::security::Sandbox::new(dir.path(), None).with_program("true");
+        let exec = ExecTools::new(Some(sb));
+        let res = exec.runner().run("echo $((40+2))", dir.path()).await;
+        assert!(res.success, "`true` exits 0: {}", res.output);
+        assert!(
+            !res.output.contains("42"),
+            "the command must not have run: {}",
+            res.output
+        );
     }
 }
