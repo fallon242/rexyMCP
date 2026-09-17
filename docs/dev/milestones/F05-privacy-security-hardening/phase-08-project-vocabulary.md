@@ -1,47 +1,21 @@
 # Phase 8: keep the project's own names out of the redaction dictionary
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress (bounced: [bug-08-1](bugs/bug-08-1.md))
+**Status:** done
 **Depends on:** phase 09 (done)
 **Estimated diff:** ~260 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=s
 
 > **Dispatch on a LOCAL executor only.** This phase changes PII redaction.
 
-## Bounce — bug-08-1 (read this first)
+## Bounce — bug-08-1 (waived by the user, 2026-09-17)
 
-**The gates are green, the live tests pass and the tree is clean. That is
-expected here and is NOT evidence that the phase is done.** Spec §1–§5 are
-implemented and approved: `PiiIndex::retaining`, `project_vocabulary`,
-`is_project_name`, the `build_egress_index` wiring and the `docs/privacy.md`
-sentence. The architect verified them independently, including the live run
-(`live terms: [("Alice Fernandez", PersonName)]`) and a mutation check: flipping
-the containment test to `v.contains(t)` fails
-`is_project_name_drops_identifiers_not_people`. Do not change any of that.
-
-There is **one line** left to remove.
-
-`executor/src/privacy/egress.rs:557`, in
-`live_build_egress_index_keeps_project_names_out`:
-
-```rust
-        eprintln!("live terms: {terms:?}");
-```
-
-Delete it. `STANDARDS.md` §1 forbids leftover `println!`/`dbg!` debug calls,
-with no test exemption, and this one prints the contents of a PII dictionary.
-The assertion messages below it already include `{terms:?}` on failure, so
-nothing is lost.
-
-**Finish conditions. Check each one yourself before reporting:**
-
-- `grep -c 'println!' executor/src/privacy/egress.rs` prints `0`.
-- The End-to-end verification block runs again and
-  `live_build_egress_index_keeps_project_names_out` still passes. Paste
-  `/tmp/p08_live.txt` into the Update Log. It takes about 2 seconds now.
-- `cargo test` still reports 716 / 2 / 1174 (10 ignored): this fix adds no
-  test and removes none.
-- All four gates pass.
+The architect bounced this phase for one line: a debug
+`eprintln!("live terms: {terms:?}")` in
+`live_build_egress_index_keeps_project_names_out`
+(`executor/src/privacy/egress.rs:557`), which `STANDARDS.md` §1 forbids. The
+user waived it rather than spend a dispatch cycle on a nit. **The line is still
+in the tree.** Delete it in the next phase that touches `egress.rs`.
 
 ## Goal
 
@@ -231,7 +205,8 @@ redacting them only breaks the executor.
 - [ ] Each new non-ignored test fails when its fix is reverted (show one in the
       Update Log).
 - [ ] bug-08-1: no debug print remains —
-      `grep -c 'println!' executor/src/privacy/egress.rs` is `0`.
+      `grep -c 'println!' executor/src/privacy/egress.rs` is `0`. **Waived by
+      the user on 2026-09-17; still `1`.**
 - [ ] `cargo fmt --all --check`, `cargo build`,
       `cargo clippy --all-targets --all-features -- -D warnings` and
       `cargo test` all pass.
@@ -499,4 +474,47 @@ project name is gone), the committed `PiiIndex::retaining` filters rather than
 emptying, and a mutation check on the containment direction fails the right
 test. One DoD box is unmet: a debug `eprintln!` printing the PII dictionary was
 left in the live test. See the Bounce section at the top.
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_first_try (with one waived nit)
+- **Bounces:** none that reached the executor. The architect filed
+  [bug-08-1](bugs/bug-08-1.md) and the user waived it, so no re-dispatch ran.
+  The telemetry store also holds an earlier `bounced` annotation for this
+  phase, recorded before the waiver; this approval supersedes it.
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** two compile fixes beyond the spec's literal code, both
+  in test code: an explicit `HashSet<String>` where `HashSet::from(["ab"])`
+  inferred `&str`, and the `kinds` field the spec's `PrivacyConfig` sketch
+  omitted.
+- **Known violation left in the tree:** the `eprintln!` of bug-08-1.
+- **Calibration:** none.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1174 passed (10 ignored).
+
+Live, against the real NER engine, a repo directory named `rexymcp-sample`
+holding a `Cargo.toml` that names the same package:
+
+```
+live terms: [("Alice Fernandez", PersonName)]
+test privacy::egress::tests::live_build_egress_index_keeps_project_names_out ... ok
+test privacy::egress::tests::live_build_egress_index_finds_pii ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1182 filtered out; finished in 1.95s
+exit=0
+```
+
+The person's name survives; no term normalizes to anything containing
+`rexymcpsample`. Before this phase the project's own name was redacted
+everywhere, which cost the phase-01 cloud dispatch all 200 turns.
+
+Mutation check: flipping the containment test from `t.contains(v)` to
+`v.contains(t)` fails `is_project_name_drops_identifiers_not_people` with
+`assertion failed: is_project_name("rexymcp-executor", &vocab)`, so the
+one-directional rule that protects a name like `Rosa` is genuinely guarded.
+
+The two HIGH findings a background security scan raised during the run
+(`PiiIndex::retaining` returning an empty index, which would disable PII
+enforcement) were the executor's own revert check, sampled mid-run. The
+committed `retaining` filters per file.
 

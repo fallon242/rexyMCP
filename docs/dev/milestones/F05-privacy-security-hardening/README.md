@@ -273,14 +273,14 @@ dispatch run with reduced protection.
 
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | terms-file ([phase-01-terms-file.md](phase-01-terms-file.md)) | blocked (finding 9 — phase 08) |
+| 01 | terms-file ([phase-01-terms-file.md](phase-01-terms-file.md)) | todo (unblocked: finding 9 fixed) |
 | 02 | session-log redaction + permissions | not drafted |
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
 | 05 | inert config + doc truth | not drafted |
 | 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
-| 08 | project-vocabulary ([phase-08-project-vocabulary.md](phase-08-project-vocabulary.md)) | in-progress (bug-08-1) |
+| 08 | project-vocabulary ([phase-08-project-vocabulary.md](phase-08-project-vocabulary.md)) | done        |
 | 09 | ner-fails-closed ([phase-09-ner-fails-closed.md](phase-09-ner-fails-closed.md)) | done        |
 | 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | done        |
 | 11 | protect-git-and-config ([phase-11-protect-git-and-config.md](phase-11-protect-git-and-config.md)) | done        |
