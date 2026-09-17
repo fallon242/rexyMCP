@@ -571,3 +571,44 @@ bounces: the live test counts `zip` pairs (15 names) instead of the 300 in the
 text, so it fails whatever the engine returns, and the End-to-end verification
 was never run. See the Bounce section at the top.
 
+### Update — 2026-09-17 18:24 (progress)
+
+Re-dispatch round for bug-09-1. Resuming: the implementation stands; this
+round fixes the cross-product name counting in
+`live_engine_survives_a_name_dense_file` and runs the End-to-end verification
+block for the first time.
+
+### Update — 2026-09-17 18:32 (end-to-end verification)
+
+Bounce round for bug-09-1. Fixed the name counting to iterate the cross
+product (300 names, each counted once via a `HashSet` of span texts) instead
+of `zip` (15 positional pairs), and ran the E2E block for the first time.
+Output pasted below.
+
+```
+REXYMCP_PRIVACY_ENGINE_URL=http://192.168.50.138:8000/v1 \
+REXYMCP_PRIVACY_ENGINE_MODEL=RedHatAI/Qwen3.8-27B-INT4 \
+cargo test -p rexymcp-executor live_engine -- --ignored --nocapture > /tmp/p09_live.txt 2>&1; echo "exit=$?" >> /tmp/p09_live.txt
+```
+
+```
+   Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.58s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 2 tests
+test privacy::ner::tests::live_engine_detects_person_names ... ok
+test privacy::ner::tests::live_engine_survives_a_name_dense_file has been running for over 60 seconds
+test privacy::ner::tests::live_engine_survives_a_name_dense_file ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1177 filtered out; finished in 343.51s
+
+exit=0
+```
+
+Finish-condition checks:
+
+- `grep -c 'zip(LASTS' executor/src/privacy/ner.rs` → `0`.
+- `cargo test` → 716 / 2 / 1170 (9 ignored), unchanged.
+- `cargo fmt --all --check` / `cargo build` / `cargo clippy --all-targets
+  --all-features -- -D warnings` all pass.

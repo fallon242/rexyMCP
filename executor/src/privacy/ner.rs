@@ -465,14 +465,12 @@ mod tests {
         }
 
         let spans = ner.detect(&text).await.unwrap();
-        let found = spans
+        let texts: std::collections::HashSet<&str> =
+            spans.iter().map(|s| s.text.as_str()).collect();
+        let found = FIRSTS
             .iter()
-            .filter(|s| {
-                FIRSTS
-                    .iter()
-                    .zip(LASTS.iter())
-                    .any(|(f, l)| s.text == format!("{f} {l}"))
-            })
+            .flat_map(|f| LASTS.iter().map(move |l| format!("{f} {l}")))
+            .filter(|name| texts.contains(name.as_str()))
             .count();
         assert!(
             found >= 270,
