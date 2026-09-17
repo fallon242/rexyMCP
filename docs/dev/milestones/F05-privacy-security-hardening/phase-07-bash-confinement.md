@@ -1,7 +1,7 @@
 # Phase 7: confine `bash` for a cloud executor
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~350 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -911,3 +911,22 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 86d6f0d8f342215b6535ae8bc01d0e50d9af71dc
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 ([bug-07-1](bugs/bug-07-1.md), fixed in `86d6f0d`)
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** none. The fix touched only test 5 in
+  `executor/src/security/sandbox.rs`, plus the phase doc and README status.
+- **Calibration:** the spec's test 5 asserted that `touch "$HOME/…"` fails.
+  With the real `$HOME` it succeeds on the tmpfs, because the toolchain
+  `--ro-bind-try` mounts create `$HOME` inside it. The executor worked around
+  this by changing `HOME` instead of filing a blocker. Spec lesson: state a
+  sandbox write check as "does not reach the host", not "exits non-zero".
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+711 + 2 + 1151 passed (6 ignored). Ignored sandbox tests: 2 passed. Nothing
+leaked to the host (`~/.sandbox-probe` absent). Mutation check: with the
+`--tmpfs /home` line removed, `sandbox_blocks_home_and_state_dir` fails with
+`$HOME/.config must not be visible in the sandbox; got exit Some(0)`.
