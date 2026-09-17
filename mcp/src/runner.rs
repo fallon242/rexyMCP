@@ -419,7 +419,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             &root,
             std::env::var_os("HOME").map(std::path::PathBuf::from),
         )
-        .map_err(|reason| sandbox_refusal(&reason))?;
+        .map_err(|reason| git_root_refusal(&reason))?;
         Some(sandbox.with_program(inp.sandbox_program))
     } else {
         None
@@ -569,6 +569,15 @@ fn sandbox_refusal(reason: &str) -> rexymcp_executor::error::Error {
          was stopped before any content was sent. Install bubblewrap (the `bwrap` binary) \
          and check that unprivileged user namespaces are enabled, or run the phase on a \
          local executor."
+    ))
+}
+
+/// Turn a repo the sandbox cannot protect into the refusal `run_phase` returns.
+fn git_root_refusal(reason: &str) -> rexymcp_executor::error::Error {
+    rexymcp_executor::error::Error::Privacy(format!(
+        "the dispatch to the cloud executor was stopped before any content was sent: \
+         {reason}. Run the phase from the root of a git work tree (`git init` if the \
+         project has none), or run it on a local executor."
     ))
 }
 
@@ -1471,6 +1480,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn git_root_refusal_names_git_init() {
+        let refused = git_root_refusal("/r has no .git");
+
+        let rexymcp_executor::error::Error::Privacy(message) = &refused else {
+            panic!("expected Error::Privacy, got {refused:?}");
+        };
+        assert!(
+            message.contains("git init"),
+            "the remedy is not named: {message}"
+        );
+        assert!(
+            message.contains("local executor"),
+            "the local fallback is not named: {message}"
+        );
+        assert!(
+            message.contains("/r has no .git"),
+            "the underlying reason is missing: {message}"
+        );
+        assert!(
+            !message.contains("bubblewrap"),
+            "this refusal is not about the sandbox binary: {message}"
+        );
+    }
+
     #[tokio::test]
     async fn run_phase_refuses_cloud_repo_without_git() {
         let dir = TempDir::new().unwrap();
@@ -1508,6 +1542,11 @@ mod tests {
             panic!("expected Privacy, got {err:?}");
         };
         assert!(m.contains(".git"), "the refusal must name .git: {m}");
+        assert!(m.contains("git init"), "the remedy must name git init: {m}");
+        assert!(
+            !m.contains("bubblewrap"),
+            "this refusal is not about the sandbox binary: {m}"
+        );
     }
 
     #[tokio::test]

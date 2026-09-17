@@ -1,7 +1,7 @@
 # Phase 11: protect `.git/` and `rexymcp.toml` from the model
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress (bounced: [bug-11-1](bugs/bug-11-1.md))
+**Status:** in-progress (re-dispatched after [bug-11-1](bugs/bug-11-1.md); this run fixes it)
 **Depends on:** phase 10 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -524,6 +524,12 @@ expected. Paste both files and the `grep -c` output, which must be `1` and
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-17 16:30 UTC (re-dispatch started)
+
+Re-dispatched to fix bug-11-1. Pre-flight: `git status --short` clean; bubblewrap
+0.12.0, git 2.55.0; `cargo test -p rexymcp-executor scope` 21 passed;
+`cargo test -p rexymcp runner` 37 passed (+ 0 integration).
 
 ### Update — 2026-09-17 14:31 UTC (started)
 

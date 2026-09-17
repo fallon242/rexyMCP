@@ -283,7 +283,7 @@ dispatch run with reduced protection.
 | 08 | project names out of the dictionary (finding 9) | not drafted |
 | 09 | NER truncation fails closed, chunking (finding 8) | not drafted |
 | 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | done        |
-| 11 | protect-git-and-config ([phase-11-protect-git-and-config.md](phase-11-protect-git-and-config.md)) | in-progress (bug-11-1) |
+| 11 | protect-git-and-config ([phase-11-protect-git-and-config.md](phase-11-protect-git-and-config.md)) | in-progress (bounced: bug-11-1) |
 
 ## Reference implementation
 

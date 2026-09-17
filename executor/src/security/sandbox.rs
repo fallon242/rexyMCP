@@ -50,7 +50,7 @@ impl Sandbox {
         })?;
         if meta.file_type().is_symlink() {
             return Err(format!(
-                "{}.git is a symlink; refusing to sandbox a symlinked git directory",
+                "{} is a symlink; refusing to sandbox a symlinked git directory",
                 git.display()
             ));
         }
@@ -304,9 +304,21 @@ mod tests {
     fn argv_without_home_has_no_toolchain_binds() {
         let sb = Sandbox::new(Path::new("/srv/repo"), None);
         let a = sb.argv("echo hi");
+        let try_binds: Vec<usize> = a
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| x.as_str() == "--ro-bind-try")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            try_binds.len(),
+            1,
+            "without a home the only --ro-bind-try is rexymcp.toml: {a:?}"
+        );
         assert!(
-            !a.iter().any(|x| x == "/home/u/.cargo/registry"),
-            "no toolchain binds without a home"
+            a.get(try_binds[0] + 1)
+                .is_some_and(|p| p.ends_with("rexymcp.toml")),
+            "the one --ro-bind-try must be rexymcp.toml: {a:?}"
         );
     }
 
@@ -451,6 +463,10 @@ mod tests {
         assert!(
             err.contains("symlink"),
             "a symlinked .git must be refused: {err}"
+        );
+        assert!(
+            !err.contains(".git.git"),
+            "the path must be named once: {err}"
         );
     }
 
