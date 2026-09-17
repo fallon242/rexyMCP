@@ -10,18 +10,18 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[10 — sandboxed commands](milestones/F05-privacy-security-hardening/phase-10-sandboxed-commands.md)
-(`todo`, dispatch on a LOCAL executor only).** Phase 07 (bash confinement) is
-done (`5ad2c57`, `approved_after_1`): a cloud executor's `bash` runs in bwrap,
-and the file tools refuse `.rexymcp/`. The 2026-09-17 local vs. cloud benchmark
-then found **finding 11**: gate, hook and verifier commands still run
-model-written code on the host with the full environment, and the model can
-write `.git/hooks`, which finalize's host `git commit` runs. Phase 10 sandboxes
-the commands; phase 11 (not drafted) protects `.git/` and `rexymcp.toml`.
-**No phase on a real project goes to a cloud executor until phases 10 and 11
-are done.** Phase 01 stays `blocked` on finding 9 (phase 08, not drafted).
-Routing once cloud is allowed: local executor first, `deepseek-flash` for
-escalation, both for parallel work. The NER engine is on port 8000, model
+[11 — protect `.git/` and `rexymcp.toml`](milestones/F05-privacy-security-hardening/phase-11-protect-git-and-config.md)
+(`todo`, dispatch on a LOCAL executor only).** Phase 10 is done (`5e7021e`,
+`approved_first_try` after one resume): for a cloud executor, the gate, hook
+and verifier commands run in the sandbox with a cleared environment. Phase 11
+is the last part of finding 11. It makes `.git/config`, `.git/hooks` and
+`rexymcp.toml` read-only in the sandbox, blocks them in the file tools, and
+refuses a cloud dispatch when the repo root has no `.git`.
+**No phase on a real project goes to a cloud executor until phase 11 is done.**
+Phase 01 stays `blocked` on finding 9 (phase 08, not drafted). Routing once
+cloud is allowed: local executor first, `deepseek-flash` for escalation, both
+for parallel work. Committing from a cloud executor in a worktree does not work
+yet (phase 11, Out of scope). The NER engine is on port 8000, model
 `RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,

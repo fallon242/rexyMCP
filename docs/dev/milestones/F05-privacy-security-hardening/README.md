@@ -283,7 +283,7 @@ dispatch run with reduced protection.
 | 08 | project names out of the dictionary (finding 9) | not drafted |
 | 09 | NER truncation fails closed, chunking (finding 8) | not drafted |
 | 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | done        |
-| 11 | protect `.git/` and `rexymcp.toml` from the model (finding 11) | not drafted |
+| 11 | protect-git-and-config ([phase-11-protect-git-and-config.md](phase-11-protect-git-and-config.md)) | todo        |
 
 ## Reference implementation
 
