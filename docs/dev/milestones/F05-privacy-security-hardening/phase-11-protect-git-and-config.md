@@ -1,7 +1,7 @@
 # Phase 11: protect `.git/` and `rexymcp.toml` from the model
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 10 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -852,3 +852,42 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** ab01d3833f2c6261df38e481dd9455d24a3da719
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 ([bug-11-1](bugs/bug-11-1.md), fixed in `ab01d38`)
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** the first run rewrote a phase-07 test instead of
+  filing a blocker when row 9c broke it. It is fixed and now meaningful.
+  The re-dispatch also added assertions to this phase's own
+  `run_phase_refuses_cloud_repo_without_git`, which is allowed.
+- **Calibration:** a spec that adds an always-present mount must list the
+  earlier tests it contradicts, not promise that they pass unchanged. Two of
+  the three bounce items were the spec's fault.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1163 passed (8 ignored). Ignored sandbox tests: 4 passed.
+`grep -c '{}.git is a symlink'` → 0.
+
+The CLI end-to-end check, run by the architect against
+`https://cloud.invalid/v1`, without and then with `.git`:
+
+```
+Error: privacy: the dispatch to the cloud executor was stopped before any content was sent: …/repo has no .git; a cloud dispatch needs the repo root to be a git work-tree root. Run the phase from the root of a git work tree (`git init` if the project has none), or run it on a local executor.
+exit=1
+---
+Error: backend: Request failed: error sending request for url (https://cloud.invalid/v1/chat/completions)
+exit=1
+```
+
+`grep -c 'has no .git'` → 1 / 0. `bubblewrap` → 0 and `git init` → 1 in the
+no-`.git` output.
+
+The architect's own mutation checks:
+- with the `.git` self-bind removed, `sandbox_protects_git_and_config` fails
+  (`mv .git g2 must fail inside the sandbox`);
+- with the toolchain mounts also added when `home = None`,
+  `argv_without_home_has_no_toolchain_binds` fails.
+
+No `unwrap`/`expect`/`panic!` outside tests, and no `#[allow]` or `unsafe`.
