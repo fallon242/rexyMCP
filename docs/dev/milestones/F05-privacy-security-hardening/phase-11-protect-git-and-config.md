@@ -1,7 +1,7 @@
 # Phase 11: protect `.git/` and `rexymcp.toml` from the model
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress (re-dispatched after [bug-11-1](bugs/bug-11-1.md); this run fixes it)
+**Status:** review
 **Depends on:** phase 10 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -741,3 +741,114 @@ message; and a no-`.git` refusal that says "install bubblewrap" (the spec
 told the executor to reuse `sandbox_refusal`). See the Bounce section at the
 top.
 
+### Update — ts=1789663521889 (complete, server-authored)
+
+**Summary:** All finish conditions verified:
+
+**Gates:** `cargo fmt --all --check` clean; `cargo build` clean; `cargo clippy --all-targets --all-features -- -D warnings` clean; `cargo test` — rexymcp binary **716 passed**, executor lib **1163 passed, 8 ignored**, all 4 ignored sandbox tests pass.
+
+**Finish conditions:**
+- `grep -c '{}.git is a symlink' executor/src/security/sandbox.rs` → `0`
+- E2E `/tmp/p11_nogit.txt` contains `git init` and does not contain `bubblewrap`; `/tmp/p11_git.txt` does not contain `has no .git` (grep -c: 1 / 0)
+- Mutation check: temporarily making the toolchain block run with `PathBuf::from("/root")` when `home` is `None` causes `argv_without_home_has_no_toolchain_binds` to fail (6 `--ro-bind-try` entries found); restoring the code makes it pass
+
+**Notes for review:**
+- Edit 1 (test): replaced the near-vacuous "no `/home/u/.cargo/registry`" assertion with the spec's exact one: exactly one `--ro-bind-try`, and the path after it ends with `rexymcp.toml`.
+- Edit 2 (symlink message): `"{}.git is a symlink…"` → `"{} is a symlink…"` since `git.display()` already ends in `.git`. Added `assert!(!err.contains(".git.git"))` to the test.
+- Edit 3 (refusal): added `git_root_refusal` next to `sandbox_refusal`; `run_phase` now maps `for_repo` errors through it. Message names `git init` and "local executor", not bubblewrap. Added `git_root_refusal_names_git_init` test; extended `run_phase_refuses_cloud_repo_without_git` to assert `git init` present and `bubblewrap` absent.
+- No other existing tests were modified. Working tree is clean.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+s::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::references_python_identifier ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1163 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 6.25s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — +1 -1
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-11-protect-git-and-config.md` — +7 -1
+- `executor/src/security/sandbox.rs` — +19 -3
+- `mcp/src/runner.rs` — +40 -1
+
+**Commit:** ab01d3833f2c6261df38e481dd9455d24a3da719
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
