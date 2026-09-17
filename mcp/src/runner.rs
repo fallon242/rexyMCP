@@ -427,13 +427,15 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
 
     let mut egress_terms = Vec::new();
     let mut pii_files = std::collections::HashSet::new();
+    let mut literal = rexymcp_executor::privacy::terms::LiteralTerms::default();
     if redact {
         match rexymcp_executor::privacy::egress::build_egress_index(inp.repo_path, &inp.cfg.privacy)
             .await
         {
-            Ok((terms, files)) => {
-                egress_terms = terms;
-                pii_files = files;
+            Ok(idx) => {
+                egress_terms = idx.terms;
+                pii_files = idx.pii_files;
+                literal = idx.literal;
             }
             Err(e) => return Err(prescan_refusal(&e)),
         }
@@ -450,7 +452,8 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             rexymcp_executor::privacy::redact::RedactingAiClient::new(
                 Box::new(prod_client),
                 egress_terms,
-            ),
+            )
+            .with_literal_terms(literal),
         ))
     } else {
         Some(ExecClient::Prod(prod_client))
@@ -558,7 +561,8 @@ fn prescan_refusal(e: &rexymcp_executor::error::Error) -> rexymcp_executor::erro
         "the PII pre-scan failed ({detail}), so the dispatch to the cloud executor was stopped \
          before any content was sent. Check the privacy.engine_base_url setting, or start the \
          PII-detection engine; if it stays unavailable, run the phase on a local executor, or set \
-         privacy.redact_executor_egress = false to send unredacted content deliberately."
+         privacy.redact_executor_egress = false to send unredacted content deliberately. Also \
+         check privacy.terms_file (the literal term file), which is loaded before the engine."
     ))
 }
 
@@ -1404,6 +1408,10 @@ mod tests {
         assert!(
             message.contains("privacy.engine_base_url"),
             "the setting to check is not named: {message}"
+        );
+        assert!(
+            message.contains("privacy.terms_file"),
+            "the term file setting is not named: {message}"
         );
         assert!(
             message.contains("redact_executor_egress"),

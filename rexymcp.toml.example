@@ -80,3 +80,4 @@ enabled = false
 # vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault (encrypted, git-ignored)
 # redact_executor_egress = true                 # force PII suppression to a cloud executor on/off (M45); default: auto (cloud endpoint only)
 # scan_globs = ["data/**", "fixtures/**"]        # limit the egress pre-scan to these repo-relative globs (M46)
+# terms_file = "terms.json"                       # JSON file of literal terms that must never reach a cloud model (F05); path relative to the repo root

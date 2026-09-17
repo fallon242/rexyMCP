@@ -11,6 +11,7 @@ use super::PiiKind;
 use super::ner::NerEngine;
 use super::prescan::{PiiIndex, build_pii_index};
 use super::registry::Registry;
+use super::terms::LiteralTerms;
 use crate::config::PrivacyConfig;
 use crate::error::Result;
 
@@ -184,16 +185,31 @@ fn build_globset(globs: &[String]) -> Option<globset::GlobSet> {
     builder.build().ok()
 }
 
-/// Pre-scan the repo for PII: returns the outbound-redaction term dictionary +
-/// the PII-bearing file set. Errors if the `[privacy]` NER engine is unset (the
-/// caller may then degrade to deterministic-only live redaction). NOTE: index
-/// persistence across dispatches is a follow-up, so this currently scans every
-/// file on each dispatch (the registry marks hashes but the prior index is not
-/// persisted).
-pub async fn build_egress_index(
-    root: &Path,
-    privacy: &PrivacyConfig,
-) -> Result<(Vec<(String, PiiKind)>, HashSet<PathBuf>)> {
+/// The outbound-redaction inputs for one dispatch: the NER pre-scan dictionary,
+/// the PII-bearing file set (for the write-guard), and the literal term file
+/// (`terms_file`, which is empty when unset).
+#[derive(Debug, Default)]
+pub struct EgressIndex {
+    pub terms: Vec<(String, PiiKind)>,
+    pub pii_files: HashSet<PathBuf>,
+    pub literal: LiteralTerms,
+}
+
+/// Pre-scan the repo for PII: build the redaction term dictionary, the
+/// PII-bearing file set, and the literal term file. The term file is loaded
+/// **first** so a bad file is reported even when the NER engine is
+/// misconfigured. Errors if the `[privacy]` NER engine is unset (the caller may
+/// then degrade to deterministic-only live redaction). NOTE: index persistence
+/// across dispatches is a follow-up, so this currently scans every file on each
+/// dispatch (the registry marks hashes but the prior index is not persisted).
+pub async fn build_egress_index(root: &Path, privacy: &PrivacyConfig) -> Result<EgressIndex> {
+    // A term file that fails to load stops the dispatch: an operator who believes
+    // they are protected is worse off than one who is not.
+    let literal = match &privacy.terms_file {
+        None => LiteralTerms::default(),
+        Some(p) if p.is_absolute() => LiteralTerms::load(p)?,
+        Some(p) => LiteralTerms::load(&root.join(p))?,
+    };
     let ner = NerEngine::from_config(privacy)?;
     let files = scan_repo_files(root, &privacy.scan_globs);
     // Persist the index + registry under the vault dir (M46) so an unchanged file
@@ -213,7 +229,11 @@ pub async fn build_egress_index(
     let index = index.retaining(|term| !is_project_name(term, &vocabulary));
     let terms = index.redaction_terms();
     let pii_files = index.files().cloned().collect();
-    Ok((terms, pii_files))
+    Ok(EgressIndex {
+        terms,
+        pii_files,
+        literal,
+    })
 }
 
 fn host_of(url: &str) -> &str {
@@ -243,6 +263,8 @@ fn is_local_host(host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::error::Error;
+
     use super::*;
 
     #[test]
@@ -381,7 +403,9 @@ mod tests {
             ..Default::default()
         };
 
-        let (terms, files) = build_egress_index(dir.path(), &privacy).await.unwrap();
+        let idx = build_egress_index(dir.path(), &privacy).await.unwrap();
+        let terms = &idx.terms;
+        let files = &idx.pii_files;
 
         let term_strs: Vec<&str> = terms.iter().map(|(t, _)| t.as_str()).collect();
         assert!(
@@ -549,10 +573,12 @@ mod tests {
             kinds: vec![],
             redact_executor_egress: None,
             scan_globs: vec![],
+            terms_file: None,
         };
         privacy.vault_dir = Some(tmp.path().join("vault"));
 
-        let (terms, _pii_files) = build_egress_index(&repo, &privacy).await.unwrap();
+        let idx = build_egress_index(&repo, &privacy).await.unwrap();
+        let terms = idx.terms;
         let normalized: Vec<String> = terms.iter().map(|(t, _)| normalize(t)).collect();
         eprintln!("live terms: {terms:?}");
 
@@ -563,6 +589,50 @@ mod tests {
         assert!(
             !normalized.iter().any(|n| n.contains("rexymcpsample")),
             "no project name may survive the filter, got {normalized:?}"
+        );
+    }
+
+    fn hermetic_privacy(terms_file: Option<std::path::PathBuf>) -> PrivacyConfig {
+        PrivacyConfig {
+            engine_base_url: Some("http://localhost:9/v1".to_string()),
+            engine_model: Some("m".to_string()),
+            scan_globs: vec!["no-such-dir/**".to_string()],
+            terms_file,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn unset_terms_file_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut privacy = hermetic_privacy(None);
+        privacy.vault_dir = Some(dir.path().join("vault"));
+        let idx = build_egress_index(dir.path(), &privacy)
+            .await
+            .expect("no NER call is made when the glob matches no file");
+        let s = "Plant Nine and PLN";
+        assert_eq!(idx.literal.mask(s), s, "an unset term file must not mask");
+        assert!(
+            idx.terms.is_empty(),
+            "the glob matches no file, so no terms"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_terms_file_fails_the_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("no-such-terms.json");
+        let mut privacy = hermetic_privacy(Some(missing.clone()));
+        privacy.vault_dir = Some(dir.path().join("vault"));
+        let err = build_egress_index(dir.path(), &privacy).await.expect_err(
+            "a missing term file must stop the dispatch, even with the engine misconfigured",
+        );
+        let Error::Privacy(m) = err else {
+            panic!("expected Error::Privacy, got {err:?}");
+        };
+        assert!(
+            m.contains("no-such-terms.json"),
+            "the path must be named: {m}"
         );
     }
 }

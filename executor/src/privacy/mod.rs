@@ -15,6 +15,7 @@ pub mod prescan;
 pub mod redact;
 pub mod registry;
 pub mod seal;
+pub mod terms;
 pub mod tokenizer;
 pub mod vault;
 

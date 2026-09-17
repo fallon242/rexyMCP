@@ -105,6 +105,10 @@ pub struct PrivacyConfig {
     /// M46: glob patterns (relative to the repo root) limiting which files the
     /// executor-egress pre-scan walks. Empty = scan everything (gitignore-honored).
     pub scan_globs: Vec<String>,
+    /// F05: JSON file of literal terms (site codes, acronyms, product names) that
+    /// must never reach a cloud model. A relative path is resolved against the
+    /// repo root. `None` = no term file; the feature is off.
+    pub terms_file: Option<PathBuf>,
 }
 
 /// What the low-novelty (churn) detector does when a full window collapses to

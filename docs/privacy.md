@@ -46,6 +46,28 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   sandbox. Best-effort:
   names the pre-scan NER misses still egress. See
   `docs/dev/milestones/F03-executor-egress-protection/`.
+
+  **Literal term file** (`[privacy] terms_file`, F05): a JSON file of terms a
+  name detector cannot find — short site codes, system acronyms, and product
+  names that are ordinary words. A relative path is resolved against the repo
+  root. Format:
+
+  ```json
+  { "entries": [
+    { "code": "SITE_1", "aliases": ["Plant Nine", "PLN"] },
+    { "code": "SYS_1",  "aliases": ["Quillsys"], "embed": true },
+    { "code": "SYS_2",  "aliases": ["Ledgers"],  "match": "case-sensitive" }
+  ] }
+  ```
+
+  Each alias is replaced with `[CODE]`, next to the pre-scan's `[REDACTED:…]`
+  markers. An alias matches at word boundaries by default (`PLN` matches in
+  `site PLN today` but not `PLNX`); `"embed": true` lets an alias match at the
+  start of a longer identifier (`Quillsys` in `QuillsysExport`); the `"match"`
+  key (any value) makes an entry case-sensitive (`Ledgers` is masked, `ledgers`
+  is not). A missing or malformed file stops the dispatch — it is loaded before
+  the NER engine, so a bad file is reported even when the engine is
+  misconfigured. The executor is never asked to restore a term.
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)
   or the `UserPromptSubmit` hook (best-effort; see below).
 

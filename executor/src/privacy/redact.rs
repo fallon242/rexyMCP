@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::detector::{detect_deterministic, merge_spans};
+use super::terms::LiteralTerms;
 use super::{PiiKind, PiiSpan};
 use crate::ai::AiClient;
 use crate::ai::types::{AiEvent, Message, ToolSchema};
@@ -53,18 +54,30 @@ pub fn redact_pii(text: &str, terms: &[(String, PiiKind)]) -> String {
 pub struct RedactingAiClient {
     inner: Box<dyn AiClient>,
     terms: Vec<(String, PiiKind)>,
+    literal: LiteralTerms,
 }
 
 impl RedactingAiClient {
     pub fn new(inner: Box<dyn AiClient>, terms: Vec<(String, PiiKind)>) -> Self {
-        Self { inner, terms }
+        Self {
+            inner,
+            terms,
+            literal: LiteralTerms::default(),
+        }
+    }
+
+    /// Add the literal term file (from `[privacy] terms_file`). Set before the
+    /// first dispatch; `RedactingAiClient::new` leaves it empty.
+    pub fn with_literal_terms(mut self, literal: LiteralTerms) -> Self {
+        self.literal = literal;
+        self
     }
 
     fn redact_message(&self, mut msg: Message) -> Message {
-        msg.content = redact_pii(&msg.content, &self.terms);
+        msg.content = redact_pii(&self.literal.mask(&msg.content), &self.terms);
         if let Some(results) = msg.tool_results.as_mut() {
             for result in results.iter_mut() {
-                result.content = redact_pii(&result.content, &self.terms);
+                result.content = redact_pii(&self.literal.mask(&result.content), &self.terms);
             }
         }
         msg
@@ -80,7 +93,9 @@ impl AiClient for RedactingAiClient {
         tx: UnboundedSender<AiEvent>,
         tools: Option<&[ToolSchema]>,
     ) -> anyhow::Result<()> {
-        let system = redact_pii(system_prompt, &self.terms);
+        // Redact the system prompt too: it is built from project content and the
+        // same terms must not cross the boundary inside it.
+        let system = redact_pii(&self.literal.mask(system_prompt), &self.terms);
         let redacted: Vec<Message> = messages
             .into_iter()
             .map(|m| self.redact_message(m))
@@ -155,6 +170,46 @@ mod tests {
         assert_eq!(
             call.messages[0].content,
             "[REDACTED:name]'s email is [REDACTED:email]"
+        );
+    }
+
+    #[tokio::test]
+    async fn literal_terms_redact_through_the_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("terms.json");
+        std::fs::write(
+            &file,
+            r#"{"entries":[{"code":"SITE_1","aliases":["Plant Nine"]}]}"#,
+        )
+        .unwrap();
+
+        let mock = MockAiClient::new(vec![]);
+        let client = RedactingAiClient::new(Box::new(mock.clone()), vec![])
+            .with_literal_terms(LiteralTerms::load(&file).unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: "Mail ops@example.com about Plant Nine.".to_string(),
+            tool_calls: None,
+            tool_results: None,
+            turn: None,
+        }];
+
+        client
+            .chat("system about Plant Nine", messages, tx, None)
+            .await
+            .unwrap();
+
+        let call = &mock.calls()[0];
+        assert_eq!(call.system_prompt, "system about [SITE_1]");
+        let body = &call.messages[0].content;
+        assert!(
+            body.contains("[SITE_1]"),
+            "the listed term must be masked: {body}"
+        );
+        assert!(
+            !body.contains("Plant Nine"),
+            "the plaintext term must not reach the inner client: {body}"
         );
     }
 
