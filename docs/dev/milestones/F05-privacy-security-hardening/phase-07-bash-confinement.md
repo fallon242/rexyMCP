@@ -1,7 +1,7 @@
 # Phase 7: confine `bash` for a cloud executor
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~350 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -793,3 +793,121 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Files changed:** `executor/src/security/sandbox.rs` (test 5 rewritten),
 `executor/src/security/scope.rs` (mutation check — restored), F05 README
 (status row), phase-07 doc (status line).
+
+### Update — ts=1789619672872 (complete, server-authored)
+
+**Summary:** All tasks complete and committed. Final state:
+
+**Summary + Notes for review**
+
+Fixed bug-07-1 by rewriting the ignored test `sandbox_blocks_home_and_state_dir` in `executor/src/security/sandbox.rs`. The previous revision had redirected `HOME` to `/var/tmp/rexymcp-p07-home` and dropped the `~/.config` visibility check entirely. The test now uses the real `$HOME` with no `HOME` override: it asserts `test -e "$HOME/.config"` exits non-zero inside the sandbox (host has `~/.config`), `touch "$HOME/.sandbox-probe"` succeeds inside the sandbox but the file never appears on the host (the corrected spec property — the touch may succeed because bwrap recreates the home inside the `/home` tmpfs via the toolchain `--ro-bind-try` mounts), `cat .rexymcp/vault/key` fails in the sandbox, `rm -rf .rexymcp/vault` inside the sandbox does not remove the host file, and `echo ok > written.txt` reaches the host. Also updated the F05 README status row and the phase doc's status line.
+
+**Deviations from spec (both inside the authorized test module; production code unchanged):**
+1. `touch` is asserted to succeed in-sandbox (matching the corrected spec in bug-07-1), with the host-side "does not exist" assertion as the actual security property.
+2. Added a control sub-check: a second sandbox with `home=None` (no toolchain mounts, no per-home tmpfs) also hides the real `$HOME/.config` via the `/home` tmpfs — confirming the `.config` check passes for the right reason, not vacuously.
+
+**E2E (mechanically captured):**
+- `cargo test -p rexymcp-executor sandbox -- --ignored` → `2 passed`, `exit=0` (tests 5 and 6).
+- CLI refusal with `bwrap` hidden from PATH and a cloud `base_url`: `Error: privacy: the bash sandbox is unavailable (bwrap: No such file or directory (os error 2)), so the dispatch to the cloud executor was stopped before any content was sent. Install bubblewrap … exit=1`.
+
+**Mutation check:** temporarily changed `.rexymcp` → `.rexymcpZ` in `confine_to_root`; `rejects_rexymcp_state_paths` failed as expected; restored → 1 passed.
+
+**Bug DoD greps:** `grep -c '\.config' executor/src/security/sandbox.rs` → **9**; `grep -c '/var/tmp' executor/src/security/sandbox.rs` → **0**.
+
+**Gates:** `cargo fmt --all --check` clean; `cargo build` clean; `cargo clippy --all-targets --all-features -- -D warnings` clean; `cargo test` → 711 + 2 + 1151 (6 ignored) all passing. Commit `86d6f0d`, working tree clean.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+   Compiling rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.50s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.83s
+
+
+TEST
+ests::rejects_nonexistent_path ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1151 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 6.18s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+   Compiling rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.18s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — +1 -1
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-07-bash-confinement.md` — +66 -1
+- `executor/src/security/sandbox.rs` — +63 -18
+
+**Commit:** 86d6f0d8f342215b6535ae8bc01d0e50d9af71dc
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
