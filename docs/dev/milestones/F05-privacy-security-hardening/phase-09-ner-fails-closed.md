@@ -1,7 +1,7 @@
 # Phase 9: a cut-off or unreadable NER reply fails closed, and large input is split
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress (bounced: [bug-09-1](bugs/bug-09-1.md))
+**Status:** review
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -612,3 +612,115 @@ Finish-condition checks:
 - `cargo test` → 716 / 2 / 1170 (9 ignored), unchanged.
 - `cargo fmt --all --check` / `cargo build` / `cargo clippy --all-targets
   --all-features -- -D warnings` all pass.
+
+### Update — ts=1789670172597 (complete, server-authored)
+
+**Summary:** **Summary + Notes for review**
+
+Re-dispatch round for bug-09-1 on Phase 09. The implementation (constants, 4096-token cap, `parse_items` → `Option`, `Reply`, `halve`, split-and-retry `detect`, all hermetic tests) was already correct and approved — left untouched.
+
+This round did exactly what the bounce asked:
+
+1. **Fixed the name counting** in `live_engine_survives_a_name_dense_file` (`executor/src/privacy/ner.rs`): replaced the positional `FIRSTS.iter().zip(LASTS.iter())` (15 pairs, so `found` could never reach 270) with a cross-product count — each of the 300 `"{first} {last}"` names counted once against a `HashSet` of span texts. `grep -c 'zip(LASTS'` now prints `0`.
+2. **Ran the End-to-end verification for the first time**, exactly as written in the phase doc. Output captured to `/tmp/p09_live.txt` and pasted into a new `(end-to-end verification)` Update Log entry: **both live tests pass** — `live_engine_detects_person_names` and `live_engine_survives_a_name_dense_file`, `2 passed; 0 failed`, 343.51 s, exit=0.
+
+Finish-condition checks, all verified by me:
+- `grep -c 'zip(LASTS' executor/src/privacy/ner.rs` → `0`
+- `cargo test` → **716 / 2 / 1170 (9 ignored)**, unchanged
+- `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings` all pass
+- `git status --short` clean; commit `e6e8c5d` contains both changed files
+
+No other code changed, per the bounce's "No other code change."
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+sts::rejects_max_results_zero ... ok
+test tools::symbols::tests::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1170 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 6.18s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-09-ner-fails-closed.md` — +41 -0
+- `executor/src/privacy/ner.rs` — +5 -7
+
+**Commit:** e6e8c5d3799159ad1f4415e4f73160c3700d0e4f
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
