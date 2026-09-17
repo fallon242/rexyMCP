@@ -10,19 +10,19 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[11 — protect `.git/` and `rexymcp.toml`](milestones/F05-privacy-security-hardening/phase-11-protect-git-and-config.md)
-(`todo`, dispatch on a LOCAL executor only).** Phase 10 is done (`5e7021e`,
-`approved_first_try` after one resume): for a cloud executor, the gate, hook
-and verifier commands run in the sandbox with a cleared environment. Phase 11
-is the last part of finding 11. It makes `.git/config`, `.git/hooks` and
-`rexymcp.toml` read-only in the sandbox, blocks them in the file tools, and
-refuses a cloud dispatch when the repo root has no `.git`.
-**No phase on a real project goes to a cloud executor until phase 11 is done.**
-Phase 01 stays `blocked` on finding 9 (phase 08, not drafted). Routing once
-cloud is allowed: local executor first, `deepseek-flash` for escalation, both
-for parallel work. Committing from a cloud executor in a worktree does not work
-yet (phase 11, Out of scope). The NER engine is on port 8000, model
-`RedHatAI/Qwen3.8-27B-INT4`.
+[09 — NER fails closed](milestones/F05-privacy-security-hardening/phase-09-ner-fails-closed.md)
+(`todo`, dispatch on a LOCAL executor only).** Phases 06, 07, 10 and 11 are
+done. Finding 11 is closed (`e08676b`): for a cloud executor, model-written code
+runs only inside bwrap, and `.git/config`, `.git/hooks` and `rexymcp.toml` are
+protected. Phase 09 fixes finding 8: a cut-off NER reply is recorded as
+"no PII", so names in dense files reach a cloud model (confirmed live
+2026-09-17: 300 names came back with `finish_reason: length`).
+**Cloud dispatch for real projects stays off until the user lifts it;** the
+architect recommends waiting for phase 09. Phase 01 stays `blocked` on finding
+9 (phase 08, not drafted). Routing once cloud is allowed: local executor first,
+`deepseek-flash` for escalation, both for parallel work. Committing from a
+cloud executor in a worktree does not work yet (phase 11, Out of scope). The
+NER engine is on port 8000, model `RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
