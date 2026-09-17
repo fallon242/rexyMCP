@@ -122,7 +122,8 @@ pub async fn build_pii_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::testing::MockAiClient;
+    use crate::ai::testing::{MockAiClient, MockAiClientScript};
+    use crate::ai::types::AiEvent;
 
     #[test]
     fn index_persists_encrypted_across_reload() {
@@ -153,6 +154,29 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn cut_off_reply_fails_the_prescan() {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = MockAiClientScript::new(vec![vec![
+            AiEvent::Token("[{\"text\": \"Al".to_string()),
+            AiEvent::Completion {
+                finish_reason: Some("length".to_string()),
+                model: None,
+            },
+        ]]);
+        let ner = NerEngine::new(Box::new(mock));
+        let mut reg = Registry::load(&dir.path().join("m.json")).unwrap();
+        let files = vec![(PathBuf::from("data/u.json"), "Alice".to_string())];
+
+        let err = build_pii_index(&files, &ner, &mut reg, &PiiIndex::empty())
+            .await
+            .unwrap_err();
+        match err {
+            Error::Privacy(m) => assert!(m.contains("cut off"), "{m}"),
+            other => panic!("expected Privacy error, got {other:?}"),
+        }
     }
 
     #[tokio::test]
