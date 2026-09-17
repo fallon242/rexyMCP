@@ -8,13 +8,23 @@
 // and the repo's `.rexymcp/` is an empty scratch directory. A failing probe
 // before turn 1 makes `run_phase` refuse a cloud dispatch (see `runner`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// How the repo root holds its git metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitDir {
+    /// `<root>/.git` is a directory (a normal clone).
+    Dir,
+    /// `<root>/.git` is a file (a git worktree).
+    File,
+}
 
 #[derive(Debug, Clone)]
 pub struct Sandbox {
     program: String,
     root: PathBuf,
     home: Option<PathBuf>,
+    git: Option<GitDir>,
 }
 
 impl Sandbox {
@@ -24,12 +34,52 @@ impl Sandbox {
             program: "bwrap".to_string(),
             root: root.to_path_buf(),
             home,
+            git: None,
+        }
+    }
+
+    /// A sandbox for the repo at `root` (canonical), with its git layout
+    /// detected. Fails when the sandbox cannot protect the repo's git metadata.
+    pub fn for_repo(root: &Path, home: Option<PathBuf>) -> Result<Self, String> {
+        let git = root.join(".git");
+        let meta = std::fs::symlink_metadata(&git).map_err(|_| {
+            format!(
+                "{} has no .git; a cloud dispatch needs the repo root to be a git work-tree root",
+                root.display()
+            )
+        })?;
+        if meta.file_type().is_symlink() {
+            return Err(format!(
+                "{}.git is a symlink; refusing to sandbox a symlinked git directory",
+                git.display()
+            ));
+        }
+        if meta.is_dir() {
+            let config = git.join("config");
+            if !config.is_file() {
+                return Err(format!(
+                    "{} is not a file; the sandbox cannot protect a .git directory without its config",
+                    config.display()
+                ));
+            }
+            let hooks = git.join("hooks");
+            std::fs::create_dir_all(&hooks)
+                .map_err(|e| format!("cannot create .git/hooks: {e}"))?;
+            Ok(Self::new(root, home).with_git(GitDir::Dir))
+        } else {
+            Ok(Self::new(root, home).with_git(GitDir::File))
         }
     }
 
     /// Replace the program name. Tests use a name that does not exist.
     pub fn with_program(mut self, program: &str) -> Self {
         self.program = program.to_string();
+        self
+    }
+
+    /// Set the repo's git layout, adding the matching `.git` mount rows.
+    pub fn with_git(mut self, git: GitDir) -> Self {
+        self.git = Some(git);
         self
     }
 
@@ -96,6 +146,37 @@ impl Sandbox {
         let state = root.join(".rexymcp");
         a.push("--tmpfs".into());
         a.push(p(&state));
+
+        // 9a/9b. Protect the repo's git metadata: bind .git onto itself first
+        // (that bind is what makes `mv .git` fail with EBUSY), then pin the
+        // files git reads at commit time read-only.
+        let git = root.join(".git");
+        match self.git {
+            Some(GitDir::Dir) => {
+                a.push("--bind".into());
+                a.push(p(&git));
+                a.push(p(&git));
+                let config = git.join("config");
+                a.push("--ro-bind".into());
+                a.push(p(&config));
+                a.push(p(&config));
+                let hooks = git.join("hooks");
+                a.push("--ro-bind".into());
+                a.push(p(&hooks));
+                a.push(p(&hooks));
+            }
+            Some(GitDir::File) => {
+                a.push("--ro-bind".into());
+                a.push(p(&git));
+                a.push(p(&git));
+            }
+            None => {}
+        }
+        // 9c. the config the next dispatch loads; --ro-bind-try skips it when absent.
+        let toml = root.join("rexymcp.toml");
+        a.push("--ro-bind-try".into());
+        a.push(p(&toml));
+        a.push(p(&toml));
 
         // 10-11.
         a.push("--chdir".into());
@@ -224,8 +305,225 @@ mod tests {
         let sb = Sandbox::new(Path::new("/srv/repo"), None);
         let a = sb.argv("echo hi");
         assert!(
-            !a.iter().any(|x| x == "--ro-bind-try"),
+            !a.iter().any(|x| x == "/home/u/.cargo/registry"),
             "no toolchain binds without a home"
+        );
+    }
+
+    #[test]
+    fn argv_protects_git_dir_config_and_hooks() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), None)
+            .with_program("true")
+            .with_git(GitDir::Dir);
+        let a = sb.argv("true");
+        let idx = |needle: &[&str]| -> usize {
+            a.windows(needle.len())
+                .position(|w| w.iter().zip(needle).all(|(x, s)| x == s))
+                .expect("row missing")
+        };
+        let repo = idx(&["--bind", "/srv/repo", "/srv/repo"]);
+        let git = idx(&["--bind", "/srv/repo/.git", "/srv/repo/.git"]);
+        let config = idx(&[
+            "--ro-bind",
+            "/srv/repo/.git/config",
+            "/srv/repo/.git/config",
+        ]);
+        let hooks = idx(&["--ro-bind", "/srv/repo/.git/hooks", "/srv/repo/.git/hooks"]);
+        let toml = idx(&[
+            "--ro-bind-try",
+            "/srv/repo/rexymcp.toml",
+            "/srv/repo/rexymcp.toml",
+        ]);
+        let chdir = idx(&["--chdir", "/srv/repo"]);
+        assert!(
+            repo < git && git < config,
+            "mount order must be repo, .git bind, then .git/config ro-bind: {a:?}"
+        );
+        assert!(
+            config < hooks && hooks < toml && toml < chdir,
+            "git mounts and the toml must precede --chdir: {a:?}"
+        );
+    }
+
+    #[test]
+    fn argv_binds_git_file_read_only() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), None)
+            .with_program("true")
+            .with_git(GitDir::File);
+        let a = sb.argv("true");
+        let ro = a.windows(3).any(|w| {
+            w == [
+                "--ro-bind".to_string(),
+                "/srv/repo/.git".to_string(),
+                "/srv/repo/.git".to_string(),
+            ]
+        });
+        assert!(ro, "a worktree .git must be ro-bound: {a:?}");
+        let rw = a.windows(3).any(|w| {
+            w == [
+                "--bind".to_string(),
+                "/srv/repo/.git".to_string(),
+                "/srv/repo/.git".to_string(),
+            ]
+        });
+        assert!(!rw, "a worktree .git must not be rw-bound: {a:?}");
+        assert!(
+            !a.iter().any(|el| el.ends_with(".git/config")),
+            "no .git/config mounts for a file .git: {a:?}"
+        );
+    }
+
+    #[test]
+    fn argv_without_git_has_no_git_mounts() {
+        let sb = Sandbox::new(Path::new("/srv/repo"), None).with_program("true");
+        let a = sb.argv("true");
+        assert!(
+            !a.iter().any(|el| el.contains("/.git")),
+            "no .git mounts without with_git: {a:?}"
+        );
+        let toml = a.windows(3).any(|w| {
+            w == [
+                "--ro-bind-try".to_string(),
+                "/srv/repo/rexymcp.toml".to_string(),
+                "/srv/repo/rexymcp.toml".to_string(),
+            ]
+        });
+        assert!(
+            toml,
+            "the ro-bind-try for rexymcp.toml is always present: {a:?}"
+        );
+    }
+
+    #[test]
+    fn for_repo_detects_git_layout() {
+        let missing = tempfile::TempDir::new().unwrap();
+        let err = Sandbox::for_repo(missing.path(), None).unwrap_err();
+        assert!(err.contains(".git"), "missing .git must be named: {err}");
+
+        let dir_repo = tempfile::TempDir::new().unwrap();
+        let git = dir_repo.path().join(".git");
+        std::fs::create_dir_all(&git).unwrap();
+        std::fs::write(git.join("config"), "[core]\n").unwrap();
+        let sb = Sandbox::for_repo(dir_repo.path(), None).unwrap();
+        let a = sb.argv("true");
+        let git_str = git.to_string_lossy().into_owned();
+        let expected: [&str; 3] = ["--bind", git_str.as_str(), git_str.as_str()];
+        assert!(
+            a.windows(3)
+                .any(|w| w.iter().zip(expected.iter()).all(|(x, s)| x == s)),
+            "a .git directory must be bound onto itself: {a:?}"
+        );
+        assert!(
+            git.join("hooks").is_dir(),
+            "for_repo must create a missing .git/hooks"
+        );
+
+        let file_repo = tempfile::TempDir::new().unwrap();
+        std::fs::write(file_repo.path().join(".git"), "gitdir: /x\n").unwrap();
+        let sb = Sandbox::for_repo(file_repo.path(), None).unwrap();
+        let git_file = file_repo.path().join(".git");
+        let git_str = git_file.to_string_lossy().into_owned();
+        let expected: [&str; 3] = ["--ro-bind", git_str.as_str(), git_str.as_str()];
+        let a = sb.argv("true");
+        assert!(
+            a.windows(3)
+                .any(|w| w.iter().zip(expected.iter()).all(|(x, s)| x == s)),
+            "a .git file must be ro-bound: {a:?}"
+        );
+
+        let no_config = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(no_config.path().join(".git")).unwrap();
+        let err = Sandbox::for_repo(no_config.path(), None).unwrap_err();
+        assert!(
+            err.contains(".git/config"),
+            "a .git without a config file must be named: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn for_repo_refuses_symlinked_git() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let target = tempfile::TempDir::new().unwrap();
+        std::fs::write(target.path().join("config"), "[core]\n").unwrap();
+        std::os::unix::fs::symlink(target.path(), dir.path().join(".git")).unwrap();
+        let err = Sandbox::for_repo(dir.path(), None).unwrap_err();
+        assert!(
+            err.contains("symlink"),
+            "a symlinked .git must be refused: {err}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs bwrap and user namespaces"]
+    async fn sandbox_protects_git_and_config() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = dir.path();
+        let out = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git init on the host must succeed");
+        std::fs::write(repo.join("rexymcp.toml"), "x").unwrap();
+
+        let canonical = repo.canonicalize().unwrap();
+        let sb = Sandbox::for_repo(&canonical, std::env::var_os("HOME").map(PathBuf::from))
+            .expect("a real repo must produce a sandbox");
+
+        let run = |cmd: &str| -> std::process::Output {
+            let argv = sb.argv(cmd);
+            std::process::Command::new(&argv[0])
+                .args(&argv[1..])
+                .output()
+                .expect("spawning the sandbox")
+        };
+        let fails = |cmd: &str| -> std::process::Output {
+            let out = run(cmd);
+            assert!(!out.status.success(), "{cmd} must fail inside the sandbox");
+            out
+        };
+
+        fails("printf '#!/bin/sh\\n' > .git/hooks/pre-commit");
+        fails("git config core.fsmonitor evil");
+        fails("mv .git g2");
+        fails("echo y >> rexymcp.toml");
+        fails("sed -i s/x/z/ rexymcp.toml");
+        fails("rm -f rexymcp.toml");
+
+        // Positive control: commits still work inside the sandbox.
+        let commit = run("git -c user.name=t -c user.email=t@t commit --allow-empty -qm t");
+        assert!(
+            commit.status.success(),
+            "git commit must work in the sandbox: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+
+        assert_eq!(
+            std::fs::read_to_string(repo.join("rexymcp.toml")).unwrap(),
+            "x",
+            "rexymcp.toml on the host must be unchanged"
+        );
+        assert!(
+            !repo.join(".git/hooks/pre-commit").exists(),
+            "a hook must not appear in .git/hooks"
+        );
+        let config = std::fs::read_to_string(repo.join(".git/config")).unwrap();
+        assert!(
+            !config.contains("fsmonitor"),
+            ".git/config must not have been rewritten: {config}"
+        );
+        let log = std::process::Command::new("git")
+            .args(["log", "--oneline"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        let log_stdout = String::from_utf8_lossy(&log.stdout).to_string();
+        let lines: Vec<&str> = log_stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(
+            lines.len(),
+            1,
+            "exactly one commit must exist: {log_stdout:?}"
         );
     }
 

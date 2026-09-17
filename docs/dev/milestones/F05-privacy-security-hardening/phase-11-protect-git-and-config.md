@@ -1,7 +1,7 @@
 # Phase 11: protect `.git/` and `rexymcp.toml` from the model
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase 10 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -428,3 +428,92 @@ expected. Paste both files and the `grep -c` output, which must be `1` and
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-17 14:31 UTC (started)
+
+Started by the executor. Pre-flight: `git status --short` clean; bubblewrap
+0.12.0, git 2.55.0; `cargo test -p rexymcp-executor scope` 19 passed;
+`cargo test -p rexymcp runner` 35 passed (+ 0 integration).
+
+### Update — 2026-09-17 (in-progress notes)
+
+**Revert check** (acceptance: "Each new non-ignored test fails when its fix is
+reverted"): reverted the `Sandbox::for_repo` call in `run_phase` back to
+`Sandbox::new` (no git check) via a temporary edit and re-ran
+`cargo test -p rexymcp --bin rexymcp run_phase_refuses`; result:
+
+```
+thread 'runner::tests::run_phase_refuses_cloud_repo_without_git' panicked at mcp/src/runner.rs:1509:13:
+expected Privacy, got Backend("Request failed: error sending request for url (https://cloud.invalid/v1/chat/completions)")
+test result: FAILED. 0 passed; 1 failed
+```
+
+The fix was then restored and the test passes again (1 passed).
+
+**End-to-end verification** (`cargo test -p rexymcp-executor sandbox -- --ignored`, output in /tmp/p11_ignored.txt):
+
+```
+running 4 tests
+test security::sandbox::tests::probe_succeeds_where_bwrap_works ... ok
+test agent::command::tests::sandboxed_runner_passes_only_allowlisted_env ... ok
+test security::sandbox::tests::sandbox_blocks_home_and_state_dir ... ok
+test security::sandbox::tests::sandbox_protects_git_and_config ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1167 filtered out; finished in 0.05s
+exit=0
+```
+
+Real CLI against `https://cloud.invalid/v1` (never resolves), no `.git`
+(/tmp/p11_nogit.txt):
+
+```
+Error: privacy: the bash sandbox is unavailable (/tmp/tmp.ajvOgVkviy/repo has no .git; a cloud dispatch needs the repo root to be a git work-tree root), so the dispatch to the cloud executor was stopped before any content was sent. Install bubblewrap (the `bwrap` binary) and check that unprivileged user namespaces are enabled, or run the phase on a local executor.
+exit=1
+```
+
+Same config after `git init` in the repo (/tmp/p11_git.txt) — positive control:
+
+```
+Error: backend: Request failed: error sending request for url (https://cloud.invalid/v1/chat/completions)
+exit=1
+```
+
+`grep -c 'has no .git' /tmp/p11_nogit.txt /tmp/p11_git.txt`:
+
+```
+/tmp/p11_nogit.txt:1
+/tmp/p11_git.txt:0
+```
+
+**Grep for pinned literals** (spec §1/§2):
+
+```
+$ grep -n 'has no .git; a cloud dispatch' executor/src/security/sandbox.rs
+47: "{} has no .git; a cloud dispatch needs the repo root to be a git work-tree root",
+$ grep -n 'git is a symlink' executor/src/security/sandbox.rs
+53: "{}.git is a symlink; refusing to sandbox a symlinked git directory",
+```
+
+**Full verification** (all four commands, run after the final `cargo fmt --all --check`):
+
+- `cargo fmt --all --check` — exit 0
+- `cargo build` — Finished `dev` profile, zero warnings
+- `cargo clippy --all-targets --all-features -- -D warnings` — Finished, clean
+- `cargo test` — 715 + 2 + 1163 (8 ignored) + 0 passed, 0 failed across all targets
+
+Notes for review:
+
+- The sandbox block in `run_phase` now calls `Sandbox::for_repo`, which detects
+  the git layout via `symlink_metadata`, refuses missing/symlinked/config-less
+  `.git`, and `create_dir_all`s a missing `.git/hooks`.
+- `command_prefix` adds rows 9a (bind .git, ro-bind config, ro-bind hooks), 9b
+  (ro-bind .git file), 9c (ro-bind-try rexymcp.toml) after row 9 and before
+  `--chdir`; rows 1–9 untouched.
+- The `scope.rs` protected-path check is now a single match covering
+  `.rexymcp` (unchanged behavior, minus the lookalike `rexymcp.toml` entry
+  removed from `allows_rexymcp_output_and_lookalikes` as authorized), `.git`
+  and top-level `rexymcp.toml`.
+- In the ignored `sandbox_protects_git_and_config` test I dropped a positive
+  assertion that the sandbox's child process produces stdout/stderr: a clean
+  `git commit -q` produces no output, which made the test fail spuriously. The
+  per-command assertions (non-zero for the six write attempts, exit 0 for the
+  commit, host-side file state) are unchanged and stronger.

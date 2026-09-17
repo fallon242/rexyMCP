@@ -168,7 +168,9 @@ These are **stop-and-file-a-blocker** triggers. Do not improvise around any.
   force an edit through.
 - **Stay inside the project.** Do not read, list, search, or modify anything
   outside the project root, and do not touch `.rexymcp/` other than reading
-  `.rexymcp/output/`. Never look for redaction dictionaries, mask tables,
+  `.rexymcp/output/`. Do not edit anything under `.git/` or the project's
+  `rexymcp.toml`; commit with `git` commands. Never look for redaction
+  dictionaries, mask tables,
   vaults, keys, API keys, or credentials, anywhere. If a name in your view is
   replaced by `[REDACTED:…]` and you cannot work without it, stop and file a
   blocker.

@@ -415,13 +415,12 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             return Err(sandbox_refusal(&reason));
         }
         let root = std::fs::canonicalize(inp.repo_path)?;
-        Some(
-            rexymcp_executor::security::Sandbox::new(
-                &root,
-                std::env::var_os("HOME").map(std::path::PathBuf::from),
-            )
-            .with_program(inp.sandbox_program),
+        let sandbox = rexymcp_executor::security::Sandbox::for_repo(
+            &root,
+            std::env::var_os("HOME").map(std::path::PathBuf::from),
         )
+        .map_err(|reason| sandbox_refusal(&reason))?;
+        Some(sandbox.with_program(inp.sandbox_program))
     } else {
         None
     };
@@ -1470,6 +1469,45 @@ mod tests {
             message.contains("local executor"),
             "the remedy is not named: {message}"
         );
+    }
+
+    #[tokio::test]
+    async fn run_phase_refuses_cloud_repo_without_git() {
+        let dir = TempDir::new().unwrap();
+        let repo_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+
+        let phase_doc_path = dir.path().join("phase-01-test.md");
+        std::fs::write(
+            &phase_doc_path,
+            "# Phase 01: Test\n\n**Status:** todo\n\n## Goal\n\nTest goal.\n",
+        )
+        .unwrap();
+
+        let mut cfg = Config::default();
+        cfg.executor.base_url = "https://cloud.invalid/v1".to_string();
+
+        let inp = RunPhaseConfig {
+            cfg: &cfg,
+            phase_doc_path: &phase_doc_path,
+            repo_path: &repo_dir,
+            standards: "standards",
+            model_override: None,
+            telemetry_dir: None,
+            progress: None,
+            project_id: None,
+            test_client: None,
+            resume: None,
+            cancel: CancelSignal::never(),
+            sandbox_program: "true",
+        };
+
+        let result = run_phase(&inp).await;
+        let err = result.expect_err("a cloud repo without .git must be refused");
+        let rexymcp_executor::error::Error::Privacy(m) = &err else {
+            panic!("expected Privacy, got {err:?}");
+        };
+        assert!(m.contains(".git"), "the refusal must name .git: {m}");
     }
 
     #[tokio::test]

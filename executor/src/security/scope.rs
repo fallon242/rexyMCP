@@ -89,24 +89,20 @@ fn confine_to_root(candidate: &Path, root: &Path) -> Result<PathBuf, ScopeError>
 
     let result = remaining.iter().fold(canonical_base, |acc, c| acc.join(c));
 
-    // The repo's .rexymcp/ holds rexymcp's own state (sessions, vault, keys);
-    // the only subpath the model may touch is .rexymcp/output/ (recovery logs).
+    // Paths the model must not touch through the file tools: rexymcp's state
+    // (except .rexymcp/output/, the recovery logs), the repo's git metadata
+    // (host-side git reads its config and runs its hooks), and the config the
+    // next dispatch loads.
     if let Ok(rel) = result.strip_prefix(root) {
-        let first = rel
-            .components()
-            .next()
-            .map(|c| c.as_os_str())
-            .and_then(|c| c.to_str())
-            .map(|s| s == ".rexymcp")
-            .unwrap_or(false);
-        let second = rel
-            .components()
-            .nth(1)
-            .map(|c| c.as_os_str())
-            .and_then(|c| c.to_str())
-            .map(|s| s == "output")
-            .unwrap_or(false);
-        if first && !second {
+        let mut parts = rel.components().map(|c| c.as_os_str().to_str());
+        let protected = match (parts.next(), parts.next()) {
+            (Some(Some(".rexymcp")), Some(Some("output"))) => false,
+            (Some(Some(".rexymcp")), _) => true,
+            (Some(Some(".git")), _) => true,
+            (Some(Some("rexymcp.toml")), None) => true,
+            _ => false,
+        };
+        if protected {
             return Err(ScopeError::Protected {
                 requested: candidate.to_string_lossy().into_owned(),
             });
@@ -246,7 +242,6 @@ mod tests {
         fs::write(dir.path().join(".rexymcp/output/cmd-output-1.log"), "full").unwrap();
         fs::write(dir.path().join(".rexymcpx/file"), "f").unwrap();
         fs::write(dir.path().join("docs/.rexymcp/notes.md"), "n").unwrap();
-        fs::write(dir.path().join("rexymcp.toml"), "x").unwrap();
 
         let scope = Scope::new(dir.path()).unwrap();
         for requested in [
@@ -254,7 +249,59 @@ mod tests {
             ".rexymcp/output",
             ".rexymcpx/file",
             "docs/.rexymcp/notes.md",
+        ] {
+            let result = scope.resolve(requested);
+            assert!(
+                result.is_ok(),
+                "{requested} must be allowed, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_git_and_config_paths() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".git/hooks")).unwrap();
+        fs::write(dir.path().join(".git/config"), "[core]\n").unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("rexymcp.toml"), "[x]\n").unwrap();
+
+        let scope = Scope::new(dir.path()).unwrap();
+        for requested in [
+            ".git",
+            ".git/config",
+            ".git/hooks/pre-commit",
+            "src/../.git/config",
             "rexymcp.toml",
+            "./rexymcp.toml",
+        ] {
+            let result = scope.resolve(requested);
+            assert!(
+                matches!(result, Err(ScopeError::Protected { .. })),
+                "{requested} must be protected, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_git_and_config_lookalikes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join(".gitignore"), "target\n").unwrap();
+        fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
+        fs::write(dir.path().join(".github/workflows/ci.yml"), "x: 1\n").unwrap();
+        fs::write(dir.path().join("rexymcp.toml.example"), "[x]\n").unwrap();
+        fs::create_dir_all(dir.path().join("docs")).unwrap();
+        fs::write(dir.path().join("docs/rexymcp.toml"), "[x]\n").unwrap();
+        fs::create_dir_all(dir.path().join("docs/.git")).unwrap();
+        fs::write(dir.path().join("docs/.git/x"), "x\n").unwrap();
+
+        let scope = Scope::new(dir.path()).unwrap();
+        for requested in [
+            ".gitignore",
+            ".github/workflows/ci.yml",
+            "rexymcp.toml.example",
+            "docs/rexymcp.toml",
+            "docs/.git/x",
         ] {
             let result = scope.resolve(requested);
             assert!(
