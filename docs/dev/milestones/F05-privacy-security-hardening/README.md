@@ -274,7 +274,7 @@ dispatch run with reduced protection.
 | #  | Phase | Status |
 |----|-------|--------|
 | 01 | terms-file ([phase-01-terms-file.md](phase-01-terms-file.md)) | done        |
-| 02 | session-log redaction + permissions | not drafted |
+| 02 | session-log-privacy ([phase-02-session-log-privacy.md](phase-02-session-log-privacy.md)) | todo        |
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
 | 05 | inert config + doc truth | not drafted |

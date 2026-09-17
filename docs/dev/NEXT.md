@@ -10,23 +10,23 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[01 — terms file](milestones/F05-privacy-security-hardening/phase-01-terms-file.md)
-(`todo`, dispatch on a LOCAL executor).** Phases 06, 07, 08, 09, 10 and 11 are
-done, closing findings 7, 8, 9, 10 and 11. Phase 01 was blocked by findings 9
-and 10 and is now unblocked; its first run (2026-09-16) ended
-`budget_exceeded` with nothing committed, and no partial work remains in the
-tree. Still not drafted: 02 (session-log redaction), 03 (vault container), 04
-(prompt guard), 05 (inert config + doc truth).
+[02 — session-log privacy](milestones/F05-privacy-security-hardening/phase-02-session-log-privacy.md)
+(`todo`, dispatch on a LOCAL executor only).** Phases 01, 06, 07, 08, 09, 10 and
+11 are done, closing findings 1, 7, 8, 9, 10 and 11. Phase 02 is finding 2:
+redaction protects the wire but the session log keeps the same content in the
+clear, world-readable (`0755`/`0644`). It reuses phase 01's `LiteralTerms` and
+`redact_pii` on every record, and creates the log directory and files
+owner-only. Still not drafted: 03 (vault container), 04 (prompt guard), 05
+(inert config + doc truth).
 
 **Cloud dispatch:** every finding the halt waited on is fixed, so lifting it is
-the user's call — they had not lifted it as of 2026-09-17. Routing once
-allowed: local executor first, `deepseek-flash` for escalation, both for
-parallel work. Two open limits: a cloud executor cannot commit inside a git
-worktree (phase 11, Out of scope), and gate-command output still reaches the
-model. A debug `eprintln!` of the PII dictionary remains in
-`executor/src/privacy/egress.rs` (bug-08-1, waived) — delete it in the next
-phase that touches that file. The NER engine is on port 8000, model
-`RedHatAI/Qwen3.8-27B-INT4`.
+the user's call — not lifted as of 2026-09-17. Routing once allowed: local
+executor first, `deepseek-flash` for escalation, both for parallel work. Two
+open limits: a cloud executor cannot commit inside a git worktree (phase 11,
+Out of scope), and gate-command output still reaches the model. A debug
+`eprintln!` of the PII dictionary remains in `executor/src/privacy/egress.rs`
+(bug-08-1, waived) — delete it in the next phase that touches that file. The
+NER engine is on port 8000, model `RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
