@@ -1,7 +1,7 @@
 # F05 — Privacy and security hardening
 
 **Goal:** close the gaps a real deployment found between what the privacy
-features promise and what they do. Ten findings, each with evidence, most
+features promise and what they do. Eleven findings, each with evidence, most
 small. Together they are the difference between a safety net and a belief.
 
 **Status:** in-progress — opened 2026-09-16 on human sign-off. Phase 01 is
@@ -24,6 +24,8 @@ observed there, not imagined.
 - [ ] `docs/privacy.md` states one thing about egress protection, not two.
 - [ ] A failed PII pre-scan stops a cloud dispatch instead of running it with
       reduced protection.
+- [ ] Code a cloud executor writes never runs on the host outside the sandbox:
+      gates, hooks, the verifier and the bookkeeping commit are covered.
 - [ ] All four gates pass; each mechanism has a test that fails when reverted.
 
 ## The findings
@@ -195,6 +197,53 @@ directory. The executor contract must also forbid hunting for redaction
 dictionaries or vaults. Until this lands, no phase goes to a cloud executor,
 in any project.
 
+### 11. Gate and verifier commands run model-written code outside the sandbox
+
+Found 2026-09-17, in the local vs. cloud benchmark that ran after phase 07.
+Phase 07 put the model's `bash` tool in bwrap. Its Out of scope says the final
+command set is left alone because "rexymcp runs those commands from the phase
+doc's config, not the model". The command is rexymcp's, but the code it builds
+and runs is the model's. Three host-side paths run that code with nothing
+around it:
+
+- **Gates and hooks.** `RealCommandRunner::run`
+  (`executor/src/agent/command.rs:32-38`) runs `sh -c <command>` on the host,
+  with no sandbox, no `env_clear` and the full inherited environment. In this
+  session that environment holds `DEEPSEEK_API_KEY` and `REXYMCP_API_KEY`.
+  `run_command_set` (`executor/src/agent/mod.rs:789`, `:1167`) and
+  `run_post_write_hooks` (`:1309`, `format_fix`/`lint_fix`) go through it.
+- **Gate output goes back to the model.** `gate_failure_feedback`
+  (`executor/src/agent/command.rs:109-139`) puts the output of every failed
+  gate into the next prompt. A cloud model can write a test that fails with
+  `std::fs::read_to_string("<home>/.config/rexymcp/env")` or
+  `std::env::var("DEEPSEEK_API_KEY")` in its message, and the next turn sends
+  that text to the cloud endpoint.
+- **The per-write verifier.** `executor/src/governor/verifier.rs:264` runs
+  `cargo check` on the host after writes. That runs any `build.rs` and proc
+  macro the model wrote, with the same access. `:497` (a configured program)
+  and `:589` (`ruff`) run on the host as well.
+- **Git hooks.** The repo is writable inside the sandbox, `.git/` included. A
+  model can write `.git/hooks/pre-commit`. `git_commit_docs`
+  (`mcp/src/finalize.rs:247-257`) then runs `git commit` on the host, and git
+  runs that hook with no sandbox.
+
+Nothing in this run exploited any of these. Both benchmark implementations were
+checked for `std::fs`/`env`/`process`/`net` use before their tests ran on the
+host, and neither had a `build.rs`. What the benchmark shows is that the
+sandbox does not cover these paths.
+
+Side effect seen in the same run: bwrap hides `~/.gitconfig`, so a commit from
+the model's `bash` has no identity when the repo sets none. DeepSeek worked
+around it with `git -c user.name=…`, which made up an author.
+
+**Fix direction:** run every command that builds or runs repo code for a cloud
+executor through the same `Sandbox`. That covers the gates, the hooks, the
+verifier's `cargo check`/`ruff`/configured program, and the bookkeeping
+`git commit`, or the commit must run with `core.hooksPath=/dev/null`. Clear
+the environment for these commands the same way `bash` does. Decide whether
+`.git/` should be read-only inside the sandbox. Until this lands, no phase on a
+real project goes to a cloud executor. Finding 10's halt is carried forward.
+
 ## Why literal masking is not the abandoned reversible round-trip
 
 Phase-06b proved a *reversible* executor round-trip corrupts files: asked to
@@ -223,6 +272,7 @@ dispatch run with reduced protection.
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
 | 08 | project names out of the dictionary (finding 9) | not drafted |
 | 09 | NER truncation fails closed, chunking (finding 8) | not drafted |
+| 10 | sandbox gate, hook and verifier commands (finding 11) | not drafted |
 
 ## Reference implementation
 
