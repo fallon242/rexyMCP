@@ -1,7 +1,7 @@
 # Phase 10: run gate, hook and verifier commands in the sandbox
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 07 (done)
 **Estimated diff:** ~400 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -740,3 +740,25 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** e3d64117188ff3b1798aa836b61363354aa6b426
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_first_try
+- **Bounces:** none. The first run hit `budget_exceeded` at 200 turns with all
+  Spec work on disk. One resume (35 turns) did the closeout.
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** none of substance. `checker_command` takes
+  `program: &Path` instead of `&str`, because the `tsc` path already holds a
+  `PathBuf`. Two blank lines were removed inside existing `Seams` test
+  literals.
+- **Calibration:** a ~400-line phase used all 200 turns on this model, the
+  same as phase 07. Size the next local phases smaller, or plan on one resume.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+714 + 2 + 1156 passed (7 ignored). The ignored sandbox tests pass with
+`REXYMCP_P10_CANARY=leak` set (3 passed). The architect's own mutation checks:
+pointing `FinalizeInput` back at `seams.runner` fails
+`run_phase_with_finalizes_through_host_runner`; forcing `ExecTools::new` to
+always return `Host` fails `exec_tools_sandboxed_uses_the_sandbox`. The
+executor's `sandbox_exec_failed` mutation check is quoted above. No
+`unwrap`/`expect`/`panic!` outside tests, and no `#[allow]` or `unsafe`.
