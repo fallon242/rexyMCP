@@ -1,13 +1,95 @@
 # Phase 11: protect `.git/` and `rexymcp.toml` from the model
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** in-progress (bounced: [bug-11-1](bugs/bug-11-1.md))
 **Depends on:** phase 10 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
 
 > **Dispatch on a LOCAL executor only.** This is the last fix before cloud
 > dispatch can resume (finding 11). Do not send it to a cloud endpoint.
+
+## Bounce — bug-11-1 (read this first)
+
+**The gates are green and the tree is clean. That is expected here and is NOT
+evidence that the phase is done.** Spec §1–§4 are implemented and approved:
+the mount rows 9a–9c, `Sandbox::for_repo`, the `Scope` match, the `run_phase`
+wiring, the contract sentence, and tests 1–9. Do not redo or restructure any
+of them. There are exactly **three** edits left, plus one new test:
+
+1. **`executor/src/security/sandbox.rs`, `argv_without_home_has_no_toolchain_binds`.**
+   Replace its assertion with this one. It is the only change to this test:
+
+   ```rust
+        let try_binds: Vec<usize> = a
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| x.as_str() == "--ro-bind-try")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            try_binds.len(),
+            1,
+            "without a home the only --ro-bind-try is rexymcp.toml: {a:?}"
+        );
+        assert!(
+            a.get(try_binds[0] + 1)
+                .is_some_and(|p| p.ends_with("rexymcp.toml")),
+            "the one --ro-bind-try must be rexymcp.toml: {a:?}"
+        );
+   ```
+
+2. **`executor/src/security/sandbox.rs`, the symlink message in `for_repo`.**
+   `git` already ends in `.git`, so the format string must not add another
+   one:
+
+   ```rust
+            return Err(format!(
+                "{} is a symlink; refusing to sandbox a symlinked git directory",
+                git.display()
+            ));
+   ```
+
+   In `for_repo_refuses_symlinked_git`, add
+   `assert!(!err.contains(".git.git"), "the path must be named once: {err}");`.
+
+3. **`mcp/src/runner.rs`, a separate refusal for `for_repo`.** Add this next
+   to `sandbox_refusal`:
+
+   ```rust
+   /// Turn a repo the sandbox cannot protect into the refusal `run_phase` returns.
+   fn git_root_refusal(reason: &str) -> rexymcp_executor::error::Error {
+       rexymcp_executor::error::Error::Privacy(format!(
+           "the dispatch to the cloud executor was stopped before any content was sent: \
+            {reason}. Run the phase from the root of a git work tree (`git init` if the \
+            project has none), or run it on a local executor."
+       ))
+   }
+   ```
+
+   In `run_phase`, change `.map_err(|reason| sandbox_refusal(&reason))?` on the
+   `Sandbox::for_repo` call to `.map_err(|reason| git_root_refusal(&reason))?`.
+   The probe keeps using `sandbox_refusal`.
+
+4. **New test `git_root_refusal_names_git_init`** in `mcp/src/runner.rs`,
+   shaped like `sandbox_refusal_names_bwrap_and_local_fallback`:
+   `git_root_refusal("/r has no .git")` is `Error::Privacy(m)`, `m` contains
+   `git init`, `local executor` and `/r has no .git`, and `m` does **not**
+   contain `bubblewrap`.
+
+**Finish conditions. Check each one yourself before reporting:**
+
+- `grep -c '{}.git is a symlink' executor/src/security/sandbox.rs` prints `0`.
+- `cargo test` reports **716** for the `rexymcp` binary (it was 715) and
+  **1163 passed, 8 ignored** for the executor library (unchanged).
+- Rerun the second End-to-end block. `/tmp/p11_nogit.txt` contains `git init`
+  and does not contain `bubblewrap`; `/tmp/p11_git.txt` still does not contain
+  `has no .git`. Paste both.
+- Mutation check for edit 1: temporarily change the toolchain `if let Some(h)
+  = home` block so that it also runs with `PathBuf::from("/root")` when `home`
+  is `None`. Confirm `argv_without_home_has_no_toolchain_binds` **fails**,
+  restore the code, and confirm it passes. Quote both results.
+- All four gates pass.
 
 ## Goal
 
@@ -239,11 +321,14 @@ In `mcp/src/runner.rs`, in the sandbox block, replace the
             &root,
             std::env::var_os("HOME").map(std::path::PathBuf::from),
         )
-        .map_err(|reason| sandbox_refusal(&reason))?;
+        .map_err(|reason| git_root_refusal(&reason))?;
         Some(sandbox.with_program(inp.sandbox_program))
 ```
 
-The probe still runs first. `sandbox_refusal` is unchanged.
+The probe still runs first, with `sandbox_refusal` unchanged.
+`git_root_refusal` is defined in the Bounce section above. (Corrected after
+bug-11-1: the first draft reused `sandbox_refusal`, whose remedy is
+"install bubblewrap".)
 
 ### 4. Executor contract
 
@@ -273,6 +358,12 @@ file a blocker.
       `.rexymcp` rows still do.
 - [ ] A cloud dispatch on a repo with no `.git` returns `Err(Error::Privacy(_))`
       naming `.git`, before the AI client is used.
+- [ ] bug-11-1: `argv_without_home_has_no_toolchain_binds` allows exactly one
+      `--ro-bind-try` (the `rexymcp.toml` one);
+      `grep -c '{}.git is a symlink' executor/src/security/sandbox.rs` is `0`;
+      a `for_repo` failure uses `git_root_refusal`, whose message names
+      `git init` and not `bubblewrap`; the `rexymcp` binary's test count is
+      716.
 - [ ] The executor contract carries the new sentence.
 - [ ] Each new non-ignored test fails when its fix is reverted (show one in the
       Update Log).
@@ -395,7 +486,12 @@ expected. Paste both files and the `grep -c` output, which must be `1` and
       `executor/src/security/mod.rs` (the export) and
       `executor/src/security/scope.rs`, including their test modules.
 - [x] In `allows_rexymcp_output_and_lookalikes`, may remove the
-      `"rexymcp.toml"` entry. No other change to existing tests.
+      `"rexymcp.toml"` entry.
+- [x] bug-11-1: may replace the assertion in
+      `argv_without_home_has_no_toolchain_binds` with the one in the Bounce
+      section, add one assertion to `for_repo_refuses_symlinked_git`, add
+      `git_root_refusal` and its test to `mcp/src/runner.rs`, and rerun and
+      re-paste the E2E. No other change to existing tests.
 - [x] May edit `mcp/src/runner.rs`: the sandbox block in `run_phase`, and add
       test 9.
 - [x] May add `#[ignore = "needs bwrap and user namespaces"]` to test 6 only.
@@ -625,3 +721,17 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** d9906e008cee45ea4641bfe9f1ef2cfd406ed316
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-09-17 (review: bounced)
+
+**Bug filed:** [bug-11-1](bugs/bug-11-1.md) (minor). Independent re-run:
+fmt/build/clippy clean; `cargo test` 715 + 2 + 1163 (8 ignored); ignored
+sandbox tests 4 passed. Architect mutation check: with the `.git` self-bind
+removed, `sandbox_protects_git_and_config` fails with
+`mv .git g2 must fail inside the sandbox`, so the core property is guarded.
+Three items bounce: a phase-07 test weakened to a near-vacuous assertion (the
+spec wrongly promised those tests would pass unchanged); a `.git.git` symlink
+message; and a no-`.git` refusal that says "install bubblewrap" (the spec
+told the executor to reuse `sandbox_refusal`). See the Bounce section at the
+top.
+
