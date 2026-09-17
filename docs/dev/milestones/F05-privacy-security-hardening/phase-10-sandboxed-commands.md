@@ -1,7 +1,7 @@
 # Phase 10: run gate, hook and verifier commands in the sandbox
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 07 (done)
 **Estimated diff:** ~400 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -632,3 +632,111 @@ and the cargo/ruff sites pass `Path::new("cargo")` / `Path::new("ruff")` while
 the tsc site passes the resolved program path. Behavior is identical; no
 `unwrap`/`expect`/indexing is used at any spawn site.
 
+### Update — ts=1789653217464 (complete, server-authored)
+
+**Summary:** Working tree clean, all 9 files committed. Phase 10 complete.
+
+**Summary + Notes for review**
+
+Closed out phase 10 (resume run). All Spec work (§1 `Sandbox::command_prefix`, §2 `SandboxedCommandRunner`, §3 sandbox-capable verifier with `checker_command`/`sandbox_exec_failed`, §4 `ExecTools` + `host_runner` seam, §5 the `docs/privacy.md` sentence) was already on disk from the first run and verified by the architect's gate run; this run did the remaining closeout only: fixed the single clippy error (`unwrap_or_else(PathBuf::new)` → `unwrap_or_default()` in `verify_python`'s cwd fallback), rustfmt'd the four unformatted files, and re-ran all gates — `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` (714 + 2 + 1156 passed, 7 ignored — unchanged).
+
+E2E: both blocks ran exactly as specified. `/tmp/p10_ignored.txt` shows all 3 sandbox-gated tests passing (phase 07's two + test 4), and the canary run passed (`exit=0`) with the final line `1`, confirming `REXYMCP_P10_CANARY` really was in the parent environment while being excluded from the sandbox. Mutation check done: `sandbox_exec_failed` forced to `false` makes `sandbox_exec_failure_is_detected` fail (`0 passed; 1 failed`); restored, it passes (`1 passed`).
+
+Notes: the spec's `checker_command` sketch took `program: &str`; since the tsc site already holds `cmd.program` as a `PathBuf`, the implemented signature is `checker_command(sandbox, program: &Path, cwd)` (cargo/ruff pass `Path::new("cargo")`/`Path::new("ruff")`). No `unwrap`/`expect`/indexing at any spawn site. Status left at `in-progress` per the contract — the server flips it to `review` and writes the completion entry.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+   Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+   Compiling rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.24s
+
+
+LINT
+    Checking rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+    Checking rexymcp v0.9.1 (/home/gpratt/rexyMCP/mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.37s
+
+
+TEST
+rejects_path_outside_root ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1156 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 6.19s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-10-sandboxed-commands.md` — +89 -0
+- `executor/src/governor/verifier.rs` — +10 -12
+
+**Commit:** e3d64117188ff3b1798aa836b61363354aa6b426
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
