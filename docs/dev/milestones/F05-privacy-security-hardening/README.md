@@ -273,7 +273,7 @@ dispatch run with reduced protection.
 
 | #  | Phase | Status |
 |----|-------|--------|
-| 01 | terms-file ([phase-01-terms-file.md](phase-01-terms-file.md)) | review                            |
+| 01 | terms-file ([phase-01-terms-file.md](phase-01-terms-file.md)) | in-progress (bug-01-1) |
 | 02 | session-log redaction + permissions | not drafted |
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |

@@ -1,11 +1,47 @@
 # Phase 1: `[privacy] terms_file`
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** in-progress (bounced: [bug-01-1](bugs/bug-01-1.md))
 **Depends on:** phase 06 (done). A failed pre-scan now stops the dispatch, and
 a term file that fails to load goes the same way.
 **Estimated diff:** ~380 lines, about half of it tests
 **Tags:** language=rust, kind=feature, size=m
+
+## Bounce — bug-01-1 (read this first)
+
+**The gates are green and the tree is clean. That is expected here and is NOT
+evidence that the phase is done.** The whole feature is implemented and
+approved: the config key, `LiteralTerms` loading and masking, the
+`RedactingAiClient` wiring, the `build_egress_index` plumbing, the refusal
+message and the docs. All 14 tests the Test plan names are present, and the
+architect verified they bite (dropping the left `\b` fails three of them).
+The end-to-end capture is pasted in the Update Log and shows the right
+before/after. Do not change any of that.
+
+There is **one line** left to fix: `executor/src/privacy/terms.rs:150`, in
+`LiteralTerms::mask`.
+
+```rust
+            let m = caps.get(0).expect("the whole regex matched");
+```
+
+`STANDARDS.md` §1 and §2 forbid a new `expect()` in a production path, and
+`mask` runs on every outbound message. Replace it with any panic-free form —
+`let Some(m) = caps.get(0) else { continue };` keeps the current shape, and
+`regex.find_iter(text)` is the other obvious route. Keep the behavior
+identical.
+
+**Finish conditions. Check each one yourself before reporting:**
+
+- `awk 'NR<174 && /\.expect\(|\.unwrap\(|panic!\(/' executor/src/privacy/terms.rs`
+  prints nothing. (Adjust the bound if your edit moves `mod tests`; the rule is
+  no panic path in the production part of the file.)
+- `cargo test` still reports 716 / 2 / 1188 (10 ignored): this fix adds no test
+  and removes none.
+- All four gates pass.
+
+Do **not** re-run the End-to-end harness: it is already pasted in the Update
+Log and this fix cannot change it. Say so in your completion entry.
 
 ## Goal
 
@@ -286,6 +322,9 @@ Change nothing else in that file.
 - [ ] `prescan_refusal`'s message names `privacy.terms_file`.
 - [ ] End-to-end capture (below) shows `[SITE_1]` on the wire and no
       `Plant Nine`.
+- [ ] bug-01-1: no new panic path in production —
+      `awk 'NR<174 && /\.expect\(|\.unwrap\(|panic!\(/' executor/src/privacy/terms.rs`
+      prints nothing.
 - [ ] `cargo fmt --all --check`, `cargo build` (zero warnings),
       `cargo clippy --all-targets --all-features -- -D warnings` and
       `cargo test` all pass.
@@ -573,3 +612,17 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 5c7010c2ebe91fb7aff29eaedc7a4601553ef6e8
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-09-17 (review: bounced)
+
+**Bug filed:** [bug-01-1](bugs/bug-01-1.md) (minor). The feature is correct and
+verified: independent re-run of all four gates (716 + 2 + 1188, 10 ignored,
+zero warnings), all 14 named tests present, and a mutation check — removing the
+left `\b` from the alias pattern fails `default_entry_requires_both_boundaries`,
+`embed_entry_matches_inside_an_identifier` and `loads_entries_and_flags`. The
+pasted E2E shows `[SITE_1]` on the wire with `plaintext_hits=0`, against
+`plaintext_hits=1` and no `[SITE_1]` without the terms file. One DoD box is
+unmet: a new `expect()` in `LiteralTerms::mask`, a production path. The
+`expect` at `mcp/src/runner.rs:466` is pre-existing (`b9f1c97`) and not this
+phase's. See the Bounce section at the top.
+
