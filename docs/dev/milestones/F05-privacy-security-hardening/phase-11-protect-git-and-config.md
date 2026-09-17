@@ -1,7 +1,7 @@
 # Phase 11: protect `.git/` and `rexymcp.toml` from the model
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 10 (done)
 **Estimated diff:** ~250 lines, over half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -517,3 +517,111 @@ Notes for review:
   `git commit -q` produces no output, which made the test fail spuriously. The
   per-command assertions (non-zero for the six write attempts, exit 0 for the
   commit, host-side file state) are unchanged and stronger.
+
+### Update — ts=1789659560943 (complete, server-authored)
+
+**Summary:** Done. Summary and notes for review:
+
+**What I built.** F05 phase 11 is implemented and verified. The bash sandbox now binds `.git` onto itself (which makes `mv .git` fail with EBUSY) and pins `.git/config` and `.git/hooks` read-only for a directory `.git`, ro-binds a worktree's `.git` file, and always ro-binds the top-level `rexymcp.toml` via `--ro-bind-try` — rows 9a–9c, inserted after row 9 and before `--chdir`, with phase 07's rows 1–9 untouched. `run_phase` now builds the sandbox through the new `Sandbox::for_repo`, which detects the layout with `symlink_metadata`, creates a missing `.git/hooks`, and fails the dispatch before turn 1 (as `Error::Privacy` naming `.git`) when the repo root has no `.git`, `.git` is a symlink, or `.git` has no `config` file. The file tools' protected-path check is now a single component-wise match that also refuses `.git` and everything under it, plus `<root>/rexymcp.toml` (lookalikes `.gitignore`, `.github/…`, `docs/.git/…`, `rexymcp.toml.example` stay allowed); the `rexymcp.toml` entry was removed from `allows_rexymcp_output_and_lookalikes` as authorized. The executor contract carries the new sentence in the "Stay inside the project" bullet.
+
+**End-to-end result.** All four ignored sandbox tests pass under bwrap (including the new `sandbox_protects_git_and_config`: all six host-mutation attempts fail in-sandbox and `git commit` succeeds with the positive-control checks passing on the host). Running the real CLI against `https://cloud.invalid/v1` on a repo without `.git` yields `has no .git` and exit 1; with `git init` done it gets past that and fails only on the unresolvable endpoint — `grep -c` is `1` / `0` as required. `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` all pass (715 + 2 + 1163 + 0 across targets); the new `run_phase_refuses_cloud_repo_without_git` test was shown to fail when the `for_repo` fix is reverted, then passes with it restored. Working tree is clean, one conventional commit.
+
+**Deviations/notes.** (1) In the ignored `sandbox_protects_git_and_config` test I dropped one non-essential assertion that every sandboxed command must produce stdout/stderr, because a clean `git commit -q` produces no output and made the test fail spuriously — the spec's actual assertions (per-command exit codes + host-side state) are all present and pass. (2) The e2e `nogit` refusal is phrased through `sandbox_refusal` ("the bash sandbox is unavailable (…has no .git…)") — that's what the spec-mandated `map_err(|reason| sandbox_refusal(&reason))` produces. (3) Worktree note confirmed relevant: a `.git` *file* points outside the root, so committing from a cloud executor in a worktree will fail by design — already in the spec's out-of-scope list.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.50s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+
+
+TEST
+ymbols::tests::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1163 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 6.18s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — +1 -1
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-11-protect-git-and-config.md` — +90 -1
+- `executor/src/security/mod.rs` — +1 -1
+- `executor/src/security/sandbox.rs` — +300 -2
+- `executor/src/security/scope.rs` — +65 -18
+- `executor/templates/executor_contract.md` — +3 -1
+- `mcp/src/runner.rs` — +44 -6
+
+**Commit:** d9906e008cee45ea4641bfe9f1ef2cfd406ed316
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
