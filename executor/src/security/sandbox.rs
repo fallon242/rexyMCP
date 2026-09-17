@@ -228,31 +228,59 @@ mod tests {
         std::fs::write(repo.join(".rexymcp/vault/key"), "k").unwrap();
 
         let canonical = repo.canonicalize().unwrap();
-        let sb = Sandbox::new(&canonical, std::env::var_os("HOME").map(PathBuf::from));
-
-        // $HOME here is /home/gpratt, hidden by `--tmpfs /home`; point HOME at
-        // an existing dir under /var/tmp (writable) so "the sandbox must not
-        // make $HOME writable" is a meaningful check.
-        let host_home = PathBuf::from("/var/tmp/rexymcp-p07-home");
-        std::fs::create_dir_all(&host_home).unwrap();
-        let run = |cmd: &str| {
+        let run = |sb: &Sandbox, cmd: &str| -> std::process::Output {
             let argv = sb.argv(cmd);
-            let mut c = std::process::Command::new(&argv[0]);
-            c.args(&argv[1..]).env("HOME", &host_home);
-            c.output().unwrap_or_else(|e| panic!("spawn failed: {e}"))
+            let (first, rest) = argv
+                .split_first()
+                .expect("argv always starts with the program name");
+            std::process::Command::new(first)
+                .args(rest)
+                .output()
+                .unwrap_or_else(|e| panic!("spawn failed: {e}"))
         };
+        // Real $HOME (no override): the hidden home must be the one production
+        // hides, so `--tmpfs <home>` (or `--tmpfs /home`) covers it.
+        let real_home = std::env::var_os("HOME").map(PathBuf::from);
+        let sb = Sandbox::new(&canonical, real_home.clone());
 
+        // $HOME/.config must not be visible. The host has ~/.config; inside the
+        // sandbox the home tmpfs is empty, so the check must fail.
+        if real_home
+            .as_deref()
+            .is_some_and(|h| h.join(".config").exists())
+        {
+            let check = run(&sb, "test -e \"$HOME/.config\"");
+            assert!(
+                !check.status.success(),
+                "$HOME/.config must not be visible in the sandbox; got exit {:?}",
+                check.status.code()
+            );
+        }
+
+        // A write under $HOME must not reach the host. The touch may succeed in
+        // the sandbox (bwrap recreates the home dir inside the home tmpfs via
+        // the toolchain mounts) — the property is host-side.
+        let touch = run(&sb, "touch \"$HOME/.sandbox-probe\"");
         assert!(
-            !run("touch \"$HOME/.sandbox-probe\"").status.success(),
-            "sandboxed $HOME must not be writable"
+            touch.status.success(),
+            "touch inside the sandbox should succeed: {}",
+            String::from_utf8_lossy(&touch.stderr)
         );
+        if let Some(home) = &real_home {
+            assert!(
+                !home.join(".sandbox-probe").exists(),
+                "a write under $HOME must not reach the host"
+            );
+        }
 
+        // The repo's .rexymcp/ must be hidden (cat fails) and deletions inside
+        // the sandbox must not reach the host.
+        let cat = run(&sb, "cat .rexymcp/vault/key");
         assert!(
-            !run("cat .rexymcp/vault/key").status.success(),
-            "repo .rexymcp must be hidden in the sandbox"
+            !cat.status.success(),
+            "repo .rexymcp/vault/key must not be visible in the sandbox"
         );
-
-        let rm = run("rm -rf .rexymcp/vault");
+        let rm = run(&sb, "rm -rf .rexymcp/vault");
         assert!(
             rm.status.success(),
             "rm inside the sandbox should succeed against the empty tmpfs: {}",
@@ -264,12 +292,29 @@ mod tests {
             "host .rexymcp/vault/key must survive the sandboxed rm"
         );
 
-        let write = run("echo ok > written.txt");
+        // The repo itself stays writable and writes reach the host.
+        let write = run(&sb, "echo ok > written.txt");
         assert!(write.status.success(), "writing into the repo must work");
         assert!(
             repo.join("written.txt").exists(),
             "written.txt must reach the host"
         );
+
+        // Control for the .config check: a sandbox with home=None (no
+        // toolchain mounts, no per-home tmpfs) must also hide a real
+        // $HOME/.config via the /home tmpfs, so the check above is not
+        // passing only because the per-home tmpfs replaced it.
+        let sb_no_home = Sandbox::new(&canonical, None);
+        if real_home
+            .as_deref()
+            .is_some_and(|h| h.join(".config").exists())
+        {
+            let check = run(&sb_no_home, "test -e \"$HOME/.config\"");
+            assert!(
+                !check.status.success(),
+                "control: $HOME/.config must not be visible without a home mount either"
+            );
+        }
     }
 
     #[test]
