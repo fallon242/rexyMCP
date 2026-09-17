@@ -1,7 +1,7 @@
 # Phase 7: confine `bash` for a cloud executor
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** in-progress (bounced: [bug-07-1](bugs/bug-07-1.md))
 **Depends on:** phase 06 (done)
 **Estimated diff:** ~350 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=m
@@ -382,6 +382,10 @@ visible inside the sandbox. Change nothing else in the file.
 - [ ] With a sandbox, a `bash` command cannot see `$HOME/.config`, cannot write
       under `$HOME`, and cannot delete a file under `<root>/.rexymcp/` on the host
       (ignored tests, run in E2E).
+- [ ] bug-07-1: `sandbox_blocks_home_and_state_dir` checks `$HOME/.config`
+      (`grep -c '\.config' executor/src/security/sandbox.rs` ≥ 1), uses the real
+      `$HOME` with no `HOME` override, and writes nothing outside its `TempDir`
+      (`grep -c '/var/tmp' executor/src/security/sandbox.rs` is `0`).
 - [ ] The executor contract carries the "Stay inside the project" rule.
 - [ ] `docs/privacy.md` has the two sentences from Spec §6.
 - [ ] Each new non-ignored test fails when its fix is reverted (show one in the
@@ -418,9 +422,15 @@ All tests are hermetic: a `tempfile::TempDir` for any repo, and no network.
    `"k"`. Build `Sandbox::new(&canonical_repo, std::env::var_os("HOME").map(PathBuf::from))`.
    Run `sb.argv(cmd)` with `std::process::Command` for each of these, and
    assert:
+   Spawn with the inherited environment. Do **not** override `HOME`: the
+   sandbox's `home` and the child's `$HOME` must be the same real directory.
+   Write nothing outside the `TempDir` and the sandbox.
    - `test -e "$HOME/.config"` → non-zero exit (skip this check if the host
      has no `~/.config`)
-   - `touch "$HOME/.sandbox-probe"` → non-zero exit
+   - `touch "$HOME/.sandbox-probe"` → then, on the **host**,
+     `$HOME/.sandbox-probe` does not exist. (The `touch` itself may succeed:
+     the toolchain `--ro-bind-try` mounts make bwrap create `$HOME` inside the
+     `/home` tmpfs. Corrected after bug-07-1.)
    - `cat .rexymcp/vault/key` → non-zero exit
    - `rm -rf .rexymcp/vault` → then, on the **host**, `.rexymcp/vault/key`
      still exists with content `"k"`
@@ -704,3 +714,17 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 501917a46099527c8efe9cf220beee05b7adb3ff
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-09-16 (review: bounced)
+
+**Bug filed:** [bug-07-1](bugs/bug-07-1.md) (major). Test 5 dropped the
+`$HOME/.config` check and redirected `HOME` to a host dir under `/var/tmp`.
+Production code is correct. The spec's `touch` check for test 5 was wrong and
+is corrected above. Everything else passed an independent re-run:
+fmt/build/clippy clean; `cargo test` 711 + 2 + 1151 (6 ignored); ignored
+sandbox tests 2 passed. The CLI refusal E2E, captured by the architect:
+
+```
+Error: privacy: the bash sandbox is unavailable (bwrap: No such file or directory (os error 2)), so the dispatch to the cloud executor was stopped before any content was sent. Install bubblewrap (the `bwrap` binary) and check that unprivileged user namespaces are enabled, or run the phase on a local executor.
+exit=1
+```
