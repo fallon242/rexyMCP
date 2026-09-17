@@ -14,6 +14,89 @@ use super::registry::Registry;
 use crate::config::PrivacyConfig;
 use crate::error::Result;
 
+/// Lowercase `s` and drop everything that is not a letter or a digit, so
+/// `rexyMCP`, `rexy-mcp` and `rexymcp` all normalize to `rexymcp`.
+fn normalize(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// The names a project calls itself: its directory name, plus whatever its
+/// package manifests declare. Normalized, so a term can be compared directly.
+/// Entries shorter than two characters are dropped as too generic.
+pub fn project_vocabulary(root: &Path, files: &[(PathBuf, String)]) -> HashSet<String> {
+    let mut vocab = HashSet::new();
+    if let Some(name) = root.file_name() {
+        insert_normalized(&mut vocab, &name.to_string_lossy());
+    }
+    for (path, content) in files {
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let name = match file_name {
+            "Cargo.toml" | "pyproject.toml" => quoted_name_field(content),
+            "package.json" => serde_json::from_str::<serde_json::Value>(content)
+                .ok()
+                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string)),
+            "go.mod" => content
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("module "))
+                .map(|m| {
+                    m.split('/')
+                        .next_back()
+                        .map(str::to_string)
+                        .unwrap_or(m.to_string())
+                }),
+            _ => None,
+        };
+        if let Some(name) = name {
+            insert_normalized(&mut vocab, &name);
+        }
+    }
+    vocab
+}
+
+fn insert_normalized(vocab: &mut HashSet<String>, name: &str) {
+    let normalized = normalize(name);
+    if normalized.len() >= 2 {
+        vocab.insert(normalized);
+    }
+}
+
+/// The value of a `name = "…"` style line (Cargo.toml / pyproject.toml): what is
+/// between the first pair of double quotes after the `=`.
+fn quoted_name_field(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("name") {
+            return None;
+        }
+        let after = trimmed.strip_prefix("name")?;
+        let rest = after.split_once('=')?.1;
+        let start = rest.find('"')?;
+        let tail = &rest[start + 1..];
+        let end = tail.find('"')?;
+        Some(tail[..end].to_string())
+    })
+}
+
+/// True when `term` is the project naming itself rather than PII: the same name
+/// after normalization, or an identifier built from it (`rexymcp-executor`).
+fn is_project_name(term: &str, vocabulary: &HashSet<String>) -> bool {
+    let t = normalize(term);
+    if t.is_empty() {
+        return false;
+    }
+    if vocabulary.contains(&t) {
+        return true;
+    }
+    vocabulary
+        .iter()
+        .any(|v| v.len() >= 4 && t.contains(v.as_str()))
+}
+
 /// True when `base_url`'s host is clearly local: `localhost`, a loopback/RFC-1918
 /// IP, or a `.local` / `.lan` / `.internal` hostname. Every other host — any
 /// public domain or IP — is cloud.
@@ -124,6 +207,10 @@ pub async fn build_egress_index(
     let index = build_pii_index(&files, &ner, &mut registry, &prior).await?;
     index.save(&vault_dir)?;
     registry.save()?;
+    // Finding 9: the project's own name is not PII. Redacting it hands the
+    // executor `[REDACTED:org]-executor` instead of a crate name it can use.
+    let vocabulary = project_vocabulary(root, &files);
+    let index = index.retaining(|term| !is_project_name(term, &vocabulary));
     let terms = index.redaction_terms();
     let pii_files = index.files().cloned().collect();
     Ok((terms, pii_files))
@@ -352,6 +439,130 @@ mod tests {
         assert!(
             !rel.iter().any(|n| n.contains("main.rs")),
             "a non-matching file must be excluded: {rel:?}"
+        );
+    }
+
+    #[test]
+    fn project_vocabulary_collects_repo_and_manifest_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("acme-widgets");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(
+            repo.join("Cargo.toml"),
+            "[package]\nname = \"widgetcore\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join("package.json"),
+            "{\"name\": \"@acme/widgets-ui\", \"version\": \"1.0.0\"}",
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join("pyproject.toml"),
+            "[project]\nname = \"widgets_py\"\n",
+        )
+        .unwrap();
+        std::fs::write(repo.join("go.mod"), "module github.com/acme/widgetsvc\n").unwrap();
+
+        let files = scan_repo_files(&repo, &[]);
+        let vocab = project_vocabulary(&repo, &files);
+
+        assert!(vocab.contains("acmewidgets"), "got {vocab:?}");
+        assert!(vocab.contains("widgetcore"), "got {vocab:?}");
+        assert!(vocab.contains("acmewidgetsui"), "got {vocab:?}");
+        assert!(vocab.contains("widgetspy"), "got {vocab:?}");
+        assert!(vocab.contains("widgetsvc"), "got {vocab:?}");
+        assert!(!vocab.contains("githubcomacmewidgetsvc"), "got {vocab:?}");
+        assert!(!vocab.contains("version"), "got {vocab:?}");
+    }
+
+    #[test]
+    fn project_vocabulary_ignores_unparseable_manifests() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("ab");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("package.json"), "not json at all").unwrap();
+
+        let files = scan_repo_files(&repo, &[]);
+        let vocab = project_vocabulary(&repo, &files);
+
+        assert!(
+            vocab.is_empty() || vocab == ["ab".to_string()].into_iter().collect(),
+            "got {vocab:?}"
+        );
+    }
+
+    #[test]
+    fn is_project_name_drops_identifiers_not_people() {
+        let vocab = HashSet::from(["rexymcp".to_string()]);
+        assert!(is_project_name("rexymcp", &vocab));
+        assert!(is_project_name("rexyMCP", &vocab));
+        assert!(is_project_name("rexy-mcp", &vocab));
+        assert!(is_project_name("rexymcp-executor", &vocab));
+        assert!(is_project_name("rexymcp.toml", &vocab));
+        assert!(!is_project_name("Alice", &vocab));
+        assert!(!is_project_name("Rosa", &vocab));
+        assert!(!is_project_name("Bob Rexy", &vocab));
+        assert!(!is_project_name("mcp", &vocab));
+        assert!(!is_project_name("", &vocab));
+
+        let vocab2 = HashSet::from(["prosaictool".to_string(), "crs".to_string()]);
+        assert!(
+            !is_project_name("Rosa", &vocab2),
+            "a vocabulary entry containing a term must not drop it"
+        );
+        assert!(
+            !is_project_name("Crsanova", &vocab2),
+            "the 4-character floor keeps `crs` from matching inside it"
+        );
+        assert!(is_project_name("crs", &vocab2));
+    }
+
+    #[tokio::test]
+    #[ignore = "live: set REXYMCP_PRIVACY_ENGINE_URL + REXYMCP_PRIVACY_ENGINE_MODEL; run with --ignored"]
+    async fn live_build_egress_index_keeps_project_names_out() {
+        let base_url =
+            std::env::var("REXYMCP_PRIVACY_ENGINE_URL").expect("REXYMCP_PRIVACY_ENGINE_URL");
+        let model =
+            std::env::var("REXYMCP_PRIVACY_ENGINE_MODEL").expect("REXYMCP_PRIVACY_ENGINE_MODEL");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("rexymcp-sample");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(
+            repo.join("Cargo.toml"),
+            "[package]\nname = \"rexymcp-sample\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join("notes.md"),
+            "The rexymcp-sample pipeline was reviewed by Alice Fernandez on Tuesday.\n\
+             See rexymcp-sample/README for the crate layout.\n",
+        )
+        .unwrap();
+
+        let mut privacy = crate::config::PrivacyConfig {
+            enabled: true,
+            engine_base_url: Some(base_url),
+            engine_model: Some(model),
+            vault_dir: None,
+            kinds: vec![],
+            redact_executor_egress: None,
+            scan_globs: vec![],
+        };
+        privacy.vault_dir = Some(tmp.path().join("vault"));
+
+        let (terms, _pii_files) = build_egress_index(&repo, &privacy).await.unwrap();
+        let normalized: Vec<String> = terms.iter().map(|(t, _)| normalize(t)).collect();
+        eprintln!("live terms: {terms:?}");
+
+        assert!(
+            terms.iter().any(|(t, _)| t.contains("Alice")),
+            "the pre-scan must still find the person's name, got {terms:?}"
+        );
+        assert!(
+            !normalized.iter().any(|n| n.contains("rexymcpsample")),
+            "no project name may survive the filter, got {normalized:?}"
         );
     }
 }

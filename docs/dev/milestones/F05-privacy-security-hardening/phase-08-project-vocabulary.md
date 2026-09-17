@@ -1,7 +1,7 @@
 # Phase 8: keep the project's own names out of the redaction dictionary
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase 09 (done)
 **Estimated diff:** ~260 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -301,3 +301,32 @@ tests must pass: `live_build_egress_index_finds_pii` (unchanged) and
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-17 19:05 (started)
+
+**Executor:** phase-08 run 1 (local dispatch). Pre-flight clean: `git status --short` empty; `cargo test -p rexymcp-executor privacy` — 73 passed, 0 failed, 3 ignored. Baseline read of `egress.rs` (lines 1-160) and `prescan.rs` (lines 1-120) complete. Implementing Spec §1–§5.
+
+### Update — 2026-09-17 19:12 (progress)
+
+**Executor:** phase-08 run 1. Spec §1–§5 implemented. Two compile fixes beyond the spec's literal code: (a) test 2's `HashSet::from(["ab"])` infers `HashSet<&str>` — replaced with an explicit `String` set; (b) the live test's `PrivacyConfig` literal needed the `kinds: vec![]` field the spec's sketch omitted (the existing live test at line 364 builds the struct the same way). Verified each new test catches its fix: with `PiiIndex::retaining` reverted to return `PiiIndex::empty()`, `retaining_drops_entries_and_unmarks_files` fails (`redaction_terms after retaining: left: [], right: ["Alice"]`) while the two `is_project_name`/vocabulary tests still pass. Full verification: `cargo fmt --all --check` clean; `cargo build` clean; `cargo clippy --all-targets --all-features -- -D warnings` clean; `cargo test` — 716 + 2 + 1174 passed, 0 failed, 10 ignored.
+
+**End-to-end verification** (spec's exact command, output captured mechanically to `/tmp/p08_live.txt`, exit code appended):
+
+```
+   Compiling rexymcp-executor v0.9.1 (/home/gpratt/rexyMCP/executor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.06s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 2 tests
+live terms: [("Alice Fernandez", PersonName)]
+test privacy::egress::tests::live_build_egress_index_keeps_project_names_out ... ok
+test privacy::egress::tests::live_build_egress_index_finds_pii ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1182 filtered out; finished in 1.93s
+
+exit=0
+```
+
+The positive control is `live_build_egress_index_finds_pii` (unchanged, still green) plus the new test's live engine call — against the real Qwen NER engine, the returned terms contain `Alice Fernandez` (PersonName) and **no** term normalizes to anything containing `rexymcpsample`, while the repo directory itself is named `rexymcp-sample`.
+
+**Notes for review:** no deviations from the spec beyond the two compile fixes above (both trivial, in test code only). `docs/privacy.md` sentence added at the end of the "② Executor egress" bullet per Spec §5. The saved `PiiIndex` remains unfiltered (cache stays faithful); only the returned `terms`/`pii_files` are filtered, per Spec §4.

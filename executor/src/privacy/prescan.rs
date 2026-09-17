@@ -86,6 +86,21 @@ impl PiiIndex {
         terms
     }
 
+    /// A copy holding only the PII entries `keep` accepts. A file left with no
+    /// entries is no longer PII-bearing, so the write-guard stops refusing it.
+    pub fn retaining(&self, keep: impl Fn(&str) -> bool) -> PiiIndex {
+        let per_file = self
+            .per_file
+            .iter()
+            .map(|(path, pii)| {
+                let kept: Vec<(String, PiiKind)> =
+                    pii.iter().filter(|(text, _)| keep(text)).cloned().collect();
+                (path.clone(), kept)
+            })
+            .collect();
+        PiiIndex { per_file }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.per_file.values().all(|pii| pii.is_empty())
     }
@@ -213,6 +228,43 @@ mod tests {
             mock.calls().len(),
             2,
             "NER runs once per file on first pass"
+        );
+    }
+
+    #[test]
+    fn retaining_drops_entries_and_unmarks_files() {
+        let mut idx = PiiIndex::empty();
+        idx.per_file.insert(
+            PathBuf::from("a.rs"),
+            vec![
+                ("rexymcp".to_string(), PiiKind::Org),
+                ("Alice".to_string(), PiiKind::PersonName),
+            ],
+        );
+        idx.per_file.insert(
+            PathBuf::from("b.rs"),
+            vec![("rexymcp".to_string(), PiiKind::Org)],
+        );
+
+        let filtered = idx.retaining(|t| t != "rexymcp");
+
+        let terms: Vec<String> = filtered
+            .redaction_terms()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert_eq!(terms, ["Alice"], "redaction_terms after retaining");
+        assert!(
+            filtered.contains_file(Path::new("a.rs")),
+            "a.rs still PII-bearing"
+        );
+        assert!(
+            !filtered.contains_file(Path::new("b.rs")),
+            "b.rs must no longer be PII-bearing"
+        );
+        assert!(
+            idx.contains_file(Path::new("b.rs")),
+            "original index unchanged"
         );
     }
 

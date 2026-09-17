@@ -32,7 +32,10 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   message to the executor to `[REDACTED:kind]` (irreversible — no token the model
   can "correct" into fabricated data, the failure a reversible round-trip hit),
   and refuses model writes to PII-bearing files (a cloud model only sees their
-  redacted contents). A local executor bypasses all of this. If the pre-scan
+  redacted contents). The project's own names — its directory name and the names
+  its package manifests declare — are excluded from the redaction dictionary,
+  because redacting them only breaks the executor. A local executor bypasses all
+  of this. If the pre-scan
   fails — for example because the NER engine is unreachable — the dispatch stops
   before anything is sent. For a cloud executor, `bash` runs inside a bubblewrap
   sandbox that hides home directories and `.rexymcp/` and makes the host
