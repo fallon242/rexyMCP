@@ -10,17 +10,19 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[07 — bash confinement](milestones/F05-privacy-security-hardening/phase-07-bash-confinement.md)
-(`todo`, dispatch on a LOCAL executor only). Phase 01 is `blocked`.** Its first dispatch (2026-09-16, run `96d43940`)
-ended `budget_exceeded`. The pre-scan redacted the project name everywhere
-(finding 9). The executor's `bash` tool then read outside the repo, including
-the real mask table, and deleted rexymcp session logs and vault keys, one of
-them another project's (finding 10). **No phase goes to a cloud executor, in
-any project, until finding 10 is fixed.** Phase 07 (bash
-confinement) is drafted; next after it: draft 08 (project names out of the
-dictionary). Phase 06 is done
-(`add4fe6`). The NER engine is on port 8000, model
-`RedHatAI/Qwen3.8-27B-INT4`; the local `rexymcp.toml` is updated.
+[10 — sandboxed commands](milestones/F05-privacy-security-hardening/phase-10-sandboxed-commands.md)
+(`todo`, dispatch on a LOCAL executor only).** Phase 07 (bash confinement) is
+done (`5ad2c57`, `approved_after_1`): a cloud executor's `bash` runs in bwrap,
+and the file tools refuse `.rexymcp/`. The 2026-09-17 local vs. cloud benchmark
+then found **finding 11**: gate, hook and verifier commands still run
+model-written code on the host with the full environment, and the model can
+write `.git/hooks`, which finalize's host `git commit` runs. Phase 10 sandboxes
+the commands; phase 11 (not drafted) protects `.git/` and `rexymcp.toml`.
+**No phase on a real project goes to a cloud executor until phases 10 and 11
+are done.** Phase 01 stays `blocked` on finding 9 (phase 08, not drafted).
+Routing once cloud is allowed: local executor first, `deepseek-flash` for
+escalation, both for parallel work. The NER engine is on port 8000, model
+`RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer

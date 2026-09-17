@@ -244,6 +244,16 @@ the environment for these commands the same way `bash` does. Decide whether
 `.git/` should be read-only inside the sandbox. Until this lands, no phase on a
 real project goes to a cloud executor. Finding 10's halt is carried forward.
 
+**Phases 10 and 11.** Phase 10 moves the gate, hook and verifier commands into
+the sandbox. Phase 11 protects `.git/` and `rexymcp.toml`. Per-file read-only
+mounts are not enough on their own: tested by hand on bubblewrap 0.12.0,
+`mv .git .git2` succeeds inside the sandbox and renames the directory on the
+host. Bind-mounting `.git` onto itself first makes the rename fail with
+`EBUSY`. After that, read-only mounts of `.git/config` and `.git/hooks` stop
+config and hook edits, and `git commit` still works. Phase 11 also needs the
+file tools (`Scope`) to refuse `.git/` and `rexymcp.toml`, and a cloud
+dispatch to fail when the repo root has no `.git`.
+
 ## Why literal masking is not the abandoned reversible round-trip
 
 Phase-06b proved a *reversible* executor round-trip corrupts files: asked to
@@ -272,7 +282,8 @@ dispatch run with reduced protection.
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
 | 08 | project names out of the dictionary (finding 9) | not drafted |
 | 09 | NER truncation fails closed, chunking (finding 8) | not drafted |
-| 10 | sandbox gate, hook and verifier commands (finding 11) | not drafted |
+| 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | todo        |
+| 11 | protect `.git/` and `rexymcp.toml` from the model (finding 11) | not drafted |
 
 ## Reference implementation
 
