@@ -147,7 +147,9 @@ impl LiteralTerms {
         let mut out = String::new();
         let mut last = 0;
         for caps in regex.captures_iter(text) {
-            let m = caps.get(0).expect("the whole regex matched");
+            let Some(m) = caps.get(0) else {
+                continue;
+            };
             out.push_str(&text[last..m.start()]);
             let (code, _body) = self.matched(&caps);
             let matched = &text[m.start()..m.end()];

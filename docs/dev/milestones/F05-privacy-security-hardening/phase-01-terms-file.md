@@ -626,3 +626,12 @@ unmet: a new `expect()` in `LiteralTerms::mask`, a production path. The
 `expect` at `mcp/src/runner.rs:466` is pre-existing (`b9f1c97`) and not this
 phase's. See the Bounce section at the top.
 
+### Update — 2026-09-17 21:33 UTC (started, RedHatAI/Qwen3.8-27B-INT4)
+
+Resuming after bounce. Per the Bounce section, fixing the single `expect()`
+in `LiteralTerms::mask` (`executor/src/privacy/terms.rs:150`): replaced
+`let m = caps.get(0).expect("the whole regex matched");` with a panic-free
+`let Some(m) = caps.get(0) else { continue };`. Behavior identical — `caps.get(0)`
+is the whole-regex match and is always present, so the `continue` is
+unreachable, but it removes the production panic path.
+
