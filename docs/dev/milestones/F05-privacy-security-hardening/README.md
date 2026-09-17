@@ -280,7 +280,7 @@ dispatch run with reduced protection.
 | 05 | inert config + doc truth | not drafted |
 | 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
-| 08 | project-vocabulary ([phase-08-project-vocabulary.md](phase-08-project-vocabulary.md)) | in-progress |
+| 08 | project-vocabulary ([phase-08-project-vocabulary.md](phase-08-project-vocabulary.md)) | review      |
 | 09 | ner-fails-closed ([phase-09-ner-fails-closed.md](phase-09-ner-fails-closed.md)) | done        |
 | 10 | sandboxed-commands ([phase-10-sandboxed-commands.md](phase-10-sandboxed-commands.md)) | done        |
 | 11 | protect-git-and-config ([phase-11-protect-git-and-config.md](phase-11-protect-git-and-config.md)) | done        |

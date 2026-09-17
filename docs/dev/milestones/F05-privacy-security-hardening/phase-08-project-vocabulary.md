@@ -1,7 +1,7 @@
 # Phase 8: keep the project's own names out of the redaction dictionary
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 09 (done)
 **Estimated diff:** ~260 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=s
@@ -330,3 +330,122 @@ exit=0
 The positive control is `live_build_egress_index_finds_pii` (unchanged, still green) plus the new test's live engine call — against the real Qwen NER engine, the returned terms contain `Alice Fernandez` (PersonName) and **no** term normalizes to anything containing `rexymcpsample`, while the repo directory itself is named `rexymcp-sample`.
 
 **Notes for review:** no deviations from the spec beyond the two compile fixes above (both trivial, in test code only). `docs/privacy.md` sentence added at the end of the "② Executor egress" bullet per Spec §5. The saved `PiiIndex` remains unfiltered (cache stays faithful); only the returned `terms`/`pii_files` are filtered, per Spec §4.
+
+### Update — ts=1789673105368 (complete, server-authored)
+
+**Summary:** Phase 8 complete.
+
+**Summary:**
+
+Implemented F05 phase 08 (project vocabulary for PII redaction) per spec:
+
+1. **`PiiIndex::retaining`** (prescan.rs) — filters a copy of the index by a keep-predicate; files whose entries all drop out are no longer PII-bearing, so the write-guard stops refusing them.
+2. **`project_vocabulary`** (egress.rs) — collects the repo directory name plus declared names from `Cargo.toml`, `package.json`, `pyproject.toml`, and `go.mod`, all normalized (lowercase, non-alphanumerics stripped).
+3. **`is_project_name`** (egress.rs) — true when a term is a vocabulary entry or contains one (one-directional, with a 4-char floor so short names like `crs` can't swallow identifiers and vocabulary entries can't drop a person's name that happens to be a substring).
+4. **Wired into `build_egress_index`** — after `index.save()`, the returned `terms` and `pii_files` are filtered through the vocabulary; the saved index stays unfiltered.
+5. **Documented** — one sentence added to the "② Executor egress" bullet in `docs/privacy.md`.
+
+**Verification:**
+- `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test` — all pass (716 + 2 + 1174 tests, 0 failures).
+- Live E2E against the real NER engine (Qwen3.8-27B-INT4 at 192.168.50.138): both live tests pass. The new test's repo is named `rexymcp-sample`; the pre-scan still returns `Alice Fernandez` (PersonName) and **no** term normalizes to anything containing `rexymcpsample` — output pasted into the Update Log.
+- Test-revert check: with `retaining` reverted to return an empty index, `retaining_drops_entries_and_unmarks_files` fails as expected.
+
+**Notes for review:** two trivial compile fixes beyond the spec's literal code, both in test code — test 2's `HashSet::from(["ab"])` inferred `HashSet<&str>` (replaced with an explicit `String` set), and the live test's `PrivacyConfig` literal needed the `kinds: vec![]` field the spec's sketch omitted. No other deviations.
+
+Status left at `in-progress` per contract; the completion entry and `review` flip are left for the server.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.51s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.38s
+
+
+TEST
+jects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1174 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.26s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — +1 -1
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-08-project-vocabulary.md` — +30 -1
+- `docs/privacy.md` — +4 -1
+- `executor/src/privacy/egress.rs` — +211 -0
+- `executor/src/privacy/prescan.rs` — +52 -0
+
+**Commit:** ef974c0dded83efdc153fcdd82da0d9051df79fb
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
