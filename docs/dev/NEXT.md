@@ -10,23 +10,23 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[08 — project vocabulary](milestones/F05-privacy-security-hardening/phase-08-project-vocabulary.md)
-(`todo`, dispatch on a LOCAL executor only).** Phases 06, 07, 09, 10 and 11 are
-done: findings 7, 8, 10 and 11 are closed. A cloud executor's code now runs only
-inside bwrap, `.git/` and `rexymcp.toml` are protected, and a cut-off PII scan
-reply can no longer pass as "no PII" (verified live: a 300-name file that
-returned nothing now returns all 300). Phase 08 is the last open finding, 9:
-the pre-scan tags the project's own name as an organization, so the executor
-sees `[REDACTED:org]-executor` instead of crate names and burns its turns
-guessing. It blocks phase 01.
+[01 — terms file](milestones/F05-privacy-security-hardening/phase-01-terms-file.md)
+(`todo`, dispatch on a LOCAL executor).** Phases 06, 07, 08, 09, 10 and 11 are
+done, closing findings 7, 8, 9, 10 and 11. Phase 01 was blocked by findings 9
+and 10 and is now unblocked; its first run (2026-09-16) ended
+`budget_exceeded` with nothing committed, and no partial work remains in the
+tree. Still not drafted: 02 (session-log redaction), 03 (vault container), 04
+(prompt guard), 05 (inert config + doc truth).
 
-**Cloud dispatch for real projects is off until the user lifts it.** The
-leak-shaped findings are fixed; the architect recommends waiting for phase 08,
-because a cloud run is unproductive until the project's own name survives
-redaction. Routing once cloud is allowed: local executor first,
-`deepseek-flash` for escalation, both for parallel work. Committing from a
-cloud executor in a worktree does not work yet (phase 11, Out of scope). The
-NER engine is on port 8000, model `RedHatAI/Qwen3.8-27B-INT4`.
+**Cloud dispatch:** every finding the halt waited on is fixed, so lifting it is
+the user's call — they had not lifted it as of 2026-09-17. Routing once
+allowed: local executor first, `deepseek-flash` for escalation, both for
+parallel work. Two open limits: a cloud executor cannot commit inside a git
+worktree (phase 11, Out of scope), and gate-command output still reaches the
+model. A debug `eprintln!` of the PII dictionary remains in
+`executor/src/privacy/egress.rs` (bug-08-1, waived) — delete it in the next
+phase that touches that file. The NER engine is on port 8000, model
+`RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer

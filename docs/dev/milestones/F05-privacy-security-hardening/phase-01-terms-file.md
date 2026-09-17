@@ -1,7 +1,7 @@
 # Phase 1: `[privacy] terms_file`
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** blocked
+**Status:** todo
 **Depends on:** phase 06 (done). A failed pre-scan now stops the dispatch, and
 a term file that fails to load goes the same way.
 **Estimated diff:** ~380 lines, about half of it tests
@@ -447,3 +447,19 @@ keys (finding 10). Partial work was left uncommitted in the tree:
 `executor/src/privacy/terms.rs` (untracked), plus +4 lines in
 `executor/src/config.rs` and +1 line in `executor/src/privacy/mod.rs`. Blocked
 until findings 9 and 10 are fixed; no cloud re-dispatch before then.
+
+### Update — 2026-09-17 (unblocked, architect)
+
+Findings 9 and 10 are fixed, so this phase is dispatchable again. Since the
+failed first run: the project's own name is no longer redacted (phase 08, so
+the executor sees real paths and crate names this time), the executor's `bash`
+runs inside bwrap on a cloud endpoint, `.git/` and `rexymcp.toml` are
+protected, and a cut-off PII scan reply can no longer pass as "no PII".
+
+The first run's partial work is **not** in the tree: `terms.rs` does not exist
+and `config.rs` / `privacy/mod.rs` carry none of it. This is a fresh start, not
+a resume.
+
+**Dispatch on a LOCAL executor.** Nothing here needs a cloud model, and the
+first cloud run of any real phase should not be this one.
+
