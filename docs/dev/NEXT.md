@@ -10,16 +10,20 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[09 — NER fails closed](milestones/F05-privacy-security-hardening/phase-09-ner-fails-closed.md)
-(`todo`, dispatch on a LOCAL executor only).** Phases 06, 07, 10 and 11 are
-done. Finding 11 is closed (`e08676b`): for a cloud executor, model-written code
-runs only inside bwrap, and `.git/config`, `.git/hooks` and `rexymcp.toml` are
-protected. Phase 09 fixes finding 8: a cut-off NER reply is recorded as
-"no PII", so names in dense files reach a cloud model (confirmed live
-2026-09-17: 300 names came back with `finish_reason: length`).
-**Cloud dispatch for real projects stays off until the user lifts it;** the
-architect recommends waiting for phase 09. Phase 01 stays `blocked` on finding
-9 (phase 08, not drafted). Routing once cloud is allowed: local executor first,
+[08 — project vocabulary](milestones/F05-privacy-security-hardening/phase-08-project-vocabulary.md)
+(`todo`, dispatch on a LOCAL executor only).** Phases 06, 07, 09, 10 and 11 are
+done: findings 7, 8, 10 and 11 are closed. A cloud executor's code now runs only
+inside bwrap, `.git/` and `rexymcp.toml` are protected, and a cut-off PII scan
+reply can no longer pass as "no PII" (verified live: a 300-name file that
+returned nothing now returns all 300). Phase 08 is the last open finding, 9:
+the pre-scan tags the project's own name as an organization, so the executor
+sees `[REDACTED:org]-executor` instead of crate names and burns its turns
+guessing. It blocks phase 01.
+
+**Cloud dispatch for real projects is off until the user lifts it.** The
+leak-shaped findings are fixed; the architect recommends waiting for phase 08,
+because a cloud run is unproductive until the project's own name survives
+redaction. Routing once cloud is allowed: local executor first,
 `deepseek-flash` for escalation, both for parallel work. Committing from a
 cloud executor in a worktree does not work yet (phase 11, Out of scope). The
 NER engine is on port 8000, model `RedHatAI/Qwen3.8-27B-INT4`.
