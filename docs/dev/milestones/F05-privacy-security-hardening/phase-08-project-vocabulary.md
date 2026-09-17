@@ -1,12 +1,47 @@
 # Phase 8: keep the project's own names out of the redaction dictionary
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** in-progress (bounced: [bug-08-1](bugs/bug-08-1.md))
 **Depends on:** phase 09 (done)
 **Estimated diff:** ~260 lines, about half of it tests
 **Tags:** language=rust, kind=security, size=s
 
 > **Dispatch on a LOCAL executor only.** This phase changes PII redaction.
+
+## Bounce — bug-08-1 (read this first)
+
+**The gates are green, the live tests pass and the tree is clean. That is
+expected here and is NOT evidence that the phase is done.** Spec §1–§5 are
+implemented and approved: `PiiIndex::retaining`, `project_vocabulary`,
+`is_project_name`, the `build_egress_index` wiring and the `docs/privacy.md`
+sentence. The architect verified them independently, including the live run
+(`live terms: [("Alice Fernandez", PersonName)]`) and a mutation check: flipping
+the containment test to `v.contains(t)` fails
+`is_project_name_drops_identifiers_not_people`. Do not change any of that.
+
+There is **one line** left to remove.
+
+`executor/src/privacy/egress.rs:557`, in
+`live_build_egress_index_keeps_project_names_out`:
+
+```rust
+        eprintln!("live terms: {terms:?}");
+```
+
+Delete it. `STANDARDS.md` §1 forbids leftover `println!`/`dbg!` debug calls,
+with no test exemption, and this one prints the contents of a PII dictionary.
+The assertion messages below it already include `{terms:?}` on failure, so
+nothing is lost.
+
+**Finish conditions. Check each one yourself before reporting:**
+
+- `grep -c 'println!' executor/src/privacy/egress.rs` prints `0`.
+- The End-to-end verification block runs again and
+  `live_build_egress_index_keeps_project_names_out` still passes. Paste
+  `/tmp/p08_live.txt` into the Update Log. It takes about 2 seconds now.
+- `cargo test` still reports 716 / 2 / 1174 (10 ignored): this fix adds no
+  test and removes none.
+- All four gates pass.
 
 ## Goal
 
@@ -195,6 +230,8 @@ redacting them only breaks the executor.
       name and no project name (ignored test, run in E2E).
 - [ ] Each new non-ignored test fails when its fix is reverted (show one in the
       Update Log).
+- [ ] bug-08-1: no debug print remains —
+      `grep -c 'println!' executor/src/privacy/egress.rs` is `0`.
 - [ ] `cargo fmt --all --check`, `cargo build`,
       `cargo clippy --all-targets --all-features -- -D warnings` and
       `cargo test` all pass.
@@ -278,6 +315,8 @@ tests must pass: `live_build_egress_index_finds_pii` (unchanged) and
       `executor/src/privacy/prescan.rs`, including their test modules.
 - [x] May add the sentence in Spec §5 to `docs/privacy.md`.
 - [x] May add `#[ignore = …]` to test 5 only.
+- [x] bug-08-1: may delete the `eprintln!` line in
+      `live_build_egress_index_keeps_project_names_out`. No other change.
 - [ ] May add a dependency or a config key — **no.** `serde_json` is already
       there.
 - [ ] May edit `executor/src/privacy/redact.rs`, `ner.rs`, or `mcp/**` —
@@ -449,3 +488,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** ef974c0dded83efdc153fcdd82da0d9051df79fb
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Update — 2026-09-17 (review: bounced)
+
+**Bug filed:** [bug-08-1](bugs/bug-08-1.md) (nit). The implementation is
+correct and verified: independent re-run of all four gates
+(716 + 2 + 1174, 10 ignored), both live tests green against the real engine
+(`live terms: [("Alice Fernandez", PersonName)]` — the person survives, the
+project name is gone), the committed `PiiIndex::retaining` filters rather than
+emptying, and a mutation check on the containment direction fails the right
+test. One DoD box is unmet: a debug `eprintln!` printing the PII dictionary was
+left in the live test. See the Bounce section at the top.
+
