@@ -1904,6 +1904,22 @@ mod tests {
     }
 
     #[test]
+    fn read_all_collects_each_record_type_in_one_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phase_runs.jsonl");
+        // Write one of each: PhaseRun, activity, ledger, review
+        write_phase_run_line(dir.path());
+        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
+        write_review_line(dir.path());
+
+        let records = read_all(&path).unwrap();
+        assert_eq!(records.runs.len(), 1);
+        assert_eq!(records.activities.len(), 1);
+        assert_eq!(records.ledgers.len(), 1);
+    }
+
+    #[test]
     fn fold_ledger_keeps_milestones_apart() {
         let l1 = ArchitectLedger {
             record: ARCHITECT_LEDGER_RECORD_TAG.to_string(),

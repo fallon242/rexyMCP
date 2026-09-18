@@ -1,7 +1,7 @@
 # Phase 2: ledger milestone dimension
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** in-progress (bounced — [bug-02-1](bugs/bug-02-1.md): restore deleted test)
+**Status:** in-progress
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~350 lines, about two-thirds tests
 **Tags:** language=rust, kind=feature, size=m
@@ -341,6 +341,134 @@ harvest at review.
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 16:25 (progress)
+
+Restored `read_all_collects_each_record_type_in_one_pass` in
+`executor/src/store/telemetry.rs` exactly as quoted in bug-02-1. Verified the
+executor crate now reports 1208 tests and the specific test passes.
+
+### Update — 2026-09-18 16:25 (end-to-end verification)
+
+```
+$ cargo test -p rexymcp-executor read_all_collects_each_record_type_in_one_pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.30s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 1 test
+test store::telemetry::tests::read_all_collects_each_record_type_in_one_pass ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1217 filtered out; finished in 0.00s
+```
+
+```
+$ cargo test -p rexymcp harvest:: -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.37s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-cd922bc1926100ad)
+
+running 26 tests
+test harvest::tests::harvest_attributes_messages_to_last_named_milestone ... ok
+test harvest::tests::harvest_emits_zero_none_bucket_when_all_messages_attributed ... ok
+test harvest::tests::harvest_appends_everything_into_an_empty_store ... ok
+test harvest::tests::harvest_splits_cache_creation_5m_1h ... ok
+test harvest::tests::harvest_candidate_carries_the_record_tag ... ok
+test harvest::tests::harvest_last_ts_is_max_message_timestamp ... ok
+test harvest::tests::harvest_skips_appending_unchanged_records ... ok
+test harvest::tests::harvest_dedups_by_message_id ... ok
+test harvest::tests::harvests_subagent_transcripts_under_session_dir ... ok
+test harvest::tests::milestone_slugs_rejects_non_ids ... ok
+test harvest::tests::harvest_ignores_tool_input_naming_two_milestones ... ok
+test harvest::tests::milestone_slugs_extracts_milestone_ids ... ok
+test harvest::tests::parse_iso_epoch_at_unix_epoch ... ok
+test harvest::tests::parse_iso_handles_missing_and_extra_fraction ... ok
+test harvest::tests::harvest_is_idempotent ... ok
+test harvest::tests::parse_iso_rejects_malformed ... ok
+test harvest::tests::harvest_buckets_by_session_model_skill ... ok
+test harvest::tests::parse_iso_epoch_ms_matches_known_instant ... ok
+test harvest::tests::harvest_appends_when_a_bucket_changes ... ok
+test harvest::tests::ignores_non_subagent_session_subdirs ... ok
+test harvest::tests::harvest_resets_milestone_per_transcript_file ... ok
+test harvest::tests::subagent_dedup_by_message_id_across_levels ... ok
+test harvest::tests::reharvest_replaces_legacy_record_without_double_count ... ok
+test harvest::tests::subagent_transcripts_do_not_inflate_session_count ... ok
+test harvest::tests::subagent_usage_attributes_to_parent_session ... ok
+test harvest::tests::reharvest_with_subagents_is_idempotent ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 701 filtered out; finished in 0.00s
+
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-13fb83281f3fe7ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+```
+
+```
+$ cargo test -p rexymcp-executor ledger -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 6 tests
+test store::telemetry::tests::fold_ledger_keeps_milestones_apart ... ok
+test store::telemetry::tests::fold_ledger_keeps_last_per_key ... ok
+test store::telemetry::tests::ledger_without_milestone_field_reads_as_none ... ok
+test store::telemetry::tests::read_all_activities_and_ledgers_are_schema_version_gated ... ok
+test store::telemetry::tests::architect_ledger_roundtrips_through_store ... ok
+test store::telemetry::tests::read_ledger_ignores_other_record_types ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1212 filtered out; finished in 0.00s
+```
+
+```
+$ cargo test -p rexymcp costs::
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-cd922bc1926100ad)
+
+running 33 tests
+test costs::tests::cache_hit_pct_none_when_no_activity ... ok
+test costs::tests::cache_hit_pct_prompt_side_ratio ... ok
+test costs::tests::cache_row_shows_hit_ratio_when_cache_present ... ok
+test costs::tests::cache_row_dashes_when_no_cache_activity ... ok
+test costs::tests::by_skill_percent_is_token_share ... ok
+test costs::tests::costs_output_contains_no_dollar_sign ... ok
+test costs::tests::display_skill_maps_other_to_architect_chat ... ok
+test costs::tests::cache_split_alignment_matches_decimal_column ... ok
+test costs::tests::display_skill_passes_through_named_skills ... ok
+test costs::tests::cache_split_lines_renders_four_rows ... ok
+test costs::tests::format_costs_by_skill_percent_zero_when_total_zero ... ok
+test costs::tests::format_costs_header_has_no_baseline_column ... ok
+test costs::tests::format_costs_omits_by_skill_when_empty ... ok
+test costs::tests::format_costs_shows_milestone_when_some ... ok
+test costs::tests::format_costs_omits_milestone_when_none ... ok
+test costs::tests::ledger_row_order_is_architect_executor_cache ... ok
+test costs::tests::ledger_shows_counts_and_cache_row ... ok
+test costs::tests::ledger_tokens_dash_aligns_with_decimal_column ... ok
+test costs::tests::ledger_tokens_header_is_tokens ... ok
+test costs::tests::ledger_tokens_mode_has_no_parens ... ok
+test costs::tests::scope_costs_milestone_counts_only_matching_ledgers ... ok
+test costs::tests::scope_costs_sums_cache_buckets ... ok
+test costs::tests::scope_costs_none_sums_all_milestones ... ok
+test costs::tests::scope_report_copies_class_fields_and_folds_totals ... ok
+test costs::tests::scope_report_no_runs_is_zero ... ok
+test costs::tests::scope_report_json_is_token_only ... ok
+test costs::tests::session_scope_cache_cells_from_summary ... ok
+test costs::tests::skill_costs_empty_is_empty ... ok
+test costs::tests::skill_costs_folds_other_and_architect_chat_into_one_row ... ok
+test costs::tests::skill_costs_groups_and_folds_per_skill ... ok
+test costs::tests::skill_costs_renders_other_as_architect_chat ... ok
+test costs::tests::skill_costs_sorted_by_tokens_desc ... ok
+test costs::tests::load_cost_report_telemetry_disabled_errors ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.00s
+```
+
+Full `cargo test` summary:
+```
+test result: ok. 727 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.15s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1208 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.20s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
 
 ### Update — 2026-09-18 15:53 (complete, server-authored)
 
