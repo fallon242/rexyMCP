@@ -9,14 +9,12 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F11 — Contract Update Log wording** ([README](milestones/F11-contract-update-log-wording/README.md)), opened 2026-09-18 on human go-ahead.
+**Active phase: [phase-01-log-entry-wording](milestones/F11-contract-update-log-wording/phase-01-log-entry-wording.md)** — `todo`, route local.
 
 **F10 — Remove PII debug print: DONE 2026-09-18** at one phase,
 `approved_first_try`. F05 bug-08-1 closed. Retrospective in
 [F10/README.md](milestones/F10-remove-pii-debug-print/README.md).
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F09 — Executor-contract calibration folds: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract no longer asks the executor to name itself
@@ -102,9 +100,7 @@ the fold did not hold.
 
 ## Candidate milestones (none opened, none drafted)
 
-- **Contract Update Log wording.** Contract step 2 calls the started entry "the
-  only Update Log entry you write", contradicting `WORKFLOW.md`'s required
-  end-to-end entry. Suspected cause of the 2× "no Update Log entries" counter.
+- None listed.
 
 ## History
 
