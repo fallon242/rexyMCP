@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F12 — Telemetry unparsed count** ([README](milestones/F12-telemetry-unparsed-count/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-count-unparsed](milestones/F12-telemetry-unparsed-count/phase-01-count-unparsed.md)** — `todo`, route local.
+**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
 
 **F11 — Contract Update Log wording: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract now requires an `(end-to-end verification)`

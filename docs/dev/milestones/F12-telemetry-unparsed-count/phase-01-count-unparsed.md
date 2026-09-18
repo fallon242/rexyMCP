@@ -1,7 +1,7 @@
 # Phase 1: count unparsed
 
 **Milestone:** F12 — Telemetry unparsed count
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~150 lines, most of it tests
 **Tags:** language=rust, kind=feature, size=s
@@ -418,3 +418,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** a73e8c252b01271be2318a0e1bd19b993bacaaf3
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 78 turns
+- **Scope deviations:** none (`a73e8c2`). No test removed.
+- **Verification:** gates 729 / 2 / 1218. `rexymcp costs` on the live store prints no unreadable line; on a copy with one field-less ledger line and one non-JSON line it prints `Unreadable telemetry records: 2 (current schema, failed to parse)`. Mutation: dropping the ledger arm's count fails `read_all_counts_current_version_line_that_fails_to_parse`.
+- **Calibration:** first dispatch on the F11 contract — started, progress and `(end-to-end verification)` entries all present, no model named, pasted `test result:` lines. The F11 fold held on its first live run. Two nits: the entries were placed above the `<!-- entries appended below this line -->` marker, and the Summary misplaced the `write_review_line` gotcha in `costs.rs` (it is in `telemetry.rs`; nothing touched it).
