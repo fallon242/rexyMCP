@@ -153,6 +153,7 @@ enabled = false                                 # opt-in; the gate is inert unti
 # vault_dir = ".rexymcp/vault"                   # default: <repo>/.rexymcp/vault
 # redact_executor_egress = true                 # M45: force egress redaction on/off; default auto (cloud only)
 # scan_globs = ["data/**"]                       # M46: limit the egress pre-scan to these repo-relative globs
+# terms_file = "terms.json"                       # F05: JSON file of literal terms that must never reach a cloud model; path relative to the repo root
 ```
 
 Absent `[privacy]` (or `enabled = false`) → no anonymization, no boundary scrub,
@@ -165,9 +166,12 @@ no egress protection: the architect and executor behave in the default manner.
   a miss is a leak).
 - **Vault = honeypot.** Encrypted and git-ignored, but it concentrates every
   original. Protect the vault dir and its key like a secret.
-- **Executor egress (②) is not automated** — a prototype proved the intended
-  round-trip corrupts files (the model replaces tokens with fabricated values), so
-  it was abandoned. A cloud executor over a PII-bearing repo is a documented
-  residual risk; use a local executor or pre-scrub with the CLI.
+- **Executor egress (②) is best-effort, not a guarantee.** Redaction is
+  one-way: a detected artifact is replaced with `[REDACTED:kind]` or a literal
+  term's `[CODE]`, and nothing restores it — the reversible round-trip was
+  abandoned after a prototype showed the model replaces tokens with fabricated
+  values. What reaches a cloud executor is only as complete as detection: the
+  NER pass is best-effort on names and addresses, so a name it misses is a
+  leak. Structured PII and listed literal terms are reliable.
 - **This cannot retro-protect a chat.** PII already sent to Claude is already in
   the cloud. Scrub *before* sending.

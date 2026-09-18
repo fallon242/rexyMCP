@@ -89,8 +89,7 @@ impl Default for ContextConfig {
 
 /// PII ingestion gate (M44). `enabled` is opt-in (default false) until boundary
 /// enforcement lands; `engine_*` point at the local detection model (Qwen on the
-/// LAN, detection only); `vault_dir` locates the reversible token store; `kinds`
-/// narrows which PII classes are masked (empty = all).
+/// LAN, detection only); `vault_dir` locates the reversible token store.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PrivacyConfig {
@@ -98,7 +97,6 @@ pub struct PrivacyConfig {
     pub engine_base_url: Option<String>,
     pub engine_model: Option<String>,
     pub vault_dir: Option<PathBuf>,
-    pub kinds: Vec<String>,
     /// M45: force executor-egress redaction on/off. `None` = auto (redact iff the
     /// executor endpoint is a cloud host).
     pub redact_executor_egress: Option<bool>,
@@ -498,6 +496,14 @@ impl Config {
 
         if path.exists() {
             let content = std::fs::read_to_string(path)?;
+            if Self::removed_privacy_kinds(&content) {
+                return Err(Error::Config(format!(
+                    "{}: `[privacy] kinds` was removed in F05 — it never narrowed \
+                     detection, it only looked like it did. Delete the line; every \
+                     detected PII class is masked.",
+                    path.display()
+                )));
+            }
             let loaded: Config =
                 toml::from_str(&content).map_err(|e| Error::Config(e.to_string()))?;
             config = loaded;
@@ -512,6 +518,16 @@ impl Config {
         }
 
         Ok(config)
+    }
+
+    /// True when `content` still sets the removed `[privacy] kinds` key. Parsed as
+    /// TOML rather than grepped, so a `kinds` key in another table — or the word in
+    /// a comment or string — does not trip it.
+    fn removed_privacy_kinds(content: &str) -> bool {
+        toml::from_str::<toml::Value>(content)
+            .ok()
+            .and_then(|v| v.get("privacy").and_then(|p| p.get("kinds")).map(|_| true))
+            .unwrap_or(false)
     }
 
     pub fn apply_overrides(&mut self, get: impl Fn(&str) -> Option<String>) {
@@ -694,7 +710,79 @@ engine_model = "local-ner-model"
 
         let cfg = Config::load(&path).unwrap();
         assert!(!cfg.privacy.enabled);
-        assert!(cfg.privacy.kinds.is_empty());
+    }
+
+    #[test]
+    fn removed_privacy_kinds_fails_the_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"[project]
+id = "x"
+
+[privacy]
+enabled = true
+kinds = ["email"]
+"#
+        )
+        .unwrap();
+        drop(f);
+
+        let result = Config::load(&path);
+        match result {
+            Err(Error::Config(m)) => {
+                assert!(m.contains("kinds"), "message should name the key: {m}");
+                assert!(
+                    m.contains(path.to_string_lossy().as_ref()),
+                    "message should name the path: {m}"
+                );
+            }
+            other => panic!("expected Err(Error::Config), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kinds_in_another_table_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut cases = vec![
+            (
+                "kinds in [executor] table",
+                "[project]\nid = \"x\"\n\n[executor]\nprovider = \"openai\"\nmodel = \"m\"\nbase_url = \"http://localhost:1/v1\"\nkinds = [\"email\"]\n",
+            ),
+            (
+                "kinds in a comment under [privacy]",
+                "[project]\nid = \"x\"\n\n[privacy]\nenabled = true\n# kinds = [\"email\"]\n",
+            ),
+            (
+                "the word kinds inside a string value",
+                "[project]\nid = \"x\"\n\n[privacy]\nenabled = true\nterms_file = \"kinds.json\"\n",
+            ),
+        ];
+        for (name, body) in cases.drain(..) {
+            let path = dir.path().join("config.toml");
+            std::fs::write(&path, body).unwrap();
+            let cfg =
+                Config::load(&path).unwrap_or_else(|e| panic!("{name}: expected Ok, got Err({e})"));
+            assert!(cfg.project.id.as_deref() == Some("x"));
+        }
+    }
+
+    #[test]
+    fn malformed_toml_still_reports_a_parse_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.toml");
+        std::fs::write(&path, "not = [valid\n").unwrap();
+
+        let result = Config::load(&path);
+        match result {
+            Err(Error::Config(m)) => {
+                assert!(!m.contains("kinds"), "swallowed the real parse error: {m}");
+            }
+            other => panic!("expected Err(Error::Config), got {other:?}"),
+        }
     }
 
     #[test]

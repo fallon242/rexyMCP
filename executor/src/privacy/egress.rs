@@ -570,7 +570,6 @@ mod tests {
             engine_base_url: Some(base_url),
             engine_model: Some(model),
             vault_dir: None,
-            kinds: vec![],
             redact_executor_egress: None,
             scan_globs: vec![],
             terms_file: None,

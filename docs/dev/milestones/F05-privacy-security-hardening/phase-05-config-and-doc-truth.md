@@ -1,7 +1,7 @@
 # Phase 5: remove the inert `privacy.kinds`, and make the privacy doc true
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase 01 (done, `terms_file`), phase 02 (done, session-log
 scrub). Both added behavior this phase documents.
 **Estimated diff:** ~180 lines, about half of it tests
@@ -337,6 +337,43 @@ that the shipped binary refuses the config.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 11:24 (progress)
+
+**Executor:** local rexyMCP run (RedHatAI/Qwen3.8-27B-INT4). Pre-flight clean:
+`git status --short` empty, `cargo test -p rexymcp-executor config` → 77 passed,
+1 ignored. All four spec tasks implemented and verified.
+
+### Update — 2026-09-18 11:24 (end-to-end verification)
+
+Removed-key refusal vs. the same config with the key gone (one session, same
+binary):
+
+```
+with_kinds_exit=1
+without_kinds_exit=1
+--- with kinds:
+Error: config: /tmp/tmp.sqoebCuNzW/repo/rexymcp.toml: `[privacy] kinds` was removed in F05 — it never narrowed detection, it only looked like it did. Delete the line; every detected PII class is masked.
+--- without kinds (positive control):
+unreachable: http://localhost:9/v1
+doc_stale_claim=0
+doc_terms_file=2
+```
+
+Both runs exit 1 (health exits 1 on both a config error and an unreachable
+endpoint — the message text is the signal): with `kinds = ["email"]` the config
+is refused naming both the path and the key; with the line removed, the health
+check runs and reports `unreachable: http://localhost:9/v1`, proving the refusal
+came from the key, not from a broken config.
+
+Spec-pinned literal grep: `grep -c 'Qwen on the' executor/src/config.rs` = 1 (the
+model word survived the phase unchanged); `grep -c 'is a cloud host'
+executor/src/config.rs` = 1 (the `redact_executor_egress` comment intact).
+
+Test-revert proof: with the `Config::load` guard bypassed (call replaced by a
+no-op call that still compiles), `removed_privacy_kinds_fails_the_load` fails
+with `expected Err(Error::Config), got Ok(Config { … privacy: PrivacyConfig {
+enabled: true, … } })`; the guard restored, it passes.
 
 ### Update — 2026-09-17 (escalation)
 
