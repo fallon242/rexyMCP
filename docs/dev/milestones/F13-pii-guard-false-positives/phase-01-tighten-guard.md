@@ -3,14 +3,14 @@
 **Milestone:** F13 — PII guard false positives
 **Status:** todo
 **Depends on:** none
-**Estimated diff:** ~70 lines
+**Estimated diff:** ~80 lines
 **Tags:** language=bash, kind=bugfix, size=s
 
 ## Goal
 
 `plugin/hooks/pii-guard.sh` blocks harmless prompts. Replace its detection
 block with the version below, which the architect has already run against the
-full payload table in the Test plan (22 of 22 as specified). Update the one
+full payload table in the Test plan (all 21 rows `ok`). Update the one
 paragraph of `docs/privacy.md` that describes the rules.
 
 ## Pre-flight
@@ -19,10 +19,33 @@ paragraph of `docs/privacy.md` that describes the rules.
    in a `(progress)` entry. Expected on the current script (measured by the
    architect 2026-09-18): `two epochs`, `telemetry+run id`, `git remote scp`
    and `git remote ssh` show `FAIL` (got 2, want 0), and `tel word+digits`
-   shows `FAIL` (got 0, want 2 — the old keyword rule needs `tel:` or `tele`);
-   every other row is `ok`.
+   shows `FAIL` (got 0, want 2 — the old keyword rule needs `tel:` or `tele`),
+   and `all-digit uuid` shows `FAIL` (got 2, want 0); every other row is `ok`.
 
 ## Spec
+
+### 0. `plugin/hooks/pii-guard.sh` — remove UUIDs before scanning
+
+Claude Code sends a fresh random `prompt_id` UUID with every prompt (plus
+`session_id`, `agent_id` and paths built from them). When a UUID's hex groups
+happen to be all digits, the card rule fires, so about 1 prompt in 125 is
+blocked at random — "commit" was blocked this way. Replace:
+
+```bash
+flat="$(printf '%s' "$payload" | tr -d '\n\r' | sed 's/\\n//g')"
+```
+
+with:
+
+```bash
+flat="$(printf '%s' "$payload" | tr -d '\n\r' | sed 's/\\n//g')"
+
+# Claude Code puts UUIDs in every payload (session_id, a fresh prompt_id per
+# prompt, paths built from them). Their all-digit hex groups can read as a card
+# or phone number, so a prompt could be blocked at random. No PII has the
+# 8-4-4-4-12 hex shape: remove UUIDs before any check runs.
+flat="$(printf '%s' "$flat" | sed -E 's/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/ /g')"
+```
 
 ### 1. `plugin/hooks/pii-guard.sh` — replace the detection block
 
@@ -200,13 +223,14 @@ telemetry+run id|0|{"prompt":"telemetry for run 1789743238"}
 git remote scp|0|{"prompt":"clone git@github.com:fallon242/rexyMCP.git"}
 git remote ssh|0|{"prompt":"ssh://git@github.com/fallon242/rexyMCP"}
 empty prompt|0|{"prompt":""}
+all-digit uuid|0|{"prompt_id":"12345678-1234-4567-8901-234567890123","prompt":"commit"}
 TABLE
 echo "privacy off  $(run "$T/off" '{"prompt":"jane@acme.com"}') want 0"
 echo "no toml      $(run "$T" '{"prompt":"jane@acme.com"}') want 0"
 printf '%s' '{"prompt":"3782 822463 10005"}' | CLAUDE_PROJECT_DIR="$T/on" bash "$G" 2>&1 | head -2
 ```
 
-**Finish condition:** 20 table rows `ok`, both trailing lines `want 0` with
+**Finish condition:** 21 table rows `ok`, both trailing lines `want 0` with
 `0`, and the last command prints `(matched: card number (Luhn-valid)).`
 
 ## End-to-end verification
