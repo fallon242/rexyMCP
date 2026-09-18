@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F08 — Architect tokens by milestone** ([README](milestones/F08-architect-tokens-by-milestone/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: none drafted.** Phase-01 `done` 2026-09-18; phase-02 (ledger milestone dimension) is next, via `/rexymcp:architect next`.
+**Active phase: [phase-02-ledger-milestone-dimension](milestones/F08-architect-tokens-by-milestone/phase-02-ledger-milestone-dimension.md)** — `todo`, route local. Phase-01 `done` 2026-09-18.
 
 **F07 — Completion-entry date: DONE 2026-09-18** at one phase,
 `approved_first_try`, 54 local turns. Server completion entries now head
