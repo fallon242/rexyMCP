@@ -1,7 +1,7 @@
 # Phase 1: contract folds
 
 **Milestone:** F09 — Executor-contract calibration folds
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -300,3 +300,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** bfb8bc8fa9837a3b1043d6d80ecbfbee04502336
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 28 turns
+- **Scope deviations:** none. All four contract replacements match the spec byte for byte.
+- **Verification:** gates 727 / 2 / 1210. Mutation: restoring the pre-phase contract fails both new tests (9 passed, 2 failed). The Summary pasted `test result:` lines instead of claiming a match.
+- **Calibration:** the spec's test-first step (write test 1, quote its failure) was skipped — 1×, noted. The commit is typed `docs:` although it adds Rust tests — nit. The started entry reads "**Executor:** executor" — no model guessed, even under the old contract.

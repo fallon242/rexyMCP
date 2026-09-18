@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F09 — Executor-contract calibration folds** ([README](milestones/F09-executor-contract-folds/README.md)), opened 2026-09-18 on human sign-off.
-**Active phase: [phase-01-contract-folds](milestones/F09-executor-contract-folds/phase-01-contract-folds.md)** — `todo`, route local.
+**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
 
 **F08 — Architect tokens by milestone: DONE 2026-09-18** at two phases (one
 `approved_first_try`, one `approved_after_1`), all local. Milestone-scope costs
