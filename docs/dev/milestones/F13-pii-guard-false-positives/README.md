@@ -29,7 +29,7 @@ Reproduced 2026-09-18 against `plugin/hooks/pii-guard.sh`:
 
 | #  | Phase                                                                      | Status |
 |----|----------------------------------------------------------------------------|--------|
-| 01 | tighten-guard ([phase-01-tighten-guard.md](phase-01-tighten-guard.md))     | in-progress   |
+| 01 | tighten-guard ([phase-01-tighten-guard.md](phase-01-tighten-guard.md))     | review        |
 
 ## Notes
 
