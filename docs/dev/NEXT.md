@@ -9,16 +9,14 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F13 — PII guard false positives** ([README](milestones/F13-pii-guard-false-positives/README.md)), opened 2026-09-18 on human go-ahead.
+**Active phase: [phase-01-tighten-guard](milestones/F13-pii-guard-false-positives/phase-01-tighten-guard.md)** — `todo`, route local only.
 
 **F12 — Telemetry unparsed count: DONE 2026-09-18** at one phase,
 `approved_first_try`. `read_all` counts unusable current-schema lines and
 `rexymcp costs` prints them. Retrospective in
 [F12/README.md](milestones/F12-telemetry-unparsed-count/README.md).
 **Rebuild pending** for F12 to reach the installed `rexymcp`.
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F11 — Contract Update Log wording: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract now requires an `(end-to-end verification)`
@@ -116,12 +114,7 @@ the fold did not hold.
 
 ## Candidate milestones (none opened, none drafted)
 
-- **PII guard false positives.** `plugin/hooks/pii-guard.sh` blocks harmless
-  prompts: two epoch-ms values separated by a space, any 14+ digit run,
-  `git@github.com` remotes, dotted 3-3-4 digits, and "tele…" (telemetry)
-  next to a 9–10 digit number. Reproduced 2026-09-18; blocking the user in
-  two terminals. Proposed: Luhn + bounded card match, whole-word `tel`, scan
-  only the `prompt` field, name the matched pattern. Local-only (privacy code).
+- None listed.
 
 ## History
 
