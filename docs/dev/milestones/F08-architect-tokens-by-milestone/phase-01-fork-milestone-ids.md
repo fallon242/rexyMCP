@@ -1,7 +1,7 @@
 # Phase 1: fork milestone ids
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** in-progress
+**Status:** review
 **Depends on:** none
 **Estimated diff:** ~50 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=xs
@@ -189,3 +189,109 @@ $ grep -n "F07-completion-entry-date" mcp/src/runner.rs
 ```
 
 Full verification commands all passed: `cargo fmt --all --check` (FMT_OK, no output), `cargo build` (Finished, 0 warnings), `cargo clippy --all-targets --all-features -- -D warnings` (Finished), `cargo test` (720 passed / 2 integration passed, 0 failed).
+
+### Update — 2026-09-18 15:15 (complete, server-authored)
+
+**Summary:** Done. Working tree is clean, commit `6d23279` contains all changes, and the phase doc remains at `in-progress` for the server to finalize.
+
+**Summary + Notes for review**
+
+Implemented F08 phase 01: `milestone_id_from_path` in `mcp/src/runner.rs:178-193` now accepts any immediate-parent directory starting with one ASCII uppercase letter followed by a digit, replacing the hard-coded `'M'` `strip_prefix` check that made all 24 fork (`F07-…`) runs store `milestone_id: None`. The signature, privacy, and the `runner.rs:296` call site are unchanged; no dependencies, regex, or changes to `costs.rs`/`profile.rs`/telemetry were introduced.
+
+Per the spec's test plan, I wrote test #2 (F-prefix) first against the *old* function, captured the failure mechanically (`left: None / right: Some("F07-completion-entry-date")`, quoted in the Update Log), then replaced the function and added tests #1 and #3. All 6 negative cases (plain `milestones` parent, `M`+letter, lowercase, digit-first, single `M`, no parent) return `None`.
+
+Verification: `cargo test -p rexymcp milestone_id_from_path` → 3 passed; `cargo test -p rexymcp` unit line → 720 passed (717 + 3, matching the pre-flight baseline); `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, and full `cargo test` all pass with zero warnings. A grep proving the `F07-completion-entry-date` literal landed in the doc comment and test is included in the Update Log. No deviations from the spec.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+
+
+TEST
+jects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1206 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.23s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F08-architect-tokens-by-milestone/README.md` — +1 -1
+- `docs/dev/milestones/F08-architect-tokens-by-milestone/phase-01-fork-milestone-ids.md` — +68 -1
+- `mcp/src/runner.rs` — +46 -12
+
+**Commit:** 6d2327964cf3f0125bb85e43e25f38338ca80cfb
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
