@@ -9,8 +9,14 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F10 — Remove PII debug print** ([README](milestones/F10-remove-pii-debug-print/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F10 — Remove PII debug print: DONE 2026-09-18** at one phase,
+`approved_first_try`. F05 bug-08-1 closed. Retrospective in
+[F10/README.md](milestones/F10-remove-pii-debug-print/README.md).
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F09 — Executor-contract calibration folds: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract no longer asks the executor to name itself
@@ -48,9 +54,7 @@ in 89 turns. Route cloud work to greenfield or additive phases; keep in-place
 edits in dense existing code local. Cloud goes through the CLI
 (`REXYMCP_API_KEY=$DEEPSEEK_API_KEY REXYMCP_BASE_URL=https://api.deepseek.com/v1 REXYMCP_MODEL=deepseek-flash rexymcp run-phase …`);
 the pre-scan index is cached now. A cloud executor still cannot commit inside a
-git worktree, and gate output still reaches the model. A debug `eprintln!` of
-the PII dictionary remains in `executor/src/privacy/egress.rs` (bug-08-1,
-waived). `max_turns` is 220 as of 2026-09-18. The NER engine is on port 8000,
+git worktree, and gate output still reaches the model. `max_turns` is 220 as of 2026-09-18. The NER engine is on port 8000,
 model `RedHatAI/Qwen3.8-27B-INT4`.
 
 ## Open items
@@ -59,9 +63,6 @@ Live state only. Anything resolved has been removed — see § History.
 
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
   is a live-capture chore carried from the M46 close.
-- **The waived `eprintln!` of the PII dictionary** in
-  `executor/src/privacy/egress.rs` ([bug-08-1](milestones/F05-privacy-security-hardening/bugs/bug-08-1.md)).
-  Delete it in the next phase that touches that file.
 - **F01 is parked, not blocked** — it is not a prerequisite for anything, and
   `deny_unknown_fields` on `ModelOverride` does not gate F02's `[privacy]`
   config. **Before landing it, reconcile its phase-01 doc:** it claims
@@ -96,11 +97,14 @@ the fold did not hold.
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
+| Executor writes no Update Log entries | 2× | F10 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
 
 ## Candidate milestones (none opened, none drafted)
 
-- None listed.
+- **Contract Update Log wording.** Contract step 2 calls the started entry "the
+  only Update Log entry you write", contradicting `WORKFLOW.md`'s required
+  end-to-end entry. Suspected cause of the 2× "no Update Log entries" counter.
 
 ## History
 
