@@ -1,7 +1,7 @@
 # Phase 3: harden the vault container
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 02 (done) — it set the owner-only pattern for the session
 log; this phase applies the same idea to the vault.
 **Estimated diff:** ~250 lines, over half of it tests
@@ -572,3 +572,51 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 5195efe934e04d70282624cb7ffd6417579b306d
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none. One `budget_exceeded` at 200 turns, resumed in 46. The
+  single failing test at that point was this spec's error, not the executor's.
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** none.
+- **Calibration:** the spec's test 2 asked for a scenario the implementation
+  legitimately repairs — delete the `.gitignore`, and `open` rewrites it before
+  checking. Checking git's real behavior instead of reasoning about it produced
+  a better test *and* a better claim: git reports a **tracked** file as not
+  ignored even when a rule matches, so the check catches an already-committed
+  vault, which is the case `.gitignore` cannot undo. Verify the mechanism before
+  writing the test that pins it.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1206 passed (10 ignored).
+
+End-to-end, by the architect, against the same command measured before the
+phase:
+
+```
+before:  dir=755  .gitignore=644  key=600  vault.enc=644
+after:   dir=700  .gitignore=600  key=600  vault.enc=600
+         scrub_exit=0   Person_1 emailed Email_1
+```
+
+The tokenizer still works, which is the positive control. The refusal, driven
+by hand through the real binary after committing the vault:
+
+```
+Error: privacy: …/.rexymcp/vault is inside a git work tree and is not ignored —
+the vault holds every original value the tokenizer replaced, so committing it
+would publish them.
+```
+
+Two mutation checks, both caught: removing `ensure_git_ignored` from
+`Vault::open` fails `vault_inside_an_unignored_repo_is_refused`; removing
+`set_dir_owner_only` fails `vault_dir_and_files_are_owner_only`.
+
+The executor reported honestly that the E2E's second run does **not** refuse,
+because `anonymize` rewrites the `.gitignore` before the check. That is correct
+and now documented; the refusal path is the tracked-vault case above.
+
+Noted, not a defect: the `PhaseResult` delivered to the architect showed the NER
+address as `Ip_11:8000`. That is `scrub_phase_result` masking the result on its
+way to a cloud architect. The phase doc on disk holds the real address.
