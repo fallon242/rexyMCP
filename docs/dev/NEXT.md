@@ -9,8 +9,18 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F09 — Executor-contract calibration folds** ([README](milestones/F09-executor-contract-folds/README.md)), opened 2026-09-18 on human sign-off.
-**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F09 — Executor-contract calibration folds: DONE 2026-09-18** at one phase,
+`approved_first_try`. The contract no longer asks the executor to name itself
+and requires pasted result lines for pinned counts. Retrospective in
+[F09/README.md](milestones/F09-executor-contract-folds/README.md).
+
+**Rebuild pending.** F08 (harvester, fork milestone ids) and F09 (contract)
+take effect only after the release binary is rebuilt and `serve` restarted.
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F08 — Architect tokens by milestone: DONE 2026-09-18** at two phases (one
 `approved_first_try`, one `approved_after_1`), all local. Milestone-scope costs
@@ -77,17 +87,18 @@ Live state only. Anything resolved has been removed — see § History.
 ## Calibration counters (below fold threshold)
 
 Kept here because deleting them resets the clock. Fold at 3; see
-`WORKFLOW.md` § Calibration. The model-misreport fold is already known and
-mechanical if it recurs: stop asking the executor to write that field and let
-the server own it, as it already owns the completion tail.
+`WORKFLOW.md` § Calibration. Two rows folded in F09 (2026-09-18) and were
+removed: executor misreports its own model, and executor claims a verification
+it did not run. If either recurs after the rebuild, restart it at 1× and note
+the fold did not hold.
 
 | Pattern | Count | Last seen |
 |---|---|---|
-| Executor claims a verification it did not run | **3× — at threshold** | F08 phase-02 |
 | Architect E2E-block syntax errors | 2× | M46 |
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
-| Executor misreports its own model in its Update Log | **3× — at threshold** | F08 phase-01 |
+| Executor skips the spec's test-first step | 1× | F09 phase-01 |
+| Architect edit deletes adjacent doc text | 1× | F09 open |
 
 ## Candidate milestones (none opened, none drafted)
 
