@@ -9,8 +9,17 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F11 — Contract Update Log wording** ([README](milestones/F11-contract-update-log-wording/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F11 — Contract Update Log wording: DONE 2026-09-18** at one phase,
+`approved_first_try`. The contract now requires an `(end-to-end verification)`
+entry and no longer calls the started entry the only one. Retrospective in
+[F11/README.md](milestones/F11-contract-update-log-wording/README.md).
+**Rebuild pending:** F11 takes effect after the release binary is rebuilt and
+`serve` restarted.
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F10 — Remove PII debug print: DONE 2026-09-18** at one phase,
 `approved_first_try`. F05 bug-08-1 closed. Retrospective in
@@ -95,7 +104,7 @@ the fold did not hold.
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
-| Executor writes no Update Log entries | 2× | F10 phase-01 |
+| Executor writes no Update Log entries | 2× — contract fix landed in F11; watch the first post-rebuild dispatch | F10 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
 
 ## Candidate milestones (none opened, none drafted)
