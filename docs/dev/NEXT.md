@@ -9,18 +9,16 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F10 — Remove PII debug print** ([README](milestones/F10-remove-pii-debug-print/README.md)), opened 2026-09-18 on human go-ahead.
+**Active phase: [phase-01-drop-debug-print](milestones/F10-remove-pii-debug-print/phase-01-drop-debug-print.md)** — `todo`, route local only.
 
 **F09 — Executor-contract calibration folds: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract no longer asks the executor to name itself
 and requires pasted result lines for pinned counts. Retrospective in
 [F09/README.md](milestones/F09-executor-contract-folds/README.md).
 
-**Rebuild pending.** F08 (harvester, fork milestone ids) and F09 (contract)
-take effect only after the release binary is rebuilt and `serve` restarted.
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
+**Rebuilt 2026-09-18 13:28** with F08 and F09; `serve` restarted. The next
+dispatch is the first live check of the F09 contract folds.
 
 **F08 — Architect tokens by milestone: DONE 2026-09-18** at two phases (one
 `approved_first_try`, one `approved_after_1`), all local. Milestone-scope costs
