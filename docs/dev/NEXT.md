@@ -9,8 +9,16 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F12 — Telemetry unparsed count** ([README](milestones/F12-telemetry-unparsed-count/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F12 — Telemetry unparsed count: DONE 2026-09-18** at one phase,
+`approved_first_try`. `read_all` counts unusable current-schema lines and
+`rexymcp costs` prints them. Retrospective in
+[F12/README.md](milestones/F12-telemetry-unparsed-count/README.md).
+**Rebuild pending** for F12 to reach the installed `rexymcp`.
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F11 — Contract Update Log wording: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract now requires an `(end-to-end verification)`
@@ -79,8 +87,9 @@ Live state only. Anything resolved has been removed — see § History.
   `executor/src/store/telemetry.rs` (lines 244/249, 429/434, 548/553, 647/652,
   verified 2026-09-18) drop both malformed lines *and* records whose schema no
   longer matches, so a future field rename or type change goes equally quiet.
-  Being addressed in F12 (a `read_all` unparsed count surfaced by
-  `rexymcp costs`); the per-type readers stay silent.
+  **Partly closed by F12:** `read_all` now counts them and `rexymcp costs`
+  prints the count. The four per-type readers (used by the scorecard,
+  `runs`, `review`) stay silent by decision; `costs` is the canary.
 - **Two open nits**, neither blocking: the `missing_spec_test` / broken-fixture
   failure shape (M37 phase-06), and the `$`-less `executor_val` debit (M38).
 - **`generic-array` 0.14.9** was dropped as unreachable, not deferred:
@@ -102,12 +111,17 @@ the fold did not hold.
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
-| Executor writes no Update Log entries | 2× — contract fix landed in F11; watch the first post-rebuild dispatch | F10 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
+| Executor places entries above the Update Log marker | 1× | F12 phase-01 |
 
 ## Candidate milestones (none opened, none drafted)
 
-- None listed.
+- **PII guard false positives.** `plugin/hooks/pii-guard.sh` blocks harmless
+  prompts: two epoch-ms values separated by a space, any 14+ digit run,
+  `git@github.com` remotes, dotted 3-3-4 digits, and "tele…" (telemetry)
+  next to a 9–10 digit number. Reproduced 2026-09-18; blocking the user in
+  two terminals. Proposed: Luhn + bounded card match, whole-word `tel`, scan
+  only the `prompt` field, name the matched pattern. Local-only (privacy code).
 
 ## History
 
