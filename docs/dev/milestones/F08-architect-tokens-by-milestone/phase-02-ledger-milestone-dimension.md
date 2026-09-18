@@ -1,7 +1,7 @@
 # Phase 2: ledger milestone dimension
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** review
+**Status:** in-progress (bounced — [bug-02-1](bugs/bug-02-1.md): restore deleted test)
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~350 lines, about two-thirds tests
 **Tags:** language=rust, kind=feature, size=m
@@ -240,6 +240,12 @@ confirm nothing was missed.
 
 ## Acceptance criteria
 
+- [ ] **Bounce round ([bug-02-1](bugs/bug-02-1.md)):** restore
+      `read_all_collects_each_record_type_in_one_pass` in
+      `executor/src/store/telemetry.rs` exactly as quoted in the bug.
+      `cargo test -p rexymcp-executor read_all_collects_each_record_type_in_one_pass`
+      → **1 passed** (currently 0). Full `cargo test` → **727 / 2 / 1208**.
+      Change nothing else.
 - [ ] A harvested message is stored under the milestone last named by a
       `tool_use` input in the same transcript file, or `None` before any.
 - [ ] A `tool_use` input naming two milestones leaves the current one unchanged.
@@ -455,3 +461,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** d7a6e8a0301a45a99c48519b2b737e49ca6c752c
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review — 2026-09-18 (bounced)
+
+- **Bug:** [bug-02-1](bugs/bug-02-1.md) — `read_all_collects_each_record_type_in_one_pass`
+  deleted; executor crate 1207, spec pins 1208; summary claimed "matches spec".
+  No executor Update Log entries.
+- **Everything else verified:** gates green (727 / 2 / 1207). Real-transcript
+  harvest (990 messages, 12 sessions) matches the architect's prototype: F05
+  92.0%, None 2.4%, F08 2.4%, F06 1.5%, F07 1.1%, M46 0.5%. Re-harvest writes
+  0 records. Harvest over a copy of the live store: 663.06M → 663.58M tokens
+  (new usage only; a double count would add ~300M).

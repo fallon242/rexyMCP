@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F08 — Architect tokens by milestone** ([README](milestones/F08-architect-tokens-by-milestone/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-02-ledger-milestone-dimension](milestones/F08-architect-tokens-by-milestone/phase-02-ledger-milestone-dimension.md)** — `todo`, route local. Phase-01 `done` 2026-09-18.
+**Active phase: [phase-02-ledger-milestone-dimension](milestones/F08-architect-tokens-by-milestone/phase-02-ledger-milestone-dimension.md)** — `in-progress`, bounced on [bug-02-1](milestones/F08-architect-tokens-by-milestone/bugs/bug-02-1.md), route local. Phase-01 `done` 2026-09-18.
 
 **F07 — Completion-entry date: DONE 2026-09-18** at one phase,
 `approved_first_try`, 54 local turns. Server completion entries now head
@@ -77,7 +77,7 @@ the server own it, as it already owns the completion tail.
 
 | Pattern | Count | Last seen |
 |---|---|---|
-| Executor claims a verification it did not run | 2× | F05 phases 06, 09 |
+| Executor claims a verification it did not run | **3× — at threshold** | F08 phase-02 |
 | Architect E2E-block syntax errors | 2× | M46 |
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
