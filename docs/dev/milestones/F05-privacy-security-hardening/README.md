@@ -277,7 +277,7 @@ dispatch run with reduced protection.
 | 02 | session-log-privacy ([phase-02-session-log-privacy.md](phase-02-session-log-privacy.md)) | done        |
 | 03 | vault container hardening | not drafted |
 | 04 | prompt guard: fail closed, wider patterns, installed | not drafted |
-| 05 | inert config + doc truth | not drafted |
+| 05 | config-and-doc-truth ([phase-05-config-and-doc-truth.md](phase-05-config-and-doc-truth.md)) | todo        |
 | 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |
 | 08 | project-vocabulary ([phase-08-project-vocabulary.md](phase-08-project-vocabulary.md)) | done        |

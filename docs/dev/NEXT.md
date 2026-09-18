@@ -10,23 +10,25 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[02 — session-log privacy](milestones/F05-privacy-security-hardening/phase-02-session-log-privacy.md)
-(`todo`, dispatch on a LOCAL executor only).** Phases 01, 06, 07, 08, 09, 10 and
-11 are done, closing findings 1, 7, 8, 9, 10 and 11. Phase 02 is finding 2:
-redaction protects the wire but the session log keeps the same content in the
-clear, world-readable (`0755`/`0644`). It reuses phase 01's `LiteralTerms` and
-`redact_pii` on every record, and creates the log directory and files
-owner-only. Still not drafted: 03 (vault container), 04 (prompt guard), 05
-(inert config + doc truth).
+[05 — config and doc truth](milestones/F05-privacy-security-hardening/phase-05-config-and-doc-truth.md)
+(`todo`, **cloud executor allowed** — it touches `config.rs` and two docs, not
+the privacy or security plumbing).** Phases 01, 02, 06, 07, 08, 09, 10 and 11
+are done, closing findings 1, 2, 7, 8, 9, 10 and 11. Phase 05 closes findings 5
+and 6: `[privacy] kinds` is declared and never read, and `docs/privacy.md` still
+says executor egress "is not automated" two milestones after it was. The key is
+removed and a config that still sets it fails to load. Still not drafted: 03
+(vault container hardening) and 04 (prompt guard) — both are privacy code, so
+both stay local.
 
-**Cloud dispatch:** every finding the halt waited on is fixed, so lifting it is
-the user's call — not lifted as of 2026-09-17. Routing once allowed: local
-executor first, `deepseek-flash` for escalation, both for parallel work. Two
-open limits: a cloud executor cannot commit inside a git worktree (phase 11,
+**Cloud dispatch** was re-enabled by the user on 2026-09-17. Phase 05 is the
+first intended cloud run; dispatch it through the CLI, since the MCP tool cannot
+reach DeepSeek:
+`REXYMCP_API_KEY=$DEEPSEEK_API_KEY REXYMCP_BASE_URL=https://api.deepseek.com/v1 REXYMCP_MODEL=deepseek-flash rexymcp run-phase --config rexymcp.toml --phase-doc <doc> --repo .`
+Two open limits: a cloud executor cannot commit inside a git worktree (phase 11,
 Out of scope), and gate-command output still reaches the model. A debug
 `eprintln!` of the PII dictionary remains in `executor/src/privacy/egress.rs`
-(bug-08-1, waived) — delete it in the next phase that touches that file. The
-NER engine is on port 8000, model `RedHatAI/Qwen3.8-27B-INT4`.
+(bug-08-1, waived) — delete it in the next phase that touches that file. The NER
+engine is on port 8000, model `RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
