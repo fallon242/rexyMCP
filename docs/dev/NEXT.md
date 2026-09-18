@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F11 — Contract Update Log wording** ([README](milestones/F11-contract-update-log-wording/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-log-entry-wording](milestones/F11-contract-update-log-wording/phase-01-log-entry-wording.md)** — `todo`, route local.
+**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
 
 **F10 — Remove PII debug print: DONE 2026-09-18** at one phase,
 `approved_first_try`. F05 bug-08-1 closed. Retrospective in

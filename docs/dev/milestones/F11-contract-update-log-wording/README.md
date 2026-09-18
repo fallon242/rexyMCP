@@ -24,7 +24,7 @@ entry "the only Update Log entry you write" and step 7 repeats it, while steps
 
 | #  | Phase                                                                  | Status |
 |----|------------------------------------------------------------------------|--------|
-| 01 | log-entry-wording ([phase-01-log-entry-wording.md](phase-01-log-entry-wording.md)) | review      |
+| 01 | log-entry-wording ([phase-01-log-entry-wording.md](phase-01-log-entry-wording.md)) | done   |
 
 ## Notes
 

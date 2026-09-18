@@ -1,7 +1,7 @@
 # Phase 1: log entry wording
 
 **Milestone:** F11 — Contract Update Log wording
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -323,3 +323,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 90b57f8e5e17cfde06d7440c153c5b7cb3e8e29e
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 43 turns
+- **Scope deviations:** none. All four contract replacements match the spec byte for byte (`90b57f8`).
+- **Verification:** gates 727 / 2 / 1212. Mutation: the pre-phase contract fails both new tests (11 passed, 2 failed). Test-first failure quoted in the started entry.
+- **Calibration:** first round today with every Update Log entry the contract asks for — a started entry naming no model, the test-first failure, and a pasted `(end-to-end verification)` entry — and pasted `test result:` lines in the Summary. This ran on the pre-F11 contract, so it is not yet evidence the F11 wording works.
