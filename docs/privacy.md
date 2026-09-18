@@ -68,6 +68,9 @@ your prompt ─▶ Claude architect (CLOUD ①) ─▶ execute_phase ─▶ Deep
   is not). A missing or malformed file stops the dispatch — it is loaded before
   the NER engine, so a bad file is reported even when the engine is
   misconfigured. The executor is never asked to restore a term.
+  When egress redaction is engaged, the session log under `.rexymcp/sessions/`
+  gets the same masking as the wire, and the directory and its files are
+  created owner-only (`0700`/`0600`).
 - **Your typed prompt** — scrub it before Claude sees it with the CLI (reliable)
   or the `UserPromptSubmit` hook (best-effort; see below).
 

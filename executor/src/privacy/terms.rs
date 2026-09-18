@@ -30,7 +30,7 @@ struct TermEntry {
 
 /// A compiled term file: one regex whose capture groups are the aliases, longest
 /// first, and a group-index → code map.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LiteralTerms {
     regex: Option<regex::Regex>,
     codes: Vec<String>,

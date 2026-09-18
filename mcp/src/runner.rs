@@ -105,6 +105,9 @@ struct Seams<'a> {
     clock: &'a (dyn Fn() -> u64 + Send + Sync),
     /// M45: PII-bearing files for the write-guard (empty = protection off).
     pii_files: std::collections::HashSet<std::path::PathBuf>,
+    /// F05 finding 2: the egress scrub for session-log records; `None` when
+    /// redaction is off (the log then stays byte-identical to an unredacted run).
+    egress_scrub: Option<rexymcp_executor::privacy::redact::EgressScrub>,
     /// F05: sandbox for cloud-executor `bash`; `None` for a local endpoint.
     sandbox: Option<rexymcp_executor::security::Sandbox>,
 }
@@ -323,6 +326,7 @@ async fn run_phase_with(
         task_tracking: cfg.executor.task_tracking,
         cancel: inp.cancel.clone(),
         pii_files: seams.pii_files.clone(),
+        egress_scrub: seams.egress_scrub.clone(),
     };
 
     let mut result = agent::execute_phase(&input, deps).await?;
@@ -441,6 +445,15 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         }
     }
 
+    let egress_scrub = if redact {
+        Some(rexymcp_executor::privacy::redact::EgressScrub::new(
+            literal.clone(),
+            egress_terms.clone(),
+        ))
+    } else {
+        None
+    };
+
     enum ExecClient {
         Redacting(rexymcp_executor::privacy::redact::RedactingAiClient),
         Prod(OpenAiClient),
@@ -483,6 +496,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
         host_runner: &host_runner,
         clock: &clock,
         pii_files,
+        egress_scrub,
         sandbox,
     };
 
@@ -817,6 +831,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -874,6 +889,7 @@ mod tests {
         let clock = || 1234567890u64;
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -943,6 +959,7 @@ mod tests {
         let host_rec = RecordingRunner::default();
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -998,6 +1015,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -1069,6 +1087,7 @@ mod tests {
         let clock = || 1234567890u64;
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -1128,6 +1147,7 @@ mod tests {
         let clock = || 1234567890u64;
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -1208,6 +1228,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,
@@ -1338,6 +1359,7 @@ mod tests {
 
         let seams = Seams {
             pii_files: std::collections::HashSet::new(),
+            egress_scrub: None,
             sandbox: None,
             client: &mock,
             verifier: &NoopVerifier,

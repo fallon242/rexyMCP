@@ -3,11 +3,10 @@ use std::path::{Path, PathBuf};
 
 use similar::{ChangeTag, TextDiff};
 
-use crate::security::redact::Redactor;
 use crate::store::sessions::event::{FileNumstat, SessionEvent};
 use crate::store::sessions::jsonl::SessionLogHandle;
 
-use super::log::log_event;
+use super::log::{LogScrub, log_event};
 
 /// The callback the loop invokes at each emission point. `Send + Sync` so it
 /// can cross await points and be shared across the rmcp request task (05b).
@@ -120,7 +119,7 @@ pub fn format_message(turn: usize, stage: &str, files_changed: &[FileNumstat]) -
 pub(super) struct EmitCtx<'a> {
     pub(super) progress: Option<&'a dyn ProgressCallback>,
     pub(super) log_handle: &'a Option<SessionLogHandle>,
-    pub(super) redactor: &'a Redactor,
+    pub(super) redactor: &'a LogScrub,
     pub(super) clock: &'a (dyn Fn() -> u64 + Send + Sync),
     pub(super) pre_edit_content: &'a HashMap<PathBuf, Option<String>>,
     pub(super) project_root: &'a Path,

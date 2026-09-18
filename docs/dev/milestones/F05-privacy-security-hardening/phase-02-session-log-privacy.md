@@ -1,7 +1,7 @@
 # Phase 2: redact the session log, and make it owner-only
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** phase 01 (done) — `LiteralTerms` and `redact_pii` are what this
 phase reuses.
 **Estimated diff:** ~300 lines, about half of it tests
@@ -442,3 +442,86 @@ because an empty or missing log would also print `0`.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-17 22:15 (progress)
+
+Executor started: flipping the phase to in-progress, then implementing Spec §1–§5
+(`EgressScrub`, the value-walk scrub in `agent/log.rs`, wiring into the loop via
+`LoopDeps`/`mcp` runner, owner-only session-log permissions, and the
+`docs/privacy.md` note). Pre-flight recorded: `git status --short` clean, and
+`cargo test -p rexymcp-executor` → 1188 passed, 0 failed, 10 ignored.
+
+### Update — 2026-09-17 (escalation)
+
+**Chosen lever:** resume
+**Rationale:** the run (`6fe90f21`) hit `budget_exceeded` at 200 turns with all
+five tasks done and the design on disk. The architect's gate run on the partial
+tree: `cargo build` passes (production code compiles), but the **test** build
+fails with 8 `missing field egress_scrub` errors — 13 of the 21 `LoopDeps`
+literals were updated before the turns ran out. Also outstanding: 10 rustfmt
+diffs in `log.rs`, an unused `Redactor` import in `progress.rs`, the E2E, and
+the commit. The spec was not the problem; the mechanical churn ate the budget.
+
+**Architect authorization added:** `executor/src/agent/progress.rs` holds a
+`pub(super) redactor: &'a Redactor` field that must become `&'a LogScrub` for
+the signature change in Spec §2. The executor made that change correctly; it
+was a consequence the Authorizations section should have named, and it is
+hereby authorized along with removing the import it orphans.
+
+### Update — 2026-09-18 02:08 (progress)
+
+Resume run: finished the mechanical tail the prior run left — added
+`egress_scrub: None,` to the 8 remaining `LoopDeps` literals in
+`executor/src/agent/tests.rs` and the 7 remaining `Seams` literals in
+`mcp/src/runner.rs`, removed the orphaned `Redactor` import in `progress.rs`,
+formatted `log.rs`/`jsonl.rs`, and added the new tests (the loop-level
+`session_log_is_scrubbed_when_egress_is_engaged` plus the `#[cfg(test)]`
+modules the prior run already had).
+
+Deviations from the spec, all adaptations to the real API surface (verified,
+not blockers):
+
+- `PiiKind::PersonName`'s marker tag is `name`, so the `[REDACTED:person]`
+  literal in the spec is `[REDACTED:name]` in the tests.
+- `LiteralTerms::mask` re-emits one `\n` per newline inside a matched span (line
+  count is preserved by design in phase 01), so the wrapped-alias test asserts
+  `"at [SITE_1]\n today"`, not `"at [SITE_1] today"`.
+
+Gates (all separate invocations): `cargo fmt --all --check` clean; `cargo
+build` zero warnings; `cargo clippy --all-targets --all-features -- -D warnings`
+clean; `cargo test` → 716 / 2 / 1197 (10 ignored), 0 failed (baseline 1188
+executor-lib; the +9 is the new log/permissions/loop tests).
+
+Revert check: with `EgressScrub` removed from `LogScrub` (the value walk
+disabled), `agent::log::tests::redact_event_masks_terms_and_literals` fails —
+the record keeps the plaintext `Alice` / `Plant Nine` instead of the
+`[REDACTED:name]` / `[SITE_1]` markers.
+
+End-to-end verification (both runs pasted verbatim):
+
+Run 1 (terms_file present, redaction engaged):
+
+    exit=1
+    dir_mode=700
+    file_mode=600
+    log_site_code=1
+    log_plaintext=0
+    wire_plaintext=0
+
+Run 2 (positive control, `terms_file` line removed):
+
+    exit=1
+    dir_mode=700
+    file_mode=600
+    log_site_code=0
+    log_plaintext=1
+    wire_plaintext=1
+
+`exit=1` is expected (the capture server answers 400). Run 2 proves the check
+reads a log that really holds the text when nothing masks it.
+
+Grep for the spec-pinned literals:
+
+    $ grep -c '\[SITE_1\]' executor/src/agent/log.rs executor/src/privacy/redact.rs
+    (both files contain the `[SITE_1]` marker in the new tests)
+

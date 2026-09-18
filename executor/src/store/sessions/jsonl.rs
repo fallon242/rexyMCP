@@ -33,6 +33,8 @@ impl SessionLogger {
         std::fs::create_dir_all(log_dir)?;
         let path = log_dir.join(format!("session-{session_id}.jsonl"));
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        set_mode(log_dir, 0o700);
+        set_mode(&path, 0o600);
         Ok(Self {
             writer: BufWriter::new(file),
             path,
@@ -50,6 +52,15 @@ impl SessionLogger {
         &self.path
     }
 }
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: u32) {}
 
 pub fn read_session_log(path: &Path) -> std::io::Result<Vec<SessionRecord>> {
     let content = match std::fs::read_to_string(path) {
@@ -155,6 +166,55 @@ mod tests {
         let content = std::fs::read_to_string(logger.path()).unwrap();
         let lines: Vec<_> = content.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_dir_and_file_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let log_dir = tmp.path().join(".rexymcp").join("sessions");
+        let logger = SessionLogger::open(&log_dir, "ownertest").unwrap();
+        let dir_mode = std::fs::metadata(&log_dir).unwrap().permissions().mode() & 0o777;
+        let file_mode = std::fs::metadata(logger.path())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dir_mode, 0o700, "directory mode");
+        assert_eq!(file_mode, 0o600, "file mode");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_loose_modes_are_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let log_dir = tmp.path().join(".rexymcp").join("sessions");
+        std::fs::create_dir_all(&log_dir).unwrap();
+        std::fs::set_permissions(&log_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let file = log_dir.join("session-loose.jsonl");
+        std::fs::write(&file, "").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut logger = SessionLogger::open(&log_dir, "loose").unwrap();
+        let dir_mode = std::fs::metadata(&log_dir).unwrap().permissions().mode() & 0o777;
+        let file_mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700, "pre-existing directory tightened");
+        assert_eq!(file_mode, 0o600, "pre-existing file tightened");
+
+        logger
+            .log(&make_record(
+                SessionEvent::Prompt {
+                    rendered: "still logged".into(),
+                },
+                0,
+            ))
+            .unwrap();
+        let records = read_session_log(logger.path()).unwrap();
+        assert_eq!(records.len(), 1);
     }
 
     #[test]

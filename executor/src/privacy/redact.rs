@@ -84,6 +84,27 @@ impl RedactingAiClient {
     }
 }
 
+/// The outbound scrub, as one value: literal terms first, then the PII
+/// dictionary. This is what `RedactingAiClient` applies to the wire; the
+/// session log applies the same thing (F05 finding 2).
+#[derive(Debug, Clone, Default)]
+pub struct EgressScrub {
+    literal: LiteralTerms,
+    terms: Vec<(String, PiiKind)>,
+}
+
+impl EgressScrub {
+    pub fn new(literal: LiteralTerms, terms: Vec<(String, PiiKind)>) -> Self {
+        Self { literal, terms }
+    }
+
+    /// `text` with every literal alias masked as `[CODE]` and every dictionary
+    /// term as `[REDACTED:kind]`.
+    pub fn scrub(&self, text: &str) -> String {
+        redact_pii(&self.literal.mask(text), &self.terms)
+    }
+}
+
 #[async_trait]
 impl AiClient for RedactingAiClient {
     async fn chat(
@@ -238,5 +259,36 @@ mod tests {
             forwarded.content,
             "owner: [REDACTED:name], ip [REDACTED:ip]"
         );
+    }
+
+    #[test]
+    fn egress_scrub_masks_a_literal_then_terms() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("terms.json");
+        std::fs::write(
+            &file,
+            r#"{"entries":[{"code":"SITE_1","aliases":["Plant Nine"]}]}"#,
+        )
+        .unwrap();
+        let literal = LiteralTerms::load(&file).unwrap();
+        let scrub = EgressScrub::new(literal, vec![("Alice".to_string(), PiiKind::PersonName)]);
+        assert_eq!(
+            scrub.scrub("owner Alice at Plant Nine"),
+            "owner [REDACTED:name] at [SITE_1]"
+        );
+    }
+
+    #[test]
+    fn egress_scrub_masks_an_alias_across_a_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("terms.json");
+        std::fs::write(
+            &file,
+            r#"{"entries":[{"code":"SITE_1","aliases":["Plant Nine"]}]}"#,
+        )
+        .unwrap();
+        let literal = LiteralTerms::load(&file).unwrap();
+        let scrub = EgressScrub::new(literal, Vec::new());
+        assert_eq!(scrub.scrub("at Plant\nNine today"), "at [SITE_1]\n today");
     }
 }

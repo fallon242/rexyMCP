@@ -137,6 +137,7 @@ fn deps<'a>(
 ) -> LoopDeps<'a> {
     LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client,
         registry,
         tools: &[],
@@ -968,6 +969,7 @@ async fn injected_clock_sets_record_ts() {
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -1094,6 +1096,7 @@ async fn run_with_verifier(
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client,
         registry: &registry,
         tools: &[],
@@ -1403,6 +1406,7 @@ async fn oscillation_across_alternating_reads_trips_hard_fail() {
 
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -1479,6 +1483,7 @@ async fn novelty_samples_are_emitted_deduped_and_rearm_after_edit() {
 
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -1551,6 +1556,7 @@ async fn run_low_novelty_churn(action: crate::config::NoveltyAction) -> (TempDir
     let verifier = MockFileVerifier::new(vec![]);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -1643,6 +1649,7 @@ async fn cumulative_output_flood_trips_hard_fail() {
 
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry_over(Scope::new(dir.path()).unwrap()),
         tools: &[],
@@ -2166,6 +2173,7 @@ async fn run_full_with_context_window(
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client,
         registry: &registry,
         tools: &[],
@@ -2929,6 +2937,7 @@ fn deps_with_progress_simple<'a>(
 ) -> LoopDeps<'a> {
     LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client,
         registry,
         tools: &[],
@@ -3007,6 +3016,7 @@ impl<'a> DepsBuilder<'a> {
     fn build(self) -> LoopDeps<'a> {
         LoopDeps {
             pii_files: HashSet::new(),
+            egress_scrub: None,
             client: self.client,
             registry: self.registry,
             tools: &[],
@@ -3198,6 +3208,7 @@ async fn callback_panic_is_not_caught() {
 
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -4010,6 +4021,7 @@ async fn loop_emits_output_filtered_event_for_filtered_bash() {
         &input(),
         LoopDeps {
             pii_files: HashSet::new(),
+            egress_scrub: None,
             client: &client,
             registry: &registry,
             tools: &[],
@@ -4362,6 +4374,7 @@ async fn loop_seeds_task_updates_from_spec() {
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -4430,6 +4443,7 @@ async fn loop_emits_no_task_updates_when_spec_absent() {
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -4578,6 +4592,7 @@ async fn loop_emits_task_update_when_model_flips_task() {
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5084,6 +5099,7 @@ async fn self_revert_of_edited_file_is_refused() {
         &input(),
         LoopDeps {
             pii_files: HashSet::new(),
+            egress_scrub: None,
             client: &client,
             registry: &registry,
             tools: &[],
@@ -5251,6 +5267,7 @@ async fn wall_clock_ceiling_trips_budget_exceeded() {
     let clock = advancing_clock();
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5296,6 +5313,7 @@ async fn wall_clock_disabled_when_zero_completes() {
     let clock = advancing_clock();
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5454,6 +5472,7 @@ async fn loop_returns_cancelled_when_signal_flipped_between_turns() {
     let budget = Budget::default();
     let deps = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &*client,
         registry: &registry_over(scope.clone()),
         tools: &[],
@@ -5517,6 +5536,7 @@ async fn loop_returns_cancelled_when_signal_flipped_mid_stream() {
     let budget = Budget::default();
     let deps = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry_over(scope),
         tools: &[],
@@ -5563,6 +5583,7 @@ async fn gen_time_recorded_with_advancing_clock() {
     let budget = Budget::new(1_000_000);
     let d = LoopDeps {
         pii_files: HashSet::new(),
+        egress_scrub: None,
         client: &client,
         registry: &registry,
         tools: &[],
@@ -5596,5 +5617,78 @@ async fn gen_time_recorded_with_advancing_clock() {
         "gen_time_s ({}) should be <= wall_clock_s ({})",
         runs[0].gen_time_s,
         runs[0].wall_clock_s,
+    );
+}
+
+#[tokio::test]
+async fn session_log_is_scrubbed_when_egress_is_engaged() {
+    use crate::privacy::PiiKind;
+    use crate::privacy::redact::EgressScrub;
+    use crate::privacy::terms::LiteralTerms;
+    use crate::store::sessions::jsonl::read_session_log;
+
+    let dir = TempDir::new().unwrap();
+    let scope = Scope::new(dir.path()).unwrap();
+    let registry = registry_over(scope);
+    let client = MockAiClientScript::new(vec![vec![token("All done, nothing to call.")]]);
+    let budget = Budget::new(1_000_000);
+
+    let input = PhaseInput {
+        phase_doc: "Mail Alice about the change".to_string(),
+        ..input()
+    };
+
+    let egress = EgressScrub::new(
+        LiteralTerms::default(),
+        vec![("Alice".to_string(), PiiKind::PersonName)],
+    );
+
+    let d = LoopDeps {
+        pii_files: HashSet::new(),
+        egress_scrub: Some(egress),
+        client: &client,
+        registry: &registry,
+        tools: &[],
+        budget: &budget,
+        max_turns: 8,
+        project_root: dir.path(),
+        model: "test-model",
+        session_id: SESSION_ID,
+        clock: &clock_zero,
+        verifier: &NoopVerifier,
+        commands: &EMPTY_COMMANDS,
+        runner: &NoopRunner,
+        generation_params: GenerationParams::default(),
+        telemetry_dir: None,
+        progress: None,
+        context_window: None,
+        governor: GovernorConfig::default(),
+        task_tracking: true,
+        gate_retries: u32::MAX,
+        wall_clock_secs: 0,
+        cancel: CancelSignal::never(),
+    };
+
+    let result = execute_phase(&input, d).await.unwrap();
+
+    let log_path = result.log_path.clone().unwrap_or_else(|| {
+        std::fs::read_dir(dir.path().join(".rexymcp").join("sessions"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .next()
+            .expect("a session log exists under .rexymcp/sessions")
+    });
+    let records = read_session_log(&log_path).unwrap();
+    let json = records
+        .iter()
+        .map(|r| serde_json::to_string(r).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        !json.iter().any(|j| j.contains("Alice")),
+        "no record should carry the plaintext PII: {json:?}"
+    );
+    assert!(
+        json.iter().any(|j| j.contains("[REDACTED:name]")),
+        "at least one record should carry the PII marker: {json:?}"
     );
 }

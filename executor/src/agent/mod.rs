@@ -45,7 +45,7 @@ use crate::store::sessions::jsonl::{SessionLogHandle, open_session_log};
 use crate::store::telemetry::{Gates, GenerationParams};
 use crate::tools::ToolRegistry;
 use command::{CommandRunner, run_command_set, run_post_write_hooks};
-use log::{log_event, log_session_end};
+use log::{LogScrub, log_event, log_session_end};
 use metrics::{RunMetrics, emit_phase_run};
 use outcome::{
     budget_exceeded_result, build_artifacts, cancelled_result, hard_fail_result, turns_line,
@@ -149,6 +149,10 @@ pub struct LoopDeps<'a> {
     /// executor-egress protection is engaged; empty = off. An edit-class call
     /// targeting one is refused (a cloud model only sees its redacted contents).
     pub pii_files: HashSet<PathBuf>,
+    /// F05 finding 2: the egress scrub for session-log records, `Some` exactly
+    /// when executor-egress redaction is engaged for this dispatch. `None`
+    /// leaves the log byte-identical to an unredacted run.
+    pub egress_scrub: Option<crate::privacy::redact::EgressScrub>,
 }
 
 /// Run the turn cycle until the model stops calling tools (`complete`) or the
@@ -235,7 +239,7 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
     // setup failure on purpose (a non-writable repo must not fail the phase —
     // logging is a side effect that never changes what the loop returns). The
     // composed id puts both phase and session_id in the filename.
-    let redactor = Redactor::new();
+    let redactor = LogScrub::new(Redactor::new(), deps.egress_scrub.clone());
     let log_dir = deps.project_root.join(".rexymcp").join("sessions");
     let log_handle: Option<SessionLogHandle> =
         open_session_log(&log_dir, &format!("{}-{}", input.phase, deps.session_id)).ok();
