@@ -1,7 +1,7 @@
 # Phase 2: ledger milestone dimension
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~350 lines, about two-thirds tests
 **Tags:** language=rust, kind=feature, size=m
@@ -600,3 +600,109 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
   92.0%, None 2.4%, F08 2.4%, F06 1.5%, F07 1.1%, M46 0.5%. Re-harvest writes
   0 records. Harvest over a copy of the live store: 663.06M → 663.58M tokens
   (new usage only; a double count would add ~300M).
+
+### Update — 2026-09-18 16:42 (complete, server-authored)
+
+**Summary:** **Summary + Notes for review**
+
+This was a bounce round for F08 phase-02 ([bug-02-1](docs/dev/milestones/F08-architect-tokens-by-milestone/bugs/bug-02-1.md)): the prior run's commit `d7a6e8a` had accidentally overwritten the pre-existing test `read_all_collects_each_record_type_in_one_pass` while inserting the new `fold_ledger_keeps_milestones_apart` test. I restored the deleted test in `executor/src/store/telemetry.rs` exactly as quoted in the bug report — no other code was touched, per the bug's "Change nothing else" instruction.
+
+Verification: `cargo test -p rexymcp-executor read_all_collects_each_record_type_in_one_pass` → **1 passed** (was 0 against `d7a6e8a`); `cargo test -p rexymcp-executor ledger` → **6 passed**; `cargo test -p rexymcp harvest::` → **26 passed**; `cargo test -p rexymcp costs::` → **33 passed**; full `cargo test` → **727 / 2 / 1208 passed** (matching the spec's finish condition). All four gates green (`fmt --check`, `build`, `clippy -D warnings`, `test`).
+
+Notes:
+- The prior round's feature work (the `milestone_id` ledger field, fold key, slug extraction, harvest-loop attribution, legacy double-count guard, milestone scoping) is all already in `d7a6e8a` and was reviewed as correct by the architect; I deliberately left it alone, including the `session_id == s` filter inside the legacy double-count guard, which is present in that commit and behaves correctly (only one session can be harvested per call, and each transcript file's `accum` buckets all carry that same session id).
+- The phase doc's Update Log gained a `(progress)` entry and an `(end-to-end verification)` entry with mechanically captured output, as required by the bug's DoD; the status line was reset to plain `in-progress` (no bounce annotation, since this round resolves it).
+- Committed as `0c21093` (2 files: the telemetry test + phase doc); working tree clean.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+sts::rejects_max_results_zero ... ok
+test tools::symbols::tests::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1208 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.19s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F08-architect-tokens-by-milestone/phase-02-ledger-milestone-dimension.md` — +129 -1
+- `executor/src/store/telemetry.rs` — +16 -0
+
+**Commit:** 0c21093f9eb50ca7355dca47c181ee99d9142049
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
