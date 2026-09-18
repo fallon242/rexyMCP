@@ -1,7 +1,7 @@
 # Phase 5: remove the inert `privacy.kinds`, and make the privacy doc true
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 01 (done, `terms_file`), phase 02 (done, session-log
 scrub). Both added behavior this phase documents.
 **Estimated diff:** ~180 lines, about half of it tests
@@ -502,3 +502,45 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 063ff8e7432904bafb3f618c39c3e3bcda240b81
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 escalation, not a bounce: the 2026-09-17 `deepseek-flash`
+  dispatch ended `hard_fail` (oscillation) at 91 turns and was re-dispatched to
+  the local executor with the Gotcha section added. The local run finished in
+  89 turns.
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (after `deepseek-flash` hard-failed)
+- **Scope deviations:** none. The `egress.rs` edit is exactly the one
+  authorized line (`kinds: vec![],`).
+- **Calibration:** `deepseek-flash` scored 30/30 on a greenfield benchmark file
+  but could not make precise edits inside dense existing code here — it invented
+  an unrelated change and then oscillated repairing a line it had broken. Route
+  cloud work to greenfield or additive phases; keep in-place edits in existing
+  modules on the local executor.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1200 passed (10 ignored), up from 1197.
+
+Acceptance greps, all as specified:
+
+```
+kinds_field=0  qwen_intact=1  cloud_host_intact=1  doc_stale=0  doc_terms_file=2
+```
+
+The middle two exist because the cloud run destroyed both strings; they are the
+guard against that recurring.
+
+End-to-end against the built binary, by the architect:
+
+```
+with kinds:     Error: config: <path>/rexymcp.toml: `[privacy] kinds` was removed in F05 — it never
+                narrowed detection, it only looked like it did. Delete the line; every detected PII
+                class is masked.
+without kinds:  unreachable: http://localhost:9/v1      (control: the health check ran)
+kinds under [executor]: unreachable: http://localhost:9/v1   (must-not-reject case)
+```
+
+Mutation check: forcing `removed_privacy_kinds` to return `false` fails
+`removed_privacy_kinds_fails_the_load`. No `unwrap`/`expect`/`panic!`,
+`println!`, `#[allow]` or `unsafe` in the production part of `config.rs`.
