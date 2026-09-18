@@ -40,6 +40,32 @@ on whichever they find first.
 The same file's `## Configuration` block is also stale: it lists five keys and
 omits `terms_file`, which phase 01 shipped.
 
+## Gotcha: what the first run got wrong (read before editing)
+
+The 2026-09-17 dispatch to `deepseek-flash` ended `hard_fail` (oscillation) at
+91 turns with nothing usable. Two concrete mistakes, both avoidable:
+
+1. **It rewrote a fact it was not asked to touch.** The `PrivacyConfig` doc
+   comment reads "the local detection model (Qwen on the LAN, detection only)".
+   The run changed `Qwen` to `llama.cpp`. That word was **not** redacted — the
+   session log shows it reaching the model in the clear — so this was invention,
+   not a redaction artifact. **`Qwen` is correct and must survive this phase
+   unchanged.** The only clause to remove from that comment is the `kinds` one.
+2. **It broke a line mid-word and could not repair it.** After a `patch_lines`
+   call, line 101 read `/// executor endpoint is a clo` — truncated from
+   "executor endpoint is a cloud host". The run then alternated `patch_lines`
+   with `sed -n '101p' … | od -c` for roughly 40 turns until the governor
+   stopped it.
+
+   **If an edit leaves a line malformed, do not iterate on the bytes.** Run
+   `git checkout -- <file>` to restore that file and redo the edit in one clean
+   `write_file` or `patch`. The file is tracked and your work is not committed,
+   so nothing else is lost.
+
+Both lines this phase touches live in the same 10-line region, so read
+`executor/src/config.rs` lines 88-112 before the first edit and verify the
+region after the last one with a single `sed -n '88,112p'`.
+
 ## Architecture references
 
 - `executor/src/config.rs:92-112` — the `PrivacyConfig` doc comment and struct.
@@ -190,6 +216,10 @@ key it does not. After your edit that is: `enabled`, `engine_base_url`,
 
 ## Acceptance criteria
 
+- [ ] The `PrivacyConfig` doc comment still says `Qwen on the LAN` —
+      `grep -c 'Qwen on the' executor/src/config.rs` is `1`.
+- [ ] `grep -c 'is a cloud host' executor/src/config.rs` is `1`: the
+      `redact_executor_egress` comment is intact.
 - [ ] `PrivacyConfig` has no `kinds` field, and `grep -rn 'privacy.kinds\|kinds:' executor/src/config.rs`
       finds nothing.
 - [ ] A config file containing `[privacy]` with `kinds = ["email"]` makes
@@ -307,3 +337,26 @@ that the shipped binary refuses the config.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-17 (escalation)
+
+**Chosen lever:** refined re-dispatch, on the **local** executor
+**Rationale:** the spec was not the problem — it carried the exact code for
+every edit. `deepseek-flash` invented an unrelated change (`Qwen` →
+`llama.cpp`), truncated a comment mid-word, and then oscillated between
+`patch_lines` and an `od -c` byte dump for ~40 turns until the governor stopped
+it. The architect reverted the corrupted `config.rs`; the tree is clean and
+builds. A spec gap would justify re-dispatching to the same model, but precise
+in-place edits in existing code are where this model failed, and the local
+`RedHatAI/Qwen3.8-27B-INT4` has done that reliably across eight phases today.
+The Gotcha section above pins both mistakes as must-not-repeat, with a recovery
+instruction for a malformed edit.
+
+**First real cloud dispatch — what held.** The privacy and sandbox work all
+behaved: 2,239 `[REDACTED:…]` markers on the wire, the session log written
+`0600` inside a `0700` directory, `bash` confined to bwrap, and `.git` and
+`rexymcp.toml` never successfully touched. The pre-scan took about 90 minutes
+on its first uncached run and wrote `egress-index.enc`, so later cloud
+dispatches skip unchanged files. The failure was executor quality, not
+protection.
+
