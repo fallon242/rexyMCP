@@ -139,22 +139,22 @@ pub(crate) fn scope_costs(
             c
         });
 
-    // Architect: attributable at PROJECT scope only (the ledger has no milestone).
-    let architect_tokens = if milestone_id.is_some() {
-        ArchitectTokens::default()
-    } else {
-        let mut toks = ArchitectTokens::default();
-        for l in ledgers
-            .iter()
-            .filter(|l| l.project_id.as_deref() == Some(project_id))
-        {
-            toks.input = toks.input.saturating_add(l.tokens.input);
-            toks.cache_creation = toks.cache_creation.saturating_add(l.tokens.cache_creation);
-            toks.cache_read = toks.cache_read.saturating_add(l.tokens.cache_read);
-            toks.output = toks.output.saturating_add(l.tokens.output);
-        }
-        toks
-    };
+    // Architect: ledger records carry the milestone their tokens were
+    // attributed to. Project scope (`None`) sums every record.
+    let mut architect_tokens = ArchitectTokens::default();
+    for l in ledgers.iter().filter(|l| {
+        l.project_id.as_deref() == Some(project_id)
+            && (milestone_id.is_none() || l.milestone_id.as_deref() == milestone_id)
+    }) {
+        architect_tokens.input = architect_tokens.input.saturating_add(l.tokens.input);
+        architect_tokens.cache_creation = architect_tokens
+            .cache_creation
+            .saturating_add(l.tokens.cache_creation);
+        architect_tokens.cache_read = architect_tokens
+            .cache_read
+            .saturating_add(l.tokens.cache_read);
+        architect_tokens.output = architect_tokens.output.saturating_add(l.tokens.output);
+    }
 
     ScopeCosts {
         executor_in: exec.executor_in,
@@ -831,6 +831,7 @@ enabled = false
             session_id: "s".to_string(),
             model: model.to_string(),
             skill: "dispatch".to_string(),
+            milestone_id: None,
             tokens: ArchitectTokens {
                 input: 1_000_000,
                 cache_creation: 0,
@@ -845,12 +846,26 @@ enabled = false
     }
 
     #[test]
-    fn scope_costs_milestone_architect_is_zero() {
-        // Architect tokens are not attributable at milestone scope (ledger has
-        // no milestone key), so the milestone arm returns zero.
-        let c = scope_costs(&[], &[ledger("claude-opus-4-8")], "P", Some("M35"));
-        assert_eq!(c.architect.input, 0);
-        assert_eq!(c.architect.output, 0);
+    fn scope_costs_milestone_counts_only_matching_ledgers() {
+        // Architect tokens are attributable at milestone scope: only records
+        // whose milestone_id matches are summed.
+        let mut l1 = ledger("claude-opus-4-8");
+        l1.milestone_id = Some("F07-a".to_string());
+        let mut l2 = ledger("claude-opus-4-8");
+        l2.milestone_id = Some("F08-b".to_string());
+        let l3 = ledger("claude-opus-4-8");
+        // l3 has milestone_id: None
+
+        let c = scope_costs(
+            &[],
+            &[l1.clone(), l2.clone(), l3.clone()],
+            "P",
+            Some("F07-a"),
+        );
+        assert_eq!(c.architect.input, 1_000_000);
+
+        let c = scope_costs(&[], &[l1, l2, l3], "P", None);
+        assert_eq!(c.architect.input, 3_000_000);
     }
 
     #[test]

@@ -8,6 +8,7 @@
 //! Emits one ledger record per key; `fold_ledger` keeps the latest per key at
 //! read time, so re-harvest is idempotent.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use rexymcp_executor::config::Config;
@@ -85,7 +86,8 @@ fn parse_iso_to_epoch_ms(s: &str) -> Option<u64> {
     u64::try_from(total_ms).ok()
 }
 
-/// Accumulator for a single (session, model, skill) bucket.
+/// One per `(session_id, model, skill, milestone_id)` bucket.
+#[derive(Default)]
 struct Accum {
     input: u64,
     cache_creation: u64,
@@ -96,6 +98,63 @@ struct Accum {
     messages: u64,
     last_ts: u64,
 }
+
+/// Milestone directory slugs named in `text` after `milestones/`. A slug is
+/// the run of `[A-Za-z0-9_-]` that follows, and counts only if it is an
+/// uppercase letter, one or more digits, `-`, then at least one more character.
+fn milestone_slugs(text: &str) -> BTreeSet<String> {
+    text.match_indices("milestones/")
+        .filter_map(|(i, m)| {
+            let rest = &text[i + m.len()..];
+            let end = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or(rest.len());
+            let slug = &rest[..end];
+            is_milestone_slug(slug).then(|| slug.to_string())
+        })
+        .collect()
+}
+
+fn is_milestone_slug(slug: &str) -> bool {
+    let Some(rest) = slug.strip_prefix(|c: char| c.is_ascii_uppercase()) else {
+        return false;
+    };
+    let after_digits = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    after_digits.len() < rest.len()
+        && after_digits
+            .strip_prefix('-')
+            .is_some_and(|tail| !tail.is_empty())
+}
+
+/// Move `current` to the milestone named by this line's tool calls. Each
+/// `tool_use` input that names exactly one milestone moves it; an input that
+/// names none, or several (a grep across milestones), leaves it alone.
+fn update_current_milestone(v: &serde_json::Value, current: &mut Option<String>) {
+    let Some(content) = v
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+    else {
+        return;
+    };
+    for block in content {
+        if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+            continue;
+        }
+        let Some(input) = block.get("input") else {
+            continue;
+        };
+        let mut slugs = milestone_slugs(&input.to_string()).into_iter();
+        if let (Some(slug), None) = (slugs.next(), slugs.next()) {
+            *current = Some(slug);
+        }
+    }
+}
+
+/// `(session_id, model, skill, milestone_id)`.
+type BucketKey = (String, String, String, Option<String>);
+/// `(project_id, session_id, model, skill, milestone_id)` — the `fold_ledger` key.
+type LedgerKey = (Option<String>, String, String, String, Option<String>);
 
 /// Token extraction result from a single assistant-usage line.
 /// Fields: `(message_id, model, skill, input, cache_creation, cache_read, output, cc_5m, cc_1h, ts)`
@@ -246,8 +305,7 @@ pub fn harvest(
     let transcripts = collect_transcripts(args.transcript_dir)?;
 
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut accum: std::collections::HashMap<(String, String, String), Accum> =
-        std::collections::HashMap::new();
+    let mut accum: std::collections::HashMap<BucketKey, Accum> = std::collections::HashMap::new();
     let mut duplicates: usize = 0;
     let mut sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -256,6 +314,8 @@ pub fn harvest(
             Ok(c) => c,
             Err(_) => continue,
         };
+
+        let mut current_milestone: Option<String> = None;
 
         for line in content.lines().filter(|l| !l.trim().is_empty()) {
             let v = match serde_json::from_str::<serde_json::Value>(line) {
@@ -267,6 +327,8 @@ pub fn harvest(
             if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
                 continue;
             }
+
+            update_current_milestone(&v, &mut current_milestone);
 
             // Extract usage; None means skip (no message.id, no usage, etc.)
             let (msg_id, model, skill, input, cache_creation, cache_read, output, cc_5m, cc_1h, ts) =
@@ -283,17 +345,8 @@ pub fn harvest(
 
             sessions.insert(session_id.clone());
 
-            let key = (session_id.clone(), model, skill);
-            let acc = accum.entry(key).or_insert(Accum {
-                input: 0,
-                cache_creation: 0,
-                cache_read: 0,
-                output: 0,
-                cache_creation_5m: 0,
-                cache_creation_1h: 0,
-                messages: 0,
-                last_ts: 0,
-            });
+            let key: BucketKey = (session_id.clone(), model, skill, current_milestone.clone());
+            let acc = accum.entry(key).or_default();
             acc.input += input;
             acc.cache_creation += cache_creation;
             acc.cache_read += cache_read;
@@ -303,6 +356,20 @@ pub fn harvest(
             acc.messages += 1;
             if ts > acc.last_ts {
                 acc.last_ts = ts;
+            }
+        }
+
+        // A pre-attribution record has `milestone_id: None` and the session's full
+        // sum. Emit a `None` bucket for every (session, model, skill) seen — zero
+        // when every message was attributed — so it replaces that record at fold
+        // time instead of adding to the attributed buckets.
+        let seen: Vec<(String, String, String)> = accum
+            .keys()
+            .map(|(s, m, k, _)| (s.clone(), m.clone(), k.clone()))
+            .collect();
+        for (s, m, k) in seen {
+            if s == *session_id {
+                accum.entry((s, m, k, None)).or_default();
             }
         }
     }
@@ -315,23 +382,22 @@ pub fn harvest(
     // What the store already holds, folded to one record per key. Appending a
     // record identical to the folded state is pure write amplification: the
     // reader would discard it immediately.
-    let existing: std::collections::HashMap<
-        (Option<String>, String, String, String),
-        ArchitectLedger,
-    > = fold_ledger(read_all(&store_path).map(|s| s.ledgers).unwrap_or_default())
-        .into_iter()
-        .map(|l| {
-            (
+    let existing: std::collections::HashMap<LedgerKey, ArchitectLedger> =
+        fold_ledger(read_all(&store_path).map(|s| s.ledgers).unwrap_or_default())
+            .into_iter()
+            .map(|l| {
                 (
-                    l.project_id.clone(),
-                    l.session_id.clone(),
-                    l.model.clone(),
-                    l.skill.clone(),
-                ),
-                l,
-            )
-        })
-        .collect();
+                    (
+                        l.project_id.clone(),
+                        l.session_id.clone(),
+                        l.model.clone(),
+                        l.skill.clone(),
+                        l.milestone_id.clone(),
+                    ),
+                    l,
+                )
+            })
+            .collect();
 
     for (key, acc) in accum {
         let ledger = ArchitectLedger {
@@ -340,6 +406,7 @@ pub fn harvest(
             session_id: key.0,
             model: key.1,
             skill: key.2,
+            milestone_id: key.3,
             tokens: ArchitectTokens {
                 input: acc.input,
                 cache_creation: acc.cache_creation,
@@ -356,6 +423,7 @@ pub fn harvest(
             ledger.session_id.clone(),
             ledger.model.clone(),
             ledger.skill.clone(),
+            ledger.milestone_id.clone(),
         );
         if existing.get(&ledger_key) == Some(&ledger) {
             total_messages += acc.messages as usize;
@@ -1077,5 +1145,246 @@ dir = "{}"
                 "ledger record must carry the record tag"
             );
         }
+    }
+
+    // ---- milestone attribution tests ----
+
+    #[test]
+    fn milestone_slugs_extracts_milestone_ids() {
+        assert_eq!(
+            milestone_slugs(
+                r#"{"file_path":"/home/x/docs/dev/milestones/F07-completion-entry-date/README.md"}"#
+            ),
+            std::collections::BTreeSet::from(["F07-completion-entry-date".to_string()])
+        );
+        assert_eq!(
+            milestone_slugs("D=docs/dev/milestones/F05-privacy-security-hardening && ls $D"),
+            std::collections::BTreeSet::from(["F05-privacy-security-hardening".to_string()])
+        );
+        assert_eq!(
+            milestone_slugs("docs/dev/milestones/M46-token-first-accounting/phase-01.md"),
+            std::collections::BTreeSet::from(["M46-token-first-accounting".to_string()])
+        );
+    }
+
+    #[test]
+    fn milestone_slugs_rejects_non_ids() {
+        assert!(milestone_slugs("ls docs/dev/milestones/").is_empty());
+        assert!(milestone_slugs("ls docs/dev/milestones/F05*").is_empty());
+        assert!(milestone_slugs("milestones/M37").is_empty());
+        assert!(milestone_slugs("milestones/README.md").is_empty());
+        assert!(milestone_slugs("milestones/f07-lower/x").is_empty());
+        assert!(milestone_slugs("milestones/-F07-x").is_empty());
+        assert!(milestone_slugs("milestones/F-x").is_empty());
+        assert!(milestone_slugs("milestones/F07-").is_empty());
+        assert!(milestone_slugs("milestones/F07_x").is_empty());
+    }
+
+    #[test]
+    fn harvest_attributes_messages_to_last_named_milestone() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        // Message A: no content, no milestone
+        let msg_a = r#"{"type":"assistant","timestamp":"2026-09-18T15:00:00.000Z","message":{"id":"a","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":10}}}"#;
+        // Message B: tool_use naming F07-completion-entry-date
+        let msg_b = r#"{"type":"assistant","timestamp":"2026-09-18T15:01:00.000Z","message":{"id":"b","role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/repo/docs/dev/milestones/F07-completion-entry-date/README.md"}}],"usage":{"input_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":20}}}"#;
+        // Message C: no content, should inherit F07-completion-entry-date from B
+        let msg_c = r#"{"type":"assistant","timestamp":"2026-09-18T15:02:00.000Z","message":{"id":"c","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":300,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}"#;
+
+        write_fixture(&tx_dir, "s1.jsonl", &[msg_a, msg_b, msg_c]);
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+        harvest(&config, None, &args).unwrap();
+
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let ledgers = fold_ledger(read_architect_ledger(&store_path).unwrap());
+
+        // Should have 2 buckets: None (A) and F07-completion-entry-date (B, C)
+        assert_eq!(ledgers.len(), 2);
+
+        let none_bucket = ledgers
+            .iter()
+            .find(|l| l.milestone_id.is_none())
+            .expect("None bucket should exist");
+        assert_eq!(none_bucket.messages, 1, "A should be in None bucket");
+        assert_eq!(none_bucket.tokens.input, 100);
+
+        let f07_bucket = ledgers
+            .iter()
+            .find(|l| l.milestone_id.as_deref() == Some("F07-completion-entry-date"))
+            .expect("F07-completion-entry-date bucket should exist");
+        assert_eq!(f07_bucket.messages, 2, "B and C should be in F07 bucket");
+        assert_eq!(f07_bucket.tokens.input, 500);
+    }
+
+    #[test]
+    fn harvest_ignores_tool_input_naming_two_milestones() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        // Message B: names F07-a
+        let msg_b = r#"{"type":"assistant","timestamp":"2026-09-18T15:00:00.000Z","message":{"id":"b","role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/repo/docs/dev/milestones/F07-a/x.md"}}],"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":10}}}"#;
+        // Message C: names both F05-b and F06-c (should be ignored)
+        let msg_c = r#"{"type":"assistant","timestamp":"2026-09-18T15:01:00.000Z","message":{"id":"c","role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","id":"t2","name":"Grep","input":{"pattern":"foo","path":"/repo/docs/dev/milestones/F05-b/x","extra":"/repo/docs/dev/milestones/F06-c/x"}}],"usage":{"input_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":20}}}"#;
+        // Message D: no content, should still be F07-a
+        let msg_d = r#"{"type":"assistant","timestamp":"2026-09-18T15:02:00.000Z","message":{"id":"d","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":300,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}"#;
+
+        write_fixture(&tx_dir, "s1.jsonl", &[msg_b, msg_c, msg_d]);
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+        harvest(&config, None, &args).unwrap();
+
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let ledgers = fold_ledger(read_architect_ledger(&store_path).unwrap());
+
+        // All messages should be in F07-a (C's two-milestone input is ignored)
+        let f07_bucket = ledgers
+            .iter()
+            .find(|l| l.milestone_id.as_deref() == Some("F07-a"))
+            .expect("F07-a bucket should exist");
+        assert_eq!(f07_bucket.messages, 3, "B, C, and D should all be in F07-a");
+        assert_eq!(f07_bucket.tokens.input, 600);
+    }
+
+    #[test]
+    fn harvest_resets_milestone_per_transcript_file() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        // s1 names F07-a
+        let msg_s1 = r#"{"type":"assistant","timestamp":"2026-09-18T15:00:00.000Z","message":{"id":"s1_msg","role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/repo/docs/dev/milestones/F07-a/x.md"}}],"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":10}}}"#;
+        write_fixture(&tx_dir, "s1.jsonl", &[msg_s1]);
+
+        // s2 has no milestone
+        let msg_s2 = r#"{"type":"assistant","timestamp":"2026-09-18T15:01:00.000Z","message":{"id":"s2_msg","role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":20}}}"#;
+        write_fixture(&tx_dir, "s2.jsonl", &[msg_s2]);
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+        harvest(&config, None, &args).unwrap();
+
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let ledgers = fold_ledger(read_architect_ledger(&store_path).unwrap());
+
+        // s2's record should have milestone_id: None
+        let s2_record = ledgers
+            .iter()
+            .find(|l| l.session_id == "s2")
+            .expect("s2 record should exist");
+        assert_eq!(s2_record.milestone_id, None, "s2 should be None, not F07-a");
+    }
+
+    #[test]
+    fn harvest_emits_zero_none_bucket_when_all_messages_attributed() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        // Single message that names F07-a
+        let msg = r#"{"type":"assistant","timestamp":"2026-09-18T15:00:00.000Z","message":{"id":"msg1","role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/repo/docs/dev/milestones/F07-a/x.md"}}],"usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":100}}}"#;
+        write_fixture(&tx_dir, "s1.jsonl", &[msg]);
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+        harvest(&config, None, &args).unwrap();
+
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let ledgers = fold_ledger(read_architect_ledger(&store_path).unwrap());
+
+        // Should have 2 records: None (zero bucket) and F07-a
+        assert_eq!(ledgers.len(), 2);
+
+        let none_bucket = ledgers
+            .iter()
+            .find(|l| l.milestone_id.is_none())
+            .expect("None bucket should exist (zero bucket)");
+        assert_eq!(
+            none_bucket.messages, 0,
+            "zero bucket should have 0 messages"
+        );
+        assert_eq!(none_bucket.tokens.input, 0);
+
+        let f07_bucket = ledgers
+            .iter()
+            .find(|l| l.milestone_id.as_deref() == Some("F07-a"))
+            .expect("F07-a bucket should exist");
+        assert_eq!(f07_bucket.messages, 1);
+        assert_eq!(f07_bucket.tokens.input, 1000);
+    }
+
+    #[test]
+    fn reharvest_replaces_legacy_record_without_double_count() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config(&dir);
+        let tx_dir = dir.path().join("tx");
+        fs::create_dir_all(&tx_dir).unwrap();
+
+        // First, append a legacy record (no milestone_id)
+        let telemetry_dir = dir.path().join("telemetry");
+        fs::create_dir_all(&telemetry_dir).unwrap();
+        let legacy = ArchitectLedger {
+            record: ARCHITECT_LEDGER_RECORD_TAG.to_string(),
+            project_id: Some("test-project".to_string()),
+            session_id: "s1".to_string(),
+            model: "claude-opus-4-8".to_string(),
+            skill: "other".to_string(),
+            milestone_id: None,
+            tokens: ArchitectTokens {
+                input: 1000,
+                cache_creation: 0,
+                cache_read: 0,
+                output: 0,
+            },
+            cache_creation_5m: 0,
+            cache_creation_1h: 0,
+            messages: 1,
+            last_ts: 100,
+        };
+        append_architect_ledger(&telemetry_dir, &legacy).unwrap();
+
+        // Now harvest a fixture where the single message (1000 input) names F07-a
+        let msg = r#"{"type":"assistant","timestamp":"2026-09-18T15:00:00.000Z","message":{"id":"msg1","role":"assistant","model":"claude-opus-4-8","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/repo/docs/dev/milestones/F07-a/x.md"}}],"usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":100}}}"#;
+        write_fixture(&tx_dir, "s1.jsonl", &[msg]);
+
+        let args = HarvestArgs {
+            transcript_dir: &tx_dir,
+            project_id: None,
+        };
+        harvest(&config, None, &args).unwrap();
+
+        // Read all + fold
+        let store_path = dir.path().join("telemetry/phase_runs.jsonl");
+        let all_ledgers = read_architect_ledger(&store_path).unwrap();
+        let folded = fold_ledger(all_ledgers);
+
+        // Sum tokens.input across folded records for session s1
+        let total_input: u64 = folded
+            .iter()
+            .filter(|l| l.session_id == "s1")
+            .map(|l| l.tokens.input)
+            .sum();
+
+        assert_eq!(
+            total_input, 1000,
+            "should not double-count (legacy 1000 + new 1000 = 2000)"
+        );
     }
 }

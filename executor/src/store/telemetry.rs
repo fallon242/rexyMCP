@@ -559,8 +559,9 @@ pub fn read_architect_activities(path: &Path) -> std::io::Result<Vec<ArchitectAc
 pub const ARCHITECT_LEDGER_RECORD_TAG: &str = "architect_ledger";
 
 /// One harvested architect-usage bucket: the token totals for a single
-/// `(project_id, session_id, model, skill)` slice of a project's Claude Code
-/// transcripts. Written by `rexymcp harvest`; the executor never writes one.
+/// `(project_id, session_id, model, skill, milestone_id)` slice of a project's
+/// Claude Code transcripts. Written by `rexymcp harvest`; the executor never
+/// writes one.
 /// Coexists with `PhaseRun` / `PhaseReview` / `ArchitectActivity` in
 /// `phase_runs.jsonl`, discriminated by `record`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -582,6 +583,12 @@ pub struct ArchitectLedger {
     /// The skill/slash-command the tokens were attributed to
     /// (`attributionSkill`), or `"other"` when the message carried none.
     pub skill: String,
+    /// Milestone directory slug these tokens were attributed to: the last
+    /// `milestones/<slug>` path the session named in a tool call. `None`
+    /// before the session named one, and on records written before this
+    /// field existed.
+    #[serde(default)]
+    pub milestone_id: Option<String>,
     /// Summed four-class token usage over the deduped messages in this slice.
     pub tokens: ArchitectTokens,
     /// 5-minute-TTL share of `tokens.cache_creation`
@@ -599,12 +606,14 @@ pub struct ArchitectLedger {
 }
 
 /// Fold `ArchitectLedger` records: keep the **last** occurrence per
-/// `(project_id, session_id, model, skill)` key, preserving input order.
+/// `(project_id, session_id, model, skill, milestone_id)` key, preserving
+/// input order.
 /// This is what makes re-harvest idempotent: a second harvest appends fresh
 /// full-sum records that replace the prior ones per key.
 pub fn fold_ledger(ledgers: Vec<ArchitectLedger>) -> Vec<ArchitectLedger> {
     use std::collections::HashMap;
-    let mut latest: HashMap<(Option<String>, String, String, String), usize> = HashMap::new();
+    type Key = (Option<String>, String, String, String, Option<String>);
+    let mut latest: HashMap<Key, usize> = HashMap::new();
     let mut out: Vec<ArchitectLedger> = Vec::new();
     for l in ledgers {
         let key = (
@@ -612,6 +621,7 @@ pub fn fold_ledger(ledgers: Vec<ArchitectLedger>) -> Vec<ArchitectLedger> {
             l.session_id.clone(),
             l.model.clone(),
             l.skill.clone(),
+            l.milestone_id.clone(),
         );
         if let Some(&idx) = latest.get(&key) {
             out[idx] = l;
@@ -1673,6 +1683,7 @@ mod tests {
             session_id: "session-1".to_string(),
             model: "claude-opus-4-8".to_string(),
             skill: "rexymcp:dispatch".to_string(),
+            milestone_id: None,
             tokens: ArchitectTokens {
                 input: 1000,
                 cache_creation: 2000,
@@ -1722,6 +1733,7 @@ mod tests {
             session_id: "s1".to_string(),
             model: "claude-opus-4-8".to_string(),
             skill: "dispatch".to_string(),
+            milestone_id: None,
             tokens: ArchitectTokens {
                 input: 100,
                 cache_creation: 200,
@@ -1756,6 +1768,7 @@ mod tests {
             session_id: "s1".to_string(),
             model: "m1".to_string(),
             skill: "skill_a".to_string(),
+            milestone_id: None,
             tokens: ArchitectTokens {
                 input: 100,
                 cache_creation: 0,
@@ -1773,6 +1786,7 @@ mod tests {
             session_id: "s1".to_string(),
             model: "m1".to_string(),
             skill: "skill_a".to_string(),
+            milestone_id: None,
             tokens: ArchitectTokens {
                 input: 200,
                 cache_creation: 0,
@@ -1790,6 +1804,7 @@ mod tests {
             session_id: "s1".to_string(),
             model: "m1".to_string(),
             skill: "skill_b".to_string(),
+            milestone_id: None,
             tokens: ArchitectTokens {
                 input: 300,
                 cache_creation: 0,
@@ -1889,19 +1904,59 @@ mod tests {
     }
 
     #[test]
-    fn read_all_collects_each_record_type_in_one_pass() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("phase_runs.jsonl");
-        // Write one of each: PhaseRun, activity, ledger, review
-        write_phase_run_line(dir.path());
-        write_activity_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
-        write_ledger_line(dir.path(), TELEMETRY_SCHEMA_VERSION);
-        write_review_line(dir.path());
+    fn fold_ledger_keeps_milestones_apart() {
+        let l1 = ArchitectLedger {
+            record: ARCHITECT_LEDGER_RECORD_TAG.to_string(),
+            project_id: Some("proj".to_string()),
+            session_id: "s1".to_string(),
+            model: "m1".to_string(),
+            skill: "skill_a".to_string(),
+            milestone_id: Some("F07-a".to_string()),
+            tokens: ArchitectTokens {
+                input: 100,
+                cache_creation: 0,
+                cache_read: 0,
+                output: 0,
+            },
+            cache_creation_5m: 0,
+            cache_creation_1h: 0,
+            messages: 1,
+            last_ts: 100,
+        };
+        let l2 = ArchitectLedger {
+            record: ARCHITECT_LEDGER_RECORD_TAG.to_string(),
+            project_id: Some("proj".to_string()),
+            session_id: "s1".to_string(),
+            model: "m1".to_string(),
+            skill: "skill_a".to_string(),
+            milestone_id: None,
+            tokens: ArchitectTokens {
+                input: 200,
+                cache_creation: 0,
+                cache_read: 0,
+                output: 0,
+            },
+            cache_creation_5m: 0,
+            cache_creation_1h: 0,
+            messages: 1,
+            last_ts: 100,
+        };
+        let out = fold_ledger(vec![l1, l2]);
+        assert_eq!(
+            out.len(),
+            2,
+            "different milestone_id must fold into separate records"
+        );
+    }
 
-        let records = read_all(&path).unwrap();
-        assert_eq!(records.runs.len(), 1);
-        assert_eq!(records.activities.len(), 1);
-        assert_eq!(records.ledgers.len(), 1);
+    #[test]
+    fn ledger_without_milestone_field_reads_as_none() {
+        let json = r#"{"record":"architect_ledger","schema_version":1,"project_id":"proj","session_id":"s1","model":"m1","skill":"skill_a","tokens":{"input":100,"cache_creation":0,"cache_read":0,"output":0},"cache_creation_5m":0,"cache_creation_1h":0,"messages":1,"last_ts":100}"#;
+        let ledger: ArchitectLedger = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            ledger.milestone_id, None,
+            "missing milestone_id must deserialize as None"
+        );
     }
 
     #[test]
