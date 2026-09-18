@@ -1,7 +1,7 @@
 # Phase 3: harden the vault container
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 02 (done) — it set the owner-only pattern for the session
 log; this phase applies the same idea to the vault.
 **Estimated diff:** ~250 lines, over half of it tests
@@ -468,3 +468,107 @@ vault where no `.gitignore` can undo the commit.
 - The `anonymize` CLI path was used for E2E as specified; no `privacy`
   subcommand exists.
 
+### Update — ts=1789737458776 (complete, server-authored)
+
+**Summary:** All done. Here's the Summary and Notes for review:
+
+---
+
+**Summary:** Resumed from a prior run that had all implementation complete and one failing test. The only code change was replacing the `vault_inside_an_unignored_repo_is_refused` scenario from the architect's revised spec: instead of a deleted `.gitignore` (which `open` rewrites and repairs, making the check pass), the test now creates a tracked vault — `git init`, `fs::write(vault.enc)`, `git add -f`, commit — so `check-ignore -q` exits 1 and `open` returns `Error::Privacy` naming the directory. All gates are clean: fmt, build, clippy, and `cargo test` 716 + 2 + 1206 passed / 10 ignored.
+
+**E2E result:** The NER engine was reachable; the first run (positive control) printed `scrub_exit=0`, `Person_1 emailed Email_1`, `dir=700`, and `600` for all three files — the defect is fixed. The second run (`.gitignore` deleted) did **not** refuse (`unignored_exit=0`); this is expected because `Vault::open` rewrites the `.gitignore` before calling `ensure_git_ignored`, so the deletion is repaired on the spot. The refusal path is exercised by the unit test with a tracked vault, which is the real hazard no `.gitignore` can undo.
+
+**Notes for review:** The `ensure_git_ignored` pre-check line in the test (`unwrap_err()`) doubles as the revert-safety demonstration — if the call were removed from `open`, the pre-check itself would fail. A vault created before this phase keeps its old modes until rexymcp rewrites each file (out of scope per the phase doc).
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.51s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+
+
+TEST
+:symbols::tests::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1206 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.19s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-03-vault-container.md` — +107 -8
+- `executor/src/privacy/vault.rs` — +24 -11
+
+**Commit:** 5195efe934e04d70282624cb7ffd6417579b306d
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
