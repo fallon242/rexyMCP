@@ -15,10 +15,11 @@ Single source of truth for which phase is active. The principal engineer
 eleven findings closed. Six `approved_first_try`, five `approved_after_1`, five
 bugs filed (four fixed, bug-08-1 waived), zero takeovers. Retrospective in
 [F05/README.md § F05 retrospective](milestones/F05-privacy-security-hardening/README.md).
-**Two folds are drafted there and NOT landed — they need human sign-off:**
-(1) verify a local mechanism before pinning a test to it (3×, all architect
-error); (2) count the mechanical construction sites when a spec adds a struct
-field (1× that cost a 200-turn budget). Carried forward: the waived `eprintln!`
+**Two folds landed in `WORKFLOW.md` on 2026-09-18, on human sign-off:**
+(1) § "Verify the mechanism before you pin a test to it" (3×, all architect
+error); (2) a "count the construction sites" block in § "Prefer additive change
+shapes" (1× that cost a 200-turn budget). Both are mirrored into
+`plugin/templates/WORKFLOW.md`. Carried forward: the waived `eprintln!`
 of the PII dictionary in `executor/src/privacy/egress.rs`, to delete in the
 next phase touching that file; and this file is 326 KB / 4 437 lines and is
 read every session — trimming it is a candidate chore.

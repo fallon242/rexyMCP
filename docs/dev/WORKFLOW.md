@@ -884,6 +884,54 @@ The **Pre-flight step's shape**:
 >    *structure* to the real convention. Flag any divergence in "Notes
 >    for review".
 
+### Verify the mechanism before you pin a test to it
+
+The previous section governs an **external** API the architect cannot reach.
+This one governs the opposite failure: a mechanism the architect *can* run —
+the kernel, git, the shell, the filesystem, a sandbox — and reasoned about
+instead. A spec that asserts what such a mechanism does, without the architect
+having run it, hands the executor a false fact with the architect's authority
+behind it. The executor cannot tell a verified claim from a confident one, so
+it either implements around the wrong assertion or burns turns proving the
+architect wrong.
+
+**The rule: run it, then quote the output. Never guess a fact the executor will
+trust.** A measured baseline in the phase doc — the actual `ls -l` modes, the
+actual exit code, the actual error string — is worth more than a paragraph of
+reasoning about what they should be, and it costs the architect one command.
+
+Three occurrences, all architect error, all in F05:
+
+- **phase-07** asserted that `touch "$HOME/x"` exits non-zero inside the
+  bubblewrap sandbox. It succeeds: the toolchain `--ro-bind-try` mounts create
+  `$HOME` inside the tmpfs. The executor worked around the spec by changing
+  `HOME` rather than filing a blocker. The correct assertion was never about the
+  exit code — it was **"the write does not reach the host"**. State a
+  confinement check as the property you actually want, not as a proxy the
+  architect assumes follows from it.
+- **phase-03** specified a test scenario the implementation legitimately repairs
+  (delete `.gitignore`, reopen the vault — `open` rewrites it, so the test can
+  never fail). Running git instead of reasoning about it produced both a better
+  test *and* a stronger claim: git reports a **tracked** file as not ignored
+  even when a rule matches it, so the check now catches an already-committed
+  vault, which is the case `.gitignore` cannot undo.
+- **phase-11** promised that the earlier sandbox tests would pass unchanged
+  after adding an always-present mount. They could not — the new mount
+  contradicted an assertion in a phase-07 test. Two of that bounce's three items
+  were the spec's fault, and the executor weakened a security test to satisfy
+  the spec's promise. **A spec that changes a shared mechanism must list the
+  existing tests it contradicts and say how each one changes**, rather than
+  assert that nothing breaks.
+
+The second and third bullets share a tell: the spec made a **promise about the
+future** ("this will fail", "those will still pass") where it could have made a
+**statement about the present** ("here is what I ran, here is what it printed").
+When drafting, convert every such promise into a command the architect runs
+before the phase is dispatched. If the command cannot be run at draft time, the
+phase doc says so and asks the executor to establish the baseline as its first
+Spec task — an unverified assertion is never pinned as an acceptance criterion.
+(Folded 2026-09-18 after three occurrences in one milestone.)
+
 ### Prefer additive change shapes; avoid wide-blast-radius breaking changes
 
 When a phase requires modifying a type used at many call sites (an enum variant,
@@ -954,6 +1002,32 @@ fails, the additive code is already safely on disk. *(Proven twice downstream:
 both times the split contained the blast radius — the additive files survived
 and only the delete-heavy file needed reconstruction. The durable runtime
 guards are M45's scope.)*
+
+**Count the construction sites even when the cascade compiles.** The failure
+above is a *broken build* racing the verifier's strike limit. There is a second,
+quieter version: a change where every intermediate step compiles but the executor
+must make the same mechanical edit dozens of times. Adding one field to a struct
+that test literals construct is the canonical case — nothing is hard, nothing is
+broken, and the turn budget drains anyway. F05 phase-02 added one field to
+`LoopDeps` and paid **21** mechanical test-literal edits; that churn, not the
+design, exhausted a 200-turn budget on the first run. The resumed run landed the
+same work.
+
+So at draft time, `grep -c` the construction sites before writing the Spec, and
+then choose:
+
+- **State the count in the Spec** ("this adds a field to `X`; there are 21
+  construction sites in tests, all mechanical — update them in one pass, then
+  build once"), so the executor budgets for a known slog instead of discovering
+  it one compiler error at a time; or
+- **Thread the value another way** — a `Default` impl plus `..Default::default()`
+  in the literals, a builder, a test helper constructor — so the count drops to
+  one.
+
+A phase doc costs the executor context, not turns; **churn costs turns**. Making
+the spec shorter does not help here, and is not what this is asking for.
+(Folded 2026-09-18 after F05 phase-02; held alongside the multi-site mutation
+recurrences above, which share the root cause — an unmeasured call-site count.)
 
 ### Post-write formatting is a runtime concern, not a spec concern
 

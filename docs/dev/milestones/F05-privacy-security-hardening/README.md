@@ -328,7 +328,7 @@ turns — none needed a re-dispatch or a takeover, and none lost committed work.
 The ceiling was raised to 220 on 2026-09-18 in response; note that
 `rexymcp.toml` is git-ignored, so that change does not travel with the repo.
 
-### Folds proposed — NOT landed, awaiting sign-off
+### Folds landed 2026-09-18 (on human sign-off)
 
 **1. Verify the mechanism before you pin a test to it.** Three occurrences,
 all the architect's error, all found by the executor or at review:
@@ -346,9 +346,9 @@ all the architect's error, all found by the executor or at review:
   were the spec's fault.
 
 `WORKFLOW.md` already says to verify **external APIs** against live docs. The
-proposed fold widens that to local mechanisms — kernel, git, shell — with the
-same rule: run it, then quote the output; never guess a fact the executor will
-trust.
+fold is its sibling for local mechanisms — kernel, git, shell — with the same
+rule: run it, then quote the output; never guess a fact the executor will trust.
+Landed as `WORKFLOW.md` § "Verify the mechanism before you pin a test to it".
 
 **2. Count the mechanical sites, or thread the value another way.** Phase 02
 added one field to `LoopDeps` and paid 21 mechanical test-literal edits; that
