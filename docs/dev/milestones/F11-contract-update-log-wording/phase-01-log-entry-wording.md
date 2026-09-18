@@ -1,7 +1,7 @@
 # Phase 1: log entry wording
 
 **Milestone:** F11 — Contract Update Log wording
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -156,3 +156,63 @@ output in a `### Update — YYYY-MM-DD HH:MM (end-to-end verification)` entry.
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 17:38 (started)
+
+Implementing the four contract wording replacements from the spec.
+Wrote the two new tests first; `contract_does_not_limit_executor_to_one_log_entry`
+and `contract_requires_end_to_end_entry` failed as expected against the unedited
+contract:
+
+```
+test agent::contract::tests::contract_does_not_limit_executor_to_one_log_entry ... FAILED
+test agent::contract::tests::contract_requires_end_to_end_entry ... FAILED
+
+failures:
+
+---- agent::contract::tests::contract_does_not_limit_executor_to_one_log_entry stdout ----
+
+thread 'agent::contract::tests::contract_does_not_limit_executor_to_one_log_entry' (678599) panicked at executor/src/agent/contract.rs:190:9:
+contract must not limit the executor to a single Update Log entry
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent::contract::tests::contract_requires_end_to_end_entry stdout ----
+
+thread 'agent::contract::tests::contract_requires_end_to_end_entry' (678601) panicked at executor/src/agent/contract.rs:204:9:
+contract must state the Summary does not replace the end-to-end entry
+ (x2)
+failures:
+    agent::contract::tests::contract_does_not_limit_executor_to_one_log_entry
+    agent::contract::tests::contract_requires_end_to_end_entry
+
+test result: FAILED. 11 passed; 2 failed; 0 ignored; 0 measured; 1209 filtered out; finished in 0.00s
+```
+
+Then applied the four spec replacements to `executor/templates/executor_contract.md`;
+both new tests now pass (13 total in the `contract` filter).
+
+### Update — 2026-09-18 17:38 (end-to-end verification)
+
+`cargo test -p rexymcp-executor contract -- --nocapture`:
+
+```
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 13 tests
+test agent::contract::tests::contract_requires_end_to_end_entry ... ok
+test agent::contract::tests::contract_contains_resuming_a_phase ... ok
+test agent::contract::tests::contract_omits_lint_fix ... ok
+test agent::contract::tests::contract_does_not_ask_executor_to_name_itself ... ok
+test agent::contract::tests::contract_does_not_limit_executor_to_one_log_entry ... ok
+test agent::contract::tests::contract_requires_pasting_pinned_counts ... ok
+test agent::contract::tests::output_starts_with_contract_preamble ... ok
+test agent::contract::tests::placeholder_set_is_exactly_the_four_authorized ... ok
+test agent::prompt::tests::system_prompt_order_is_contract_then_standards_then_phase_doc ... ok
+test agent::prompt::tests::system_prompt_includes_substituted_contract ... ok
+test agent::prompt::tests::assembles_system_prompt_in_contract_standards_phase_order ... ok
+test agent::contract::tests::unset_command_renders_as_unconfigured_sentinel ... ok
+test agent::contract::tests::substitutes_all_four_commands_when_set ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 1209 filtered out; finished in 0.00s
+```

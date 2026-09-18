@@ -184,6 +184,36 @@ mod tests {
     }
 
     #[test]
+    fn contract_does_not_limit_executor_to_one_log_entry() {
+        let commands = CommandConfig::default();
+        let output = assemble_executor_contract(&commands);
+        assert!(
+            !output.contains("This is the only Update Log entry you write"),
+            "contract must not limit the executor to a single Update Log entry"
+        );
+        assert!(
+            !output.contains("the only doc change present at this point is"),
+            "contract must not claim only the start flip and started entry are staged"
+        );
+    }
+
+    #[test]
+    fn contract_requires_end_to_end_entry() {
+        let commands = CommandConfig::default();
+        let output = assemble_executor_contract(&commands);
+        assert!(
+            output.contains("Your Summary does not replace this entry."),
+            "contract must state the Summary does not replace the end-to-end entry"
+        );
+        assert!(
+            output.contains(
+                r#"The Update Log has your started entry and an `(end-to-end verification)` entry"#
+            ),
+            "checklist must require a started entry and an end-to-end verification entry"
+        );
+    }
+
+    #[test]
     fn contract_requires_pasting_pinned_counts() {
         let commands = CommandConfig::default();
         let output = assemble_executor_contract(&commands);

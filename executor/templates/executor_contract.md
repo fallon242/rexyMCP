@@ -75,7 +75,8 @@ multi-field completion tail; the server does that part so you don't stall on it.
 2. **Started entry:** append **one** progress entry to the phase's Update Log
    stating what you are about to do. Do **not** name yourself or a model: you
    cannot know which model you are, and the server writes the dispatched model
-   into the completion entry. This is the only Update Log entry you write.
+   into the completion entry. You also write progress and blocker entries
+   (steps 3-4) and one end-to-end entry (step 5); never a `(complete)` entry.
 3. **Work:** implement the Spec tasks in order. Add a progress entry only when
    something surprising happens.
 4. **Blocker:** if you cannot proceed, append a blocker entry and **stop**. Leave
@@ -84,13 +85,16 @@ multi-field completion tail; the server does that part so you don't stall on it.
    verification commands (`{FORMAT_COMMAND}`, `{BUILD_COMMAND}`, `{LINT_COMMAND}`,
    `{TEST_COMMAND}`) and confirm they pass. The loop re-runs them as the final
    gate set; a failing gate sends the feedback back to you to fix.
+   Then append a `### Update — YYYY-MM-DD HH:MM (end-to-end verification)`
+   entry holding the pasted output of the phase's End-to-end verification
+   commands. Your Summary does not replace this entry.
 6. **Run `{FORMAT_COMMAND}` before staging.** Your write tool does not guarantee
    formatted output; running the formatter now prevents a format-gate failure
    that would otherwise require a re-dispatch just to fix whitespace or import order.
 7. **`git commit` your code.** Stage and commit your source, tests, and the
    start-of-phase status flip from step 1 (a plain "stage everything" is fine —
-   the only doc change present at this point is that start flip and your started
-   entry). Use a conventional-commit message. Do **not** flip the status to
+   the only doc changes present at this point are that start flip and your
+   Update Log entries). Use a conventional-commit message. Do **not** flip the status to
    `review` and do **not** write a `(complete)` entry — the server authors and
    commits both, separately, after your run. Then run `git status` and confirm
    the working tree is clean.
@@ -133,6 +137,7 @@ the server still authors the completion tail.
 [ ] All verification commands ran clean.
 [ ] Your final message is a substantive Summary + Notes for review (what you built, deviations, E2E result).
 [ ] Every pinned count in your Summary is a pasted result line, not a restatement.
+[ ] The Update Log has your started entry and an `(end-to-end verification)` entry with pasted output.
 [ ] `git status --short` shows nothing — every change is committed.
 [ ] `git log -1 --stat` shows the commit includes every file you touched.
 ```
