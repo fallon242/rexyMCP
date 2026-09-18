@@ -9,15 +9,13 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F08 — Architect tokens by milestone** ([README](milestones/F08-architect-tokens-by-milestone/README.md)), opened 2026-09-18 on human go-ahead.
+**Active phase: [phase-01-fork-milestone-ids](milestones/F08-architect-tokens-by-milestone/phase-01-fork-milestone-ids.md)** — `todo`, route local.
 
 **F07 — Completion-entry date: DONE 2026-09-18** at one phase,
 `approved_first_try`, 54 local turns. Server completion entries now head
 themselves `YYYY-MM-DD HH:MM` (UTC). Takes effect once `serve` is rebuilt.
 Retrospective in [F07/README.md](milestones/F07-completion-entry-date/README.md).
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F05 — Privacy and security hardening: DONE 2026-09-18** at eleven phases, all
 eleven findings closed. Six `approved_first_try`, five `approved_after_1`, five
@@ -87,8 +85,7 @@ the server own it, as it already owns the completion tail.
 
 ## Candidate milestones (none opened, none drafted)
 
-- Architect tokens-by-milestone attribution — needs a milestone dimension on
-  the ledger.
+- None listed.
 
 ## History
 
