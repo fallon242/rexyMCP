@@ -1,7 +1,7 @@
 # Phase 2: redact the session log, and make it owner-only
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** phase 01 (done) — `LiteralTerms` and `redact_pii` are what this
 phase reuses.
 **Estimated diff:** ~300 lines, about half of it tests
@@ -631,3 +631,44 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 3adbefaa9d0b4ae10284a606977b9ed263612498
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-17
+
+- **Verdict:** approved_first_try
+- **Bounces:** none. The first run ended `budget_exceeded` at 200 turns with
+  the design on disk and the production code compiling; one resume finished it.
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** `executor/src/agent/progress.rs` had to change its
+  `redactor` field from `&Redactor` to `&LogScrub`. That was a consequence of
+  Spec §2 the Authorizations should have named; the architect authorized it at
+  escalation.
+- **Calibration:** a spec that adds a field to `LoopDeps` pays 21 mechanical
+  test-literal edits, and that churn is what ate the first run's budget. When a
+  seam has that many literals, say so in the spec with the count — or thread the
+  value another way.
+
+Independent re-run: fmt/build/clippy clean (0 warnings). `cargo test`:
+716 + 2 + 1197 passed (10 ignored), up from 1188. All seven tests the Test plan
+names are present.
+
+End-to-end, run by the architect, both passes:
+
+```
+with terms_file:     dir_mode=700 file_mode=600 log_site_code=1 log_plaintext=0 wire_plaintext=0
+without terms_file:  ctrl_dir_mode=700 ctrl_file_mode=600 ctrl_log_plaintext=1
+```
+
+The control is the load-bearing half: without the terms file the same session
+log holds `Plant Nine` in the clear, so the `0` above is a masked log and not
+an empty one. Permissions hold in both runs.
+
+Two architect mutation checks, both caught:
+- deleting the `scrub_strings` call in `redact_event` fails
+  `redact_event_masks_terms_and_literals`,
+  `redact_event_masks_an_alias_across_a_newline` and
+  `session_log_is_scrubbed_when_egress_is_engaged`;
+- deleting the `set_mode` call on the log file fails
+  `session_dir_and_file_are_owner_only` and `existing_loose_modes_are_tightened`.
+
+No `unwrap`/`expect`/`panic!`, `println!`, `#[allow]` or `unsafe` in the
+production part of any changed file.
