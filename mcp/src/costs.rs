@@ -37,6 +37,8 @@ pub struct CostReport {
     pub project: ScopeReport,
     pub assists: u32,
     pub by_skill: Vec<SkillCost>,
+    /// `StoreRecords::unparsed` — telemetry lines that failed to parse.
+    pub unparsed: usize,
 }
 
 /// Fold one scope's `ScopeCosts` into its token report.
@@ -207,14 +209,12 @@ pub fn load_cost_report(
     let project_id = cfg.project.id.as_deref();
 
     // Read telemetry.
-    let runs: Vec<PhaseRun> =
-        telemetry::read(&telemetry_file).map_err(|e| format!("failed to read telemetry: {e}"))?;
-    let activities = telemetry::fold_activities(
-        telemetry::read_architect_activities(&telemetry_file).unwrap_or_default(),
-    );
-    let ledgers = telemetry::fold_ledger(
-        telemetry::read_architect_ledger(&telemetry_file).unwrap_or_default(),
-    );
+    let store = telemetry::read_all(&telemetry_file)
+        .map_err(|e| format!("failed to read telemetry: {e}"))?;
+    let unparsed = store.unparsed;
+    let runs: Vec<PhaseRun> = store.runs;
+    let activities = telemetry::fold_activities(store.activities);
+    let ledgers = telemetry::fold_ledger(store.ledgers);
 
     if let Some(pid) = project_id {
         let project_costs = scope_costs(&runs, &ledgers, pid, None);
@@ -246,6 +246,7 @@ pub fn load_cost_report(
             project: project_report,
             assists,
             by_skill,
+            unparsed,
         })
     } else {
         // No project_id: session still computes; project/milestone are zero.
@@ -257,6 +258,7 @@ pub fn load_cost_report(
             project: zero_report,
             assists: 0,
             by_skill: Vec::new(),
+            unparsed,
         })
     }
 }
@@ -266,6 +268,12 @@ pub fn format_costs(report: &CostReport) -> String {
     let mut lines = ledger_lines(&report.session, report.milestone.as_ref(), &report.project);
 
     lines.push(format!("Assists: {}", report.assists));
+    if report.unparsed > 0 {
+        lines.push(format!(
+            "Unreadable telemetry records: {} (current schema, failed to parse)",
+            report.unparsed
+        ));
+    }
 
     // Per-skill architect token table (project-scoped).
     if !report.by_skill.is_empty() {
@@ -504,6 +512,7 @@ mod tests {
             project: sess_input_output(200_000, 50_000),
             assists: 3,
             by_skill: Vec::new(),
+            unparsed: 0,
         };
         let out = format_costs(&report);
         assert!(out.contains("Session"));
@@ -529,12 +538,47 @@ mod tests {
             project: sess_input_output(200_000, 50_000),
             assists: 3,
             by_skill: Vec::new(),
+            unparsed: 0,
         };
         let out = format_costs(&report);
         assert!(out.contains("Session"));
         assert!(out.contains("Milestone"));
         assert!(out.contains("Project"));
         assert!(out.contains("Assists: 3"));
+    }
+
+    #[test]
+    fn format_costs_reports_unparsed_records() {
+        let report = CostReport {
+            session: sess_input_output(40_000, 10_000),
+            milestone: None,
+            project: sess_input_output(200_000, 50_000),
+            assists: 3,
+            by_skill: Vec::new(),
+            unparsed: 3,
+        };
+        let out = format_costs(&report);
+        assert!(
+            out.contains("Unreadable telemetry records: 3"),
+            "unparsed count must appear: {out}"
+        );
+    }
+
+    #[test]
+    fn format_costs_omits_unparsed_line_when_zero() {
+        let report = CostReport {
+            session: sess_input_output(40_000, 10_000),
+            milestone: None,
+            project: sess_input_output(200_000, 50_000),
+            assists: 3,
+            by_skill: Vec::new(),
+            unparsed: 0,
+        };
+        let out = format_costs(&report);
+        assert!(
+            !out.contains("Unreadable telemetry records"),
+            "unparsed line must be absent when zero: {out}"
+        );
     }
 
     #[test]
@@ -997,6 +1041,7 @@ enabled = false
                     tokens: 25_000,
                 },
             ],
+            unparsed: 0,
         };
         let out = format_costs(&report);
         assert!(
@@ -1023,6 +1068,7 @@ enabled = false
                     tokens: 27_700_000,
                 },
             ],
+            unparsed: 0,
         };
         let out = format_costs(&report);
         assert!(
@@ -1064,6 +1110,7 @@ enabled = false
             project: sess_input_output(200_000, 50_000),
             assists: 0,
             by_skill: Vec::new(),
+            unparsed: 0,
         };
 
         let output = format_costs(&report);
@@ -1082,6 +1129,7 @@ enabled = false
                 skill: "dispatch".to_string(),
                 tokens: 0,
             }],
+            unparsed: 0,
         };
 
         let output = format_costs(&report);
@@ -1099,6 +1147,7 @@ enabled = false
             project: ScopeReport::default(),
             assists: 0,
             by_skill: Vec::new(),
+            unparsed: 0,
         };
         let output = format_costs(&report);
         let header = output.lines().next().expect("header line present");

@@ -1,7 +1,7 @@
 # Phase 1: count unparsed
 
 **Milestone:** F12 — Telemetry unparsed count
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~150 lines, most of it tests
 **Tags:** language=rust, kind=feature, size=s
@@ -259,5 +259,55 @@ runs `rexymcp costs` against the live store at review.
 - The per-type readers, the dashboard, the scorecard.
 
 ## Update Log
+
+### Update — 2026-09-18 17:58 (start)
+
+Starting F12 phase-01: add `StoreRecords.unparsed` and count current-schema
+lines that fail to parse in `read_all` (executor); add `CostReport.unparsed`
+and print `Unreadable telemetry records: N` when nonzero in `rexymcp costs`
+(mcp). Test-first per spec: write test 1 first, run it, quote the failure,
+then implement.
+
+### Update — 2026-09-18 17:58 (progress)
+
+Test-first per spec: wrote `read_all_counts_current_version_line_that_fails_to_parse` before implementing the field. Quoted failure:
+
+```
+error[E0609]: no field `unparsed` on type `StoreRecords`
+    --> executor/src/store/telemetry.rs:1840:28
+     |
+1840 |         assert_eq!(records.unparsed, 1, "current-version line failing to parse must be counted");
+     |                            ^^^^^^^^ unknown field
+     |
+     = note: available fields are: `runs`, `activities`, `ledgers`
+```
+
+Implemented `StoreRecords.unparsed`, the `read_all` counting loop, and the 6 new `read_all_*` tests, then the `CostReport.unparsed` field, the single `read_all` call in `load_cost_report`, the optional `Unreadable telemetry records: N` line in `format_costs`, and the 2 new `format_costs_*unparsed*` tests. All 9 `CostReport` literals now carry `unparsed`.
+
+### Update — 2026-09-18 17:58 (end-to-end verification)
+
+`cargo test -p rexymcp-executor read_all -- --nocapture`:
+
+```
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 1215 filtered out; finished in 0.00s
+```
+
+`cargo test -p rexymcp costs:: -- --nocapture`:
+
+```
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+```
+
+Full `cargo test` summary lines:
+
+```
+test result: ok. 729 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.24s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1218 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.21s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`cargo fmt --all --check`, `cargo build`, and `cargo clippy --all-targets --all-features -- -D warnings` all pass clean.
 
 <!-- entries appended below this line -->

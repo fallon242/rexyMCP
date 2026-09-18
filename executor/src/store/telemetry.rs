@@ -682,6 +682,10 @@ pub struct StoreRecords {
     /// `record == ARCHITECT_LEDGER_RECORD_TAG` — identical to
     /// `read_architect_ledger`.
     pub ledgers: Vec<ArchitectLedger>,
+    /// Lines that claim the current `schema_version` and a known record type
+    /// but fail to deserialize into it, plus lines that are not JSON at all.
+    /// Old-schema lines and unknown record types are skipped, not counted.
+    pub unparsed: usize,
 }
 
 /// Tiny header parsed from each JSONL line to dispatch on record type.
@@ -699,7 +703,7 @@ struct RecordHead {
 
 /// Read the store once, dispatching each line on its `record` discriminator.
 /// A missing file yields `StoreRecords::default()`, matching the per-type
-/// readers' `NotFound` behavior. Malformed lines are skipped silently.
+/// readers' `NotFound` behavior. Unusable lines are counted in `unparsed`.
 pub fn read_all(path: &Path) -> std::io::Result<StoreRecords> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -711,31 +715,35 @@ pub fn read_all(path: &Path) -> std::io::Result<StoreRecords> {
     for line in content.lines().filter(|l| !l.trim().is_empty()) {
         let head = match serde_json::from_str::<RecordHead>(line) {
             Ok(h) => h,
-            Err(_) => continue,
+            Err(_) => {
+                records.unparsed += 1;
+                continue;
+            }
         };
+        if head.schema_version != TELEMETRY_SCHEMA_VERSION {
+            continue;
+        }
 
         match head.record.as_str() {
-            ARCHITECT_LEDGER_RECORD_TAG => {
-                if head.schema_version == TELEMETRY_SCHEMA_VERSION
-                    && let Ok(l) = serde_json::from_str::<ArchitectLedger>(line)
-                {
-                    records.ledgers.push(l);
-                }
-            }
+            ARCHITECT_LEDGER_RECORD_TAG => match serde_json::from_str::<ArchitectLedger>(line) {
+                Ok(l) => records.ledgers.push(l),
+                Err(_) => records.unparsed += 1,
+            },
             ARCHITECT_ACTIVITY_RECORD_TAG => {
-                if head.schema_version == TELEMETRY_SCHEMA_VERSION
-                    && let Ok(a) = serde_json::from_str::<ArchitectActivity>(line)
-                {
-                    records.activities.push(a);
+                match serde_json::from_str::<ArchitectActivity>(line) {
+                    Ok(a) => records.activities.push(a),
+                    Err(_) => records.unparsed += 1,
                 }
             }
-            "" => {
-                if head.schema_version == TELEMETRY_SCHEMA_VERSION
-                    && let Ok(r) = serde_json::from_str::<PhaseRun>(line)
-                {
-                    records.runs.push(r);
+            REVIEW_RECORD_TAG => {
+                if serde_json::from_str::<PhaseReview>(line).is_err() {
+                    records.unparsed += 1;
                 }
             }
+            "" => match serde_json::from_str::<PhaseRun>(line) {
+                Ok(r) => records.runs.push(r),
+                Err(_) => records.unparsed += 1,
+            },
             _ => {}
         }
     }
@@ -1828,6 +1836,90 @@ mod tests {
     }
 
     // ---- read_all tests ----
+
+    #[test]
+    fn read_all_counts_current_version_line_that_fails_to_parse() {
+        let dir = tempfile::tempdir().unwrap();
+        let line = r#"{"record":"architect_ledger","schema_version":1,"model":"m","skill":"s","tokens":{"input":1,"cache_creation":0,"cache_read":0,"output":0},"messages":1,"last_ts":1}"#;
+        std::fs::write(dir.path().join("phase_runs.jsonl"), line.to_string() + "\n").unwrap();
+
+        let records = read_all(dir.path().join("phase_runs.jsonl").as_path()).unwrap();
+        assert_eq!(
+            records.ledgers.len(),
+            0,
+            "unparseable ledger must not be in ledgers"
+        );
+        assert_eq!(
+            records.unparsed, 1,
+            "current-version line failing to parse must be counted"
+        );
+    }
+
+    #[test]
+    fn read_all_does_not_count_old_schema_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let line = r#"{"record":"architect_ledger","schema_version":0,"model":"m","skill":"s","tokens":{"input":1,"cache_creation":0,"cache_read":0,"output":0},"messages":1,"last_ts":1}"#;
+        std::fs::write(dir.path().join("phase_runs.jsonl"), line.to_string() + "\n").unwrap();
+
+        let records = read_all(dir.path().join("phase_runs.jsonl").as_path()).unwrap();
+        assert_eq!(
+            records.ledgers.len(),
+            0,
+            "old-schema ledger must not be in ledgers"
+        );
+        assert_eq!(
+            records.unparsed, 0,
+            "old-schema lines are skipped, not counted"
+        );
+    }
+
+    #[test]
+    fn read_all_counts_malformed_json_line() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("phase_runs.jsonl"), "not json\n").unwrap();
+
+        let records = read_all(dir.path().join("phase_runs.jsonl").as_path()).unwrap();
+        assert_eq!(records.unparsed, 1, "non-JSON line must be counted");
+    }
+
+    #[test]
+    fn read_all_counts_unparseable_review() {
+        let dir = tempfile::tempdir().unwrap();
+        let line = r#"{"record":"review","schema_version":1,"ts":1,"phase_id":"p"}"#;
+        std::fs::write(dir.path().join("phase_runs.jsonl"), line.to_string() + "\n").unwrap();
+
+        let records = read_all(dir.path().join("phase_runs.jsonl").as_path()).unwrap();
+        assert_eq!(
+            records.unparsed, 1,
+            "review line missing architect_verdict must be counted"
+        );
+    }
+
+    #[test]
+    fn read_all_does_not_count_valid_review() {
+        let dir = tempfile::tempdir().unwrap();
+        let line = r#"{"record":"review","schema_version":1,"ts":1,"phase_id":"p","architect_verdict":"approved_first_try"}"#;
+        std::fs::write(dir.path().join("phase_runs.jsonl"), line.to_string() + "\n").unwrap();
+
+        let records = read_all(dir.path().join("phase_runs.jsonl").as_path()).unwrap();
+        assert_eq!(
+            records.unparsed, 0,
+            "complete review line must not be counted"
+        );
+    }
+
+    #[test]
+    fn read_all_does_not_count_unknown_record_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let line = r#"{"record":"future_thing","schema_version":1}"#;
+        std::fs::write(dir.path().join("phase_runs.jsonl"), line.to_string() + "\n").unwrap();
+
+        let records = read_all(dir.path().join("phase_runs.jsonl").as_path()).unwrap();
+        assert_eq!(
+            records.unparsed, 0,
+            "unknown record types are skipped, not counted"
+        );
+    }
 
     fn write_phase_run_line(dir: &Path) {
         let path = dir.join("phase_runs.jsonl");
