@@ -9,7 +9,8 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F12 — Telemetry unparsed count** ([README](milestones/F12-telemetry-unparsed-count/README.md)), opened 2026-09-18 on human go-ahead.
+**Active phase: [phase-01-count-unparsed](milestones/F12-telemetry-unparsed-count/phase-01-count-unparsed.md)** — `todo`, route local.
 
 **F11 — Contract Update Log wording: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract now requires an `(end-to-end verification)`
@@ -17,9 +18,6 @@ entry and no longer calls the started entry the only one. Retrospective in
 [F11/README.md](milestones/F11-contract-update-log-wording/README.md).
 **Rebuilt 2026-09-18 13:51** with F11; `serve` restarted. The next dispatch
 is the first live check of the F11 wording.
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F10 — Remove PII debug print: DONE 2026-09-18** at one phase,
 `approved_first_try`. F05 bug-08-1 closed. Retrospective in
@@ -81,8 +79,8 @@ Live state only. Anything resolved has been removed — see § History.
   `executor/src/store/telemetry.rs` (lines 244/249, 429/434, 548/553, 647/652,
   verified 2026-09-18) drop both malformed lines *and* records whose schema no
   longer matches, so a future field rename or type change goes equally quiet.
-  Named rather than scheduled: if a numbers discrepancy ever appears with no
-  obvious cause, look here first.
+  Being addressed in F12 (a `read_all` unparsed count surfaced by
+  `rexymcp costs`); the per-type readers stay silent.
 - **Two open nits**, neither blocking: the `missing_spec_test` / broken-fixture
   failure shape (M37 phase-06), and the `$`-less `executor_val` debit (M38).
 - **`generic-array` 0.14.9** was dropped as unreachable, not deferred:
