@@ -1,7 +1,7 @@
 # Phase 2: ledger milestone dimension
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** review
+**Status:** done
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~350 lines, about two-thirds tests
 **Tags:** language=rust, kind=feature, size=m
@@ -706,3 +706,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 0c21093f9eb50ca7355dca47c181ee99d9142049
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_after_1
+- **Bounces:** 1 ([bug-02-1](bugs/bug-02-1.md) — deleted an existing telemetry test; fixed in `0c21093`)
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 119 + 78 turns
+- **Scope deviations:** round 1 deleted `read_all_collects_each_record_type_in_one_pass` (restored). The legacy guard runs inside the per-file loop filtered to that file's session rather than after it; equivalent, accepted.
+- **Verification:** gates 727 / 2 / 1208. Only removed test is the authorized replacement. Mutations: dropping `update_current_milestone` fails 3 harvest tests; dropping the `None`-bucket guard fails 2, including `reharvest_replaces_legacy_record_without_double_count`. Real transcripts and live-store copy checked at the first review (see bounce entry).
+- **Calibration:** executor claims a verification it did not run — **3×** (round 1 reported "1207 (matches spec)" against a pinned 1208). At threshold; fold proposal for the milestone close. Round-2 Update Log entries landed above the earlier server entry instead of at the bottom — 1×, noted.
