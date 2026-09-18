@@ -28,7 +28,7 @@ pub fn assemble_system_prompt(
 /// Format epoch-millis (UTC) as `YYYY-MM-DD` using civil-from-days integer
 /// arithmetic — no date dependency, deterministic, hermetic. Input is the
 /// injected `clock` value (always ≥ 0), so no negative-era branch is needed.
-fn format_utc_date(now_ms: u64) -> String {
+pub fn format_utc_date(now_ms: u64) -> String {
     let days = (now_ms / 1_000) / 86_400; // whole days since 1970-01-01 (UTC)
     let z = days + 719_468;
     let era = z / 146_097;
@@ -46,7 +46,7 @@ fn format_utc_date(now_ms: u64) -> String {
 /// Format epoch-millis (UTC) as `HH:MM` (24-hour). The time-of-day is the
 /// remainder of the day in seconds; pairs with `format_utc_date` to give the
 /// model sub-day grounding without a date dependency.
-fn format_utc_time(now_ms: u64) -> String {
+pub fn format_utc_time(now_ms: u64) -> String {
     let secs_of_day = (now_ms / 1_000) % 86_400;
     let hours = secs_of_day / 3_600;
     let minutes = (secs_of_day % 3_600) / 60;
