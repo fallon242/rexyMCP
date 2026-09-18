@@ -9,16 +9,14 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F09 — Executor-contract calibration folds** ([README](milestones/F09-executor-contract-folds/README.md)), opened 2026-09-18 on human sign-off.
+**Active phase: [phase-01-contract-folds](milestones/F09-executor-contract-folds/phase-01-contract-folds.md)** — `todo`, route local.
 
 **F08 — Architect tokens by milestone: DONE 2026-09-18** at two phases (one
 `approved_first_try`, one `approved_after_1`), all local. Milestone-scope costs
 now include architect tokens and fork runs carry their milestone id. **Live
 only after the release binary is rebuilt and `serve` restarted.** Retrospective
 in [F08/README.md](milestones/F08-architect-tokens-by-milestone/README.md).
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F07 — Completion-entry date: DONE 2026-09-18** at one phase,
 `approved_first_try`, 54 local turns. Server completion entries now head
@@ -93,9 +91,7 @@ the server own it, as it already owns the completion tail.
 
 ## Candidate milestones (none opened, none drafted)
 
-- **Executor-contract calibration folds** (both at 3×, proposed in the F08
-  retrospective): drop "naming yourself" from contract step 2; require quoting
-  the `test result:` line against any pinned count in step 8. Needs sign-off.
+- None listed.
 
 ## History
 
