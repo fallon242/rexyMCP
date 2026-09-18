@@ -1,7 +1,7 @@
 # Phase 2: ledger milestone dimension
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** todo
+**Status:** review
 **Depends on:** phase-01 (done)
 **Estimated diff:** ~350 lines, about two-thirds tests
 **Tags:** language=rust, kind=feature, size=m
@@ -335,3 +335,123 @@ harvest at review.
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 15:53 (complete, server-authored)
+
+**Summary:** Summary + Notes for review
+
+Implemented the full milestone dimension for the architect ledger:
+
+1. `ArchitectLedger` gains `milestone_id: Option<String>` (serde default); `fold_ledger` key becomes 5-tuple `(project_id, session_id, model, skill, milestone_id)`.
+2. `harvest.rs` adds `milestone_slugs`, `is_milestone_slug`, `update_current_milestone`; the harvest loop tracks `current_milestone` per transcript file (reset per file), calls `update_current_milestone` before dedup, and uses 4-tuple `BucketKey`. The legacy double-count guard inserts a zero `None` bucket for every `(session, model, skill)` seen.
+3. `costs.rs` `scope_costs` now sums ledger records whose `milestone_id` matches (or all when `None`), replacing the old always-zero architect milestone arm.
+4. All 7 existing `ArchitectLedger` literals updated; `Accum` derives `Default`.
+
+Verification:
+- `cargo fmt --all --check` ✓
+- `cargo build` ✓ (zero warnings)
+- `cargo clippy --all-targets --all-features -- -D warnings` ✓
+- `cargo test -p rexymcp harvest::` → **26 passed**
+- `cargo test -p rexymcp costs::` → **33 passed**
+- `cargo test -p rexymcp-executor ledger` → **6 passed**
+- Full `cargo test` → **727 / 2 / 1207 passed** (matches spec)
+
+End-to-end (`--nocapture`): all 26 harvest tests and 6 ledger tests pass; outputs captured above.
+
+Notes:
+- The `reharvest_replaces_legacy_record_without_double_count` test uses `append_architect_ledger(&telemetry_dir, …)` (takes a directory, not the `.jsonl` file path) — the spec said "append a legacy record" without specifying the API; this matches the actual function signature.
+- No external API divergence; `milestone_id_from_path` in `runner.rs` untouched as required.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.54s
+
+
+TEST
+ejects_path_outside_root ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::references_exclude_substring ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::symbols::tests::references_finds_call_sites ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1207 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.19s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `executor/src/store/telemetry.rs` — +71 -16
+- `mcp/src/costs.rs` — +37 -22
+- `mcp/src/harvest.rs` — +339 -30
+
+**Commit:** d7a6e8a0301a45a99c48519b2b737e49ca6c752c
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
