@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F10 — Remove PII debug print** ([README](milestones/F10-remove-pii-debug-print/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-drop-debug-print](milestones/F10-remove-pii-debug-print/phase-01-drop-debug-print.md)** — `todo`, route local only.
+**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
 
 **F09 — Executor-contract calibration folds: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract no longer asks the executor to name itself

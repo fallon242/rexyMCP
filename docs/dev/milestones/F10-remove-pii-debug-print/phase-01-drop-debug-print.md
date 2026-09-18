@@ -1,7 +1,7 @@
 # Phase 1: drop debug print
 
 **Milestone:** F10 — Remove PII debug print
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** 1 line
 **Tags:** language=rust, kind=cleanup, size=xs
@@ -190,3 +190,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 12eb0e41353f4d64fbaf0351e10ecf56b11faebe
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 12 turns
+- **Scope deviations:** none. One file, one deletion (`12eb0e4`).
+- **Verification:** gates 727 / 2 / 1210, unchanged. `grep -c 'println!' executor/src/privacy/egress.rs` → 0; no prints anywhere in `executor/src/privacy/`. Live test run by the architect against the engine: `live_build_egress_index_keeps_project_names_out ... ok` (1 passed, 1.41s), with `--nocapture` and no terms printed. Closes F05 bug-08-1.
+- **Calibration:** first dispatch on the F09 contract. The Summary pasted all four `test result:` lines — the pinned-count fold held. The executor wrote **no** Update Log entries (no started entry, no status flip at start, no end-to-end entry); the evidence reached the log only through the server-spliced Summary. Executor writes no Update Log entries: 2× (F08 phase-02 round 1, F10 phase-01).
