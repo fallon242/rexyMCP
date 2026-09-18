@@ -1,7 +1,7 @@
 # Phase 4: make the prompt guard fail closed, and ship it
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** review
+**Status:** done
 **Depends on:** nothing in F05.
 **Estimated diff:** ~180 lines: a script rewrite, one new file, one doc section.
 **Tags:** language=bash, kind=security, size=s
@@ -408,3 +408,47 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 1f3662c9bc5f1ef9e601e7818824f51345c6ae23
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none.
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4
+- **Scope deviations:** one addition, and a good one: the executor added
+  `sed 's/\\n//g'` to the flattening step, so a JSON-escaped `\n` inside the
+  prompt string is removed too. The spec only handled real newlines. Verified:
+  `{"prompt":"mail jane@\nacme.com"}` blocks.
+- **Calibration:** none.
+
+Rust is untouched, as the phase required: 716 / 2 / 1206 (10 ignored),
+fmt/build/clippy clean, zero warnings.
+
+Acceptance greps: `jq` calls in the script **0**; `hooks.json` parses and wires
+`bash "${CLAUDE_PLUGIN_ROOT}/hooks/pii-guard.sh"`; `docs/privacy.md` no longer
+says to copy the script into `.claude/hooks/` and no longer says `Requires jq`.
+
+The architect ran the payload table against the real script, twice — once
+normally and once with `jq` removed from `PATH` via a shim directory. Identical
+results both times:
+
+```
+email 2 · ssn-punct 2 · visa 2 · amex 2 · diners 2 · bare-ssn+keyword 2 ·
+renamed-key 2 · split-email 2 · clean 0 · epoch 0 · ports 0 · shas 0 ·
+privacy-off 0 · no-toml 0
+```
+
+`renamed-key` blocking is the fail-closed proof — the same PII under a
+different payload key. `epoch`, `ports` and `shas` staying at 0 is the
+false-positive guard: a guard that blocks ordinary development prompts gets
+switched off, which is worse than not shipping it.
+
+Two mutation checks, both caught:
+- removing the newline flattening drops the split-email case from 2 to 0;
+- removing the `[privacy] enabled` gate makes an opted-out project block at 2
+  instead of 0.
+
+Note on the architect's own method: the first two `jq`-hidden runs reported
+false failures because the shim was built with `command -v`, which returned a
+self-referential `grep -> grep` symlink. The script was never at fault. Build a
+shim from absolute paths and prove the shim works before trusting what it says
+about the thing under test.
