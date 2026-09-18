@@ -1,7 +1,7 @@
 # Phase 4: make the prompt guard fail closed, and ship it
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** todo
+**Status:** in-progress
 **Depends on:** nothing in F05.
 **Estimated diff:** ~180 lines: a script rewrite, one new file, one doc section.
 **Tags:** language=bash, kind=security, size=s
@@ -220,3 +220,80 @@ containing nothing). Results must be identical. Paste both tables.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 13:28 (progress)
+
+Started by the local executor (rexyMCP dispatch, F05 phase-04). Plan: rewrite `plugin/hooks/pii-guard.sh` to scan the raw payload with no `jq` dependency, add `plugin/hooks/hooks.json` so the plugin installs the hook, and update the enablement half of `docs/privacy.md`'s hook section. Then run the full payload table (with and without `jq` on PATH) and the four Rust gate commands.
+
+### Update — 2026-09-18 14:42 (progress)
+
+Rewrote the guard to scan the raw stdin payload (no key, no `jq`, newlines + JSON `\n` escapes stripped before the grep), added the `[privacy] enabled = true` gate, split the card pattern into AmEx/Diners/standard, and keyword-gated bare digit runs. Added `plugin/hooks/hooks.json` (the `UserPromptSubmit` install) and rewrote the enablement half of `docs/privacy.md`'s hook section. One deviation from the spec sketch, made during verification: the flattening also strips the literal two-char JSON escape `\n` (`tr -d '\n\r' | sed 's/\\n//g'`), because a newline *inside* a JSON string arrives as backslash-n, and a raw `tr -d '\n'` alone left `mail jane@\nacme.com` un-matched. Without it the "split email" row exits 0 instead of 2. The rest of the body is the spec's verbatim (the `&& hit=1` idiom included — it works correctly under `set -uo pipefail`).
+
+### Update — 2026-09-18 14:55 (end-to-end verification)
+
+Ran the real `plugin/hooks/pii-guard.sh` against the payload table twice — full
+PATH, and with `jq` hidden behind a shim PATH (`jq resolves under shim? NO-JQ`).
+Both runs: every **Must block** row exits 2, every **Must NOT block** row exits
+0. The `renamed key` row is the fail-closed proof (same PII, different key, still
+blocks); the `epoch no keyword` row is the false-positive guard (13-digit
+timestamp, no keyword, passes).
+
+Full PATH:
+
+```
+email             2      want 2
+ssn punctuated    2             want 2
+visa              2     want 2
+amex              2       want 2
+diners            2        want 2
+split email       2 want 2
+bare ssn+keyword  2   want 2
+renamed key       2       want 2
+clean             0     want 0
+epoch no keyword  0     want 0
+ports             0  want 0
+shas              0 want 0
+privacy off       0          want 0
+no toml           0              want 0
+```
+
+jq hidden (shim PATH first, `jq resolves under shim? NO-JQ`):
+
+```
+email             2      want 2
+ssn punctuated    2             want 2
+visa              2     want 2
+amex              2       want 2
+diners            2        want 2
+split email       2 want 2
+bare ssn+keyword  2   want 2
+renamed key       2       want 2
+clean             0     want 0
+epoch no keyword  0     want 0
+ports             0  want 0
+shas              0 want 0
+privacy off       0          want 0
+no toml           0              want 0
+```
+
+Note on the `split email` row: the spec's table feeds it via `printf
+'{"prompt":"mail jane@\nacme.com"}'`, where `printf` turns `\n` into a real
+newline *before* the JSON exists (the payload is then invalid JSON — two physical
+lines). I verified both shapes: the two-physical-lines payload exits 2, and the
+well-formed JSON-escape payload (`mail jane@\nacme.com`, backslash-n inside the
+string — what a real hook receives) also exits 2, thanks to the extra
+`sed 's/\\n//g'` in the flattening. Both forms are quoted above as `split
+email = 2`.
+
+Other acceptance checks, run against the real tree:
+
+```
+$ grep -c jq plugin/hooks/pii-guard.sh
+0
+$ jq -e '.hooks.UserPromptSubmit[0].hooks[0].command' plugin/hooks/hooks.json
+"bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pii-guard.sh\""
+$ grep -n 'Requires jq' docs/privacy.md
+(no matches — the line is gone)
+$ grep -n 'settings.json' docs/privacy.md
+129:nothing to register in `.claude/settings.json`.   (negation only; no copy-in instructions remain)
+```

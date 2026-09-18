@@ -124,24 +124,20 @@ telling you to run `rexymcp anonymize` and paste the tokenized text. It does
 **not** catch names or addresses (those need the model); for full anonymization,
 use the CLI.
 
-Enable it (opt-in) by copying the script into your project and registering it in
-`.claude/settings.json`:
+The plugin installs the hook itself (`plugin/hooks/hooks.json`, wired through
+`${CLAUDE_PLUGIN_ROOT}`) — there is nothing to copy into `.claude/hooks/` and
+nothing to register in `.claude/settings.json`. It needs no `jq`: it scans the
+raw prompt payload on stdin, so no payload-key rename can silently disable it,
+and PII split across a line break still matches. Bare 9- or 10-digit runs — a
+raw SSN or phone number without punctuation — are matched only when the prompt
+mentions them (a keyword like `ssn` or `phone`), because the same digit shape is
+a timestamp or a port range in ordinary development prompts.
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "type": "command",
-        "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pii-guard.sh",
-        "timeout": 30 }
-    ]
-  }
-}
-```
-
-Requires `jq`. **The reliable, comprehensive path remains the CLI**: run
-`rexymcp anonymize` on your text and paste the result. The hook is a backstop for
-the times you forget.
+The hook is inert until `[privacy] enabled = true` in your project's
+`rexymcp.toml` — it checks that file on every prompt, so installing the plugin
+in a project that never opts in changes nothing. **The reliable, comprehensive
+path remains the CLI**: run `rexymcp anonymize` on your text and paste the
+result. The hook is a backstop for the times you forget.
 
 ## Configuration (`[privacy]`)
 

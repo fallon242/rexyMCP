@@ -1,0 +1,16 @@
+{
+  "description": "rexyMCP PII guard — blocks a typed prompt carrying structured PII when [privacy] is enabled",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pii-guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
