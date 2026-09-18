@@ -1,7 +1,7 @@
 # Phase 1: tighten guard
 
 **Milestone:** F13 — PII guard false positives
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~80 lines
 **Tags:** language=bash, kind=bugfix, size=s
@@ -425,3 +425,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 59e880d084e0ad09c3f906bdd192852943648bc2
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 56 turns
+- **Scope deviations:** none. The committed hook equals the spec applied to the pre-phase file, byte for byte (`59e880d`).
+- **Verification:** gates 729 / 2 / 1218; `bash -n` clean. Architect's own run of the Test plan: 21/21 `ok`, `privacy off` and `no toml` 0, the Amex sample prints `(matched: card number (Luhn-valid)).` Random-UUID payloads with prompt `commit`: 0/500 blocked. Mutation — hook without the UUID strip: 4/1500 random payloads blocked, and `{"prompt_id":"41111111-1111-1111-1111-111111111111","prompt":"commit"}` blocks (2) without the strip and passes (0) with it.
+- **Calibration:** the spec's `all-digit uuid` row does **not** exercise the strip — it passes with the strip removed, because its digit groups form no Luhn-valid run. Architect error in the test design; the `41111111-…` payload above is the row that does. Spec test that cannot fail against the bug it targets: **2×** (F06 phase-01, F13 phase-01). Executor labelled its first entry `(progress)` rather than `(started)` — nit.

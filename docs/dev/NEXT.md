@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F13 — PII guard false positives** ([README](milestones/F13-pii-guard-false-positives/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-tighten-guard](milestones/F13-pii-guard-false-positives/phase-01-tighten-guard.md)** — `todo`, route local only.
+**Active phase: none.** Phase-01 `done` 2026-09-18 — milestone awaiting close via `/rexymcp:architect`.
 
 **F12 — Telemetry unparsed count: DONE 2026-09-18** at one phase,
 `approved_first_try`. `read_all` counts unusable current-schema lines and
