@@ -1,7 +1,7 @@
 # Phase 1: tighten guard
 
 **Milestone:** F13 — PII guard false positives
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~80 lines
 **Tags:** language=bash, kind=bugfix, size=s
@@ -250,3 +250,73 @@ Paste the full output of the Test plan block, run after the change, in a
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 22:04 (progress)
+
+Pre-flight: ran the Test plan table against the current `plugin/hooks/pii-guard.sh` before changing anything.
+
+```
+ok   email                  got 2 want 2
+ok   ssn punctuated         got 2 want 2
+ok   visa                   got 2 want 2
+ok   visa unspaced          got 2 want 2
+ok   amex                   got 2 want 2
+ok   diners                 got 2 want 2
+ok   visa then year         got 2 want 2
+ok   split email            got 2 want 2
+ok   bare ssn+keyword       got 2 want 2
+FAIL tel word+digits        got 0 want 2
+ok   renamed key            got 2 want 2
+ok   clean                  got 0 want 0
+ok   epoch no keyword       got 0 want 0
+ok   ports                  got 0 want 0
+ok   shas                   got 0 want 0
+FAIL two epochs             got 2 want 0
+FAIL telemetry+run id      got 2 want 0
+FAIL git remote scp         got 2 want 0
+FAIL git remote ssh         got 2 want 0
+ok   empty prompt           got 0 want 0
+FAIL all-digit uuid        got 2 want 0
+privacy off  0 want 0
+no toml      0 want 0
+rexyMCP PII guard: your prompt appears to contain structured PII
+(email / SSN / phone / card). Anonymize it first, then paste the
+```
+
+Matches the architect's expected baseline exactly: `tel word+digits` fails (old keyword rule needs `tel:` or `tele`), and `two epochs`, `telemetry+run id`, `git remote scp`, `git remote ssh`, `all-digit uuid` all show the false positives the new detection block and UUID stripping are meant to fix. Now implementing Spec tasks 0–3.
+
+### Update — 2026-09-18 22:04 (end-to-end verification)
+
+Test plan table, run after the change:
+
+```
+ok   email                  got 2 want 2
+ok   ssn punctuated         got 2 want 2
+ok   visa                   got 2 want 2
+ok   visa unspaced          got 2 want 2
+ok   amex                   got 2 want 2
+ok   diners                 got 2 want 2
+ok   visa then year         got 2 want 2
+ok   split email            got 2 want 2
+ok   bare ssn+keyword       got 2 want 2
+ok   tel word+digits        got 2 want 2
+ok   renamed key            got 2 want 2
+ok   clean                  got 0 want 0
+ok   epoch no keyword       got 0 want 0
+ok   ports                  got 0 want 0
+ok   shas                   got 0 want 0
+ok   two epochs             got 0 want 0
+ok   telemetry+run id       got 0 want 0
+ok   git remote scp         got 0 want 0
+ok   git remote ssh         got 0 want 0
+ok   empty prompt           got 0 want 0
+ok   all-digit uuid         got 0 want 0
+privacy off  0 want 0
+no toml      0 want 0
+rexyMCP PII guard: your prompt appears to contain structured PII
+(matched: card number (Luhn-valid)).
+```
+
+All 21 table rows `ok`; both trailing lines show `0` (want 0); last command prints `(matched: card number (Luhn-valid)).`.
+
+

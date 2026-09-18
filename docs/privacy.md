@@ -131,7 +131,11 @@ raw prompt payload on stdin, so no payload-key rename can silently disable it,
 and PII split across a line break still matches. Bare 9- or 10-digit runs — a
 raw SSN or phone number without punctuation — are matched only when the prompt
 mentions them (a keyword like `ssn` or `phone`), because the same digit shape is
-a timestamp or a port range in ordinary development prompts.
+a timestamp or a port range in ordinary development prompts. A card number
+must total 14–19 digits across whole space- or dash-separated groups and pass
+the Luhn check, so timestamps and ids rarely block; a git remote
+(`git@host:owner/repo`) is not treated as an email address. The block message
+names the rule that matched.
 
 The hook is inert until `[privacy] enabled = true` in your project's
 `rexymcp.toml` — it checks that file on every prompt, so installing the plugin
