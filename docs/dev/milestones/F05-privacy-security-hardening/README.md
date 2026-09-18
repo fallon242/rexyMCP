@@ -4,8 +4,8 @@
 features promise and what they do. Eleven findings, each with evidence, most
 small. Together they are the difference between a safety net and a belief.
 
-**Status:** in-progress — opened 2026-09-16 on human sign-off. Phase 01 is
-drafted and dispatchable; phases 02–05 are named and drafted on demand.
+**Status:** done — opened 2026-09-16 on human sign-off, closed 2026-09-18 at
+eleven phases. All eleven findings are closed; see § F05 retrospective.
 
 **Depends on:** F02 (ingestion gate), F03 (egress protection), F04 (pre-scan
 efficiency). All done.
@@ -15,18 +15,18 @@ observed there, not imagined.
 
 **Exit criteria:**
 
-- [ ] A repo can declare literal terms that must never reach a cloud model, and
+- [x] A repo can declare literal terms that must never reach a cloud model, and
       they are redacted on the existing chokepoint.
-- [ ] A dispatch leaves no unredacted record of what the executor read.
-- [ ] The vault's container is protected like its key.
-- [ ] The prompt guard cannot fail open, and is installed rather than copied.
-- [ ] No privacy setting is inert while appearing to work.
-- [ ] `docs/privacy.md` states one thing about egress protection, not two.
-- [ ] A failed PII pre-scan stops a cloud dispatch instead of running it with
+- [x] A dispatch leaves no unredacted record of what the executor read.
+- [x] The vault's container is protected like its key.
+- [x] The prompt guard cannot fail open, and is installed rather than copied.
+- [x] No privacy setting is inert while appearing to work.
+- [x] `docs/privacy.md` states one thing about egress protection, not two.
+- [x] A failed PII pre-scan stops a cloud dispatch instead of running it with
       reduced protection.
-- [ ] Code a cloud executor writes never runs on the host outside the sandbox:
+- [x] Code a cloud executor writes never runs on the host outside the sandbox:
       gates, hooks, the verifier and the bookkeeping commit are covered.
-- [ ] All four gates pass; each mechanism has a test that fails when reverted.
+- [x] All four gates pass; each mechanism has a test that fails when reverted.
 
 ## The findings
 
@@ -267,9 +267,10 @@ locally from the same term file. The executor boundary gains no reversibility.
 
 ## Phases
 
-Expanded on demand, per WORKFLOW. Phases 01 and 06 are drafted. Phase 06 runs
-first, on human instruction: until it lands, a dead NER engine lets a cloud
-dispatch run with reduced protection.
+Expanded on demand, per WORKFLOW. Phase 06 ran first, on human instruction:
+until it landed, a dead NER engine let a cloud dispatch run with reduced
+protection. Finding 11 (and phase 11) was filed mid-milestone, after phase 10
+showed the sandbox did not cover the gate and verifier commands.
 
 | #  | Phase | Status |
 |----|-------|--------|
@@ -299,3 +300,103 @@ About **three to four executor days** for all six phases, plus review. Phase 01
 is the only one with real design content; 02 and 03 are permissions and one
 call to an existing chokepoint; 04 is a shell script; 05 is a deletion and a
 paragraph; 06 is one match arm.
+
+## F05 retrospective
+
+**Closed 2026-09-18 at eleven phases**, all eleven findings shut. Six phases
+were `approved_first_try` (02, 03, 04, 06, 08, 10) and five `approved_after_1`
+(01, 05, 07, 09, 11). Five bugs were filed; four were fixed by the executor and
+one — [bug-08-1](bugs/bug-08-1.md), a debug `eprintln!` of the PII dictionary —
+was waived by the human rather than spend a cycle on it. Zero session
+takeovers: every failure was recovered by resume or refined re-dispatch.
+
+Gates at close: fmt / build / clippy clean with zero warnings, `cargo test`
+716 + 2 + 1206 passed (10 ignored), up from 1142 library tests when the
+milestone opened.
+
+**Cost.** 23 executor runs, 2 604 turns, about 12.9 hours of executor wall
+clock across three calendar days. The Estimate section above guessed "three to
+four executor days for all six phases"; the milestone grew to eleven phases and
+still finished inside that envelope, so the per-phase estimate was roughly
+right and the phase count was not.
+
+### Levers: resume is the answer to `budget_exceeded`
+
+Five runs ended `budget_exceeded` at the 200-turn ceiling (phases 01, 02, 03,
+07, 10). `continue_phase` recovered **all five**, in 35, 46, 95, 171 and 35
+turns — none needed a re-dispatch or a takeover, and none lost committed work.
+The ceiling was raised to 220 on 2026-09-18 in response; note that
+`rexymcp.toml` is git-ignored, so that change does not travel with the repo.
+
+### Folds proposed — NOT landed, awaiting sign-off
+
+**1. Verify the mechanism before you pin a test to it.** Three occurrences,
+all the architect's error, all found by the executor or at review:
+
+- **Phase 07** asserted `touch "$HOME/x"` exits non-zero inside the sandbox. It
+  succeeds — the toolchain `--ro-bind-try` mounts create `$HOME` in the tmpfs.
+  The check should have been "the write does not reach the host".
+- **Phase 03**'s test 2 asked for a scenario the implementation legitimately
+  repairs (delete `.gitignore`, reopen — `open` rewrites it). Running git
+  instead of reasoning about it produced a better test *and* a stronger claim:
+  git reports a **tracked** file as not ignored even when a rule matches, so
+  the check now catches an already-committed vault.
+- **Phase 11** promised the earlier sandbox tests would pass unchanged after
+  adding an always-present mount. They could not. Two of the three bounce items
+  were the spec's fault.
+
+`WORKFLOW.md` already says to verify **external APIs** against live docs. The
+proposed fold widens that to local mechanisms — kernel, git, shell — with the
+same rule: run it, then quote the output; never guess a fact the executor will
+trust.
+
+**2. Count the mechanical sites, or thread the value another way.** Phase 02
+added one field to `LoopDeps` and paid 21 mechanical test-literal edits; that
+churn, not the design, ate a 200-turn budget. The proposed fold is one line in
+the phase-doc authoring guidance: when a spec adds a field to a struct that
+test literals construct, state the number of construction sites in the Spec.
+A phase doc costs an executor context, not turns — concision does not fix
+churn, and churn is a spec-*design* problem.
+
+### Held as data, not yet folds
+
+- **Executor claimed a verification it did not run: 2×.** Phase 09 reported
+  `complete` without running the required live end-to-end, and the test it
+  skipped could never have passed (it counted 15 zipped names against a
+  threshold of 270). Phase 06's positive control was misdescribed — the pasted
+  FAILED output does not match the revert it claims to describe. Both were
+  caught by re-running the control at review. Candidate treatment: state in the
+  finish conditions that the *pasted output* is what proves the phase done.
+- **The environment can make a good spec look bad: 1×.** Phase 01 ended
+  `budget_exceeded` with nothing committed, then completed on the same spec
+  once phase 08 stopped the pre-scan from redacting the project's own name. An
+  executor that cannot name the files it is asked to edit is not evidence of a
+  bad spec.
+- **Server-authored completion entries** headed `ts=<epoch-ms>` rather than a
+  date: still open from F06 (4×), still waiting on a human go-ahead.
+
+### Local vs cloud executor
+
+Measured this milestone, and the reason for the standing routing rule:
+
+| | local (`RedHatAI/Qwen3.8-27B-INT4`) | cloud (`deepseek-flash`) |
+|---|---|---|
+| Throughput | ~4 turns/min | ~16 turns/min |
+| Greenfield / additive work | fine | phase 06 `approved_first_try`, 66 turns, 4 min |
+| In-place edits in dense modules | phase 05 complete, 89 turns | phase 05 `hard_fail` — invented an unrelated edit, truncated a comment mid-word, then oscillated repairing it |
+
+**Rule:** local first; route cloud work to greenfield or additive phases. Any
+phase touching `executor/src/privacy/**` or `executor/src/security/**` stays
+local regardless. The first real cloud dispatch exercised every protection
+layer correctly — 2 239 redaction markers on the wire, a `0700`/`0600` session
+log, `bash` in bubblewrap, `.git` untouched.
+
+### Carried forward
+
+- **[bug-08-1](bugs/bug-08-1.md), waived:** the `eprintln!` of the PII
+  dictionary in `executor/src/privacy/egress.rs`. Delete it in the next phase
+  that touches that file.
+- **`docs/dev/NEXT.md` is 326 KB / 4 437 lines** and every session reads it per
+  `REXYMCP.md` § "Read these first". It has accumulated closed-milestone
+  history since M35. Trimming it to the active pointer plus a short carry-forward
+  block is a candidate chore.

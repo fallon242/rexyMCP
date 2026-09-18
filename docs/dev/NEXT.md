@@ -9,15 +9,22 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[04 — prompt guard](milestones/F05-privacy-security-hardening/phase-04-prompt-guard.md)
-(`todo`, dispatch on a LOCAL executor only).** It is the **last** F05 phase:
-every other one (01, 02, 03, 05, 06, 07, 08, 09, 10, 11) is `done`, closing
-findings 1, 2, 3, 5, 6, 7, 8, 9, 10 and 11. Phase 04 is finding 4: the
-`UserPromptSubmit` guard fails open three ways, misses AmEx and Diners and
-unpunctuated SSN/phone, and is not installed by the plugin. When it lands, run
-`/rexymcp:architect` to close the milestone — do not write the retrospective
-before then.
+**Active milestone: none. Active phase: none.**
+
+**F05 — Privacy and security hardening: DONE 2026-09-18** at eleven phases, all
+eleven findings closed. Six `approved_first_try`, five `approved_after_1`, five
+bugs filed (four fixed, bug-08-1 waived), zero takeovers. Retrospective in
+[F05/README.md § F05 retrospective](milestones/F05-privacy-security-hardening/README.md).
+**Two folds are drafted there and NOT landed — they need human sign-off:**
+(1) verify a local mechanism before pinning a test to it (3×, all architect
+error); (2) count the mechanical construction sites when a spec adds a struct
+field (1× that cost a 200-turn budget). Carried forward: the waived `eprintln!`
+of the PII dictionary in `executor/src/privacy/egress.rs`, to delete in the
+next phase touching that file; and this file is 326 KB / 4 437 lines and is
+read every session — trimming it is a candidate chore.
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **Executor routing (2026-09-18).** Local first. `deepseek-flash` scored 30/30 on
 a greenfield benchmark but `hard_fail`ed on phase 05, inventing an unrelated
