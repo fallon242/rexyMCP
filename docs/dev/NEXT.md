@@ -9,8 +9,15 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F07 — Completion-entry date** ([README](milestones/F07-completion-entry-date/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-dated-completion-entry](milestones/F07-completion-entry-date/phase-01-dated-completion-entry.md)** — `todo`, route local.
+**Active milestone: none. Active phase: none.**
+
+**F07 — Completion-entry date: DONE 2026-09-18** at one phase,
+`approved_first_try`, 54 local turns. Server completion entries now head
+themselves `YYYY-MM-DD HH:MM` (UTC). Takes effect once `serve` is rebuilt.
+Retrospective in [F07/README.md](milestones/F07-completion-entry-date/README.md).
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F05 — Privacy and security hardening: DONE 2026-09-18** at eleven phases, all
 eleven findings closed. Six `approved_first_try`, five `approved_after_1`, five
@@ -40,8 +47,6 @@ Live state only. Anything resolved has been removed — see § History.
 
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
   is a live-capture chore carried from the M46 close.
-- **Server-authored completion entries head themselves `ts=<epoch-ms>`** —
-  being fixed in F07.
 - **The waived `eprintln!` of the PII dictionary** in
   `executor/src/privacy/egress.rs` ([bug-08-1](milestones/F05-privacy-security-hardening/bugs/bug-08-1.md)).
   Delete it in the next phase that touches that file.
