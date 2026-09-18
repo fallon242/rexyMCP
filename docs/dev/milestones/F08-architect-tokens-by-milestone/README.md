@@ -34,7 +34,7 @@ tokens for fork work as well.
 
 | #  | Phase                                                                          | Status |
 |----|--------------------------------------------------------------------------------|--------|
-| 01 | fork-milestone-ids ([phase-01-fork-milestone-ids.md](phase-01-fork-milestone-ids.md)) | todo   |
+| 01 | fork-milestone-ids ([phase-01-fork-milestone-ids.md](phase-01-fork-milestone-ids.md)) | in-progress |
 | 02 | ledger-milestone-dimension (not drafted)                                       | —      |
 
 ## Notes

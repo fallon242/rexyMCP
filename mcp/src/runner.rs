@@ -177,20 +177,15 @@ pub fn collect_input_warnings(
 
 /// Derive the milestone directory slug from a phase-doc path.
 /// `…/milestones/M17-dashboard-polish-3/phase-09.md` → `Some("M17-dashboard-polish-3")`.
-/// Returns `None` when the immediate parent does not look like `M<n>-…`.
+/// `…/milestones/F07-completion-entry-date/phase-01.md` → `Some("F07-completion-entry-date")`.
+/// Returns `None` unless the immediate parent starts with one ASCII uppercase
+/// letter followed by a digit.
 fn milestone_id_from_path(path: &Path) -> Option<String> {
     let dir_name = path.parent()?.file_name()?.to_str()?;
-    let rest = dir_name.strip_prefix('M')?;
-    let has_num = rest
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_digit())
-        .unwrap_or(false);
-    if has_num {
-        Some(dir_name.to_string())
-    } else {
-        None
-    }
+    let mut chars = dir_name.chars();
+    let is_milestone = chars.next().is_some_and(|c| c.is_ascii_uppercase())
+        && chars.next().is_some_and(|c| c.is_ascii_digit());
+    is_milestone.then(|| dir_name.to_string())
 }
 
 /// Register the full built-in tool set and derive schemas.
@@ -611,6 +606,45 @@ mod tests {
     };
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
+
+    #[test]
+    fn milestone_id_from_path_accepts_upstream_m_prefix() {
+        let path = Path::new("docs/dev/milestones/M17-dashboard-polish-3/phase-09.md");
+        assert_eq!(
+            milestone_id_from_path(path),
+            Some("M17-dashboard-polish-3".to_string())
+        );
+    }
+
+    #[test]
+    fn milestone_id_from_path_accepts_fork_f_prefix() {
+        let path = Path::new(
+            "docs/dev/milestones/F07-completion-entry-date/phase-01-dated-completion-entry.md",
+        );
+        assert_eq!(
+            milestone_id_from_path(path),
+            Some("F07-completion-entry-date".to_string())
+        );
+    }
+
+    #[test]
+    fn milestone_id_from_path_rejects_non_milestone_dirs() {
+        let negatives: &[&str] = &[
+            "docs/dev/milestones/phase-01.md",
+            "docs/dev/Misc-notes/phase-01.md",
+            "docs/dev/f07-lower/phase-01.md",
+            "docs/dev/7-numeric/phase-01.md",
+            "docs/dev/M/phase-01.md",
+            "phase-01.md",
+        ];
+        for path_str in negatives {
+            assert_eq!(
+                milestone_id_from_path(Path::new(path_str)),
+                None,
+                "expected None for {path_str:?}"
+            );
+        }
+    }
 
     // --- Noop verifier/runner for integration test ---
 

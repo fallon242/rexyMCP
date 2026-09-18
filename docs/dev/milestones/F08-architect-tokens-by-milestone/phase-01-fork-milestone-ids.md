@@ -1,7 +1,7 @@
 # Phase 1: fork milestone ids
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~50 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=xs
@@ -122,3 +122,70 @@ None beyond the Spec.
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 15:09 (started)
+
+**By:** Claude Opus 4.6 (headless executor)
+
+Starting phase 01. Pre-flight verified per spec: `cargo test -p rexymcp milestone_id_from_path` → 0 passed; `cargo test -p rexymcp` → 717 passed. Plan: (1) add test #2 (F-prefix) first, run it, and quote the failure; (2) replace `milestone_id_from_path` in `mcp/src/runner.rs` per the spec; (3) add tests #1 and #3.
+
+### Update — 2026-09-18 15:09 (test-first failure, as required by spec)
+
+Added only test #2 (`milestone_id_from_path_accepts_fork_f_prefix`) before touching the function and ran it. Quoted failure:
+
+```text
+running 1 test
+test runner::tests::milestone_id_from_path_accepts_fork_f_prefix ... FAILED
+
+failures:
+
+---- runner::tests::milestone_id_from_path_accepts_fork_f_prefix stdout ----
+
+thread 'runner::tests::milestone_id_from_path_accepts_fork_f_prefix' (328457) panicked at mcp/src/runner.rs:618:9:
+assertion `left == right` failed
+  left: None
+ right: Some("F07-completion-entry-date")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ (x2)
+failures:
+    runner::tests::milestone_id_from_path_accepts_fork_f_prefix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 717 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p rexymcp --bin rexymcp`
+```
+
+The old `strip_prefix('M')` body returned `None` for the F-prefixed directory, as expected. The function was then replaced per the spec, and tests #1 and #3 were added.
+
+### Update — 2026-09-18 15:09 (end-to-end verification)
+
+`cargo test -p rexymcp milestone_id_from_path -- --nocapture` (output captured mechanically to a file and pasted):
+
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-cd922bc1926100ad)
+
+running 3 tests
+test runner::tests::milestone_id_from_path_rejects_non_milestone_dirs ... ok
+test runner::tests::milestone_id_from_path_accepts_upstream_m_prefix ... ok
+test runner::tests::milestone_id_from_path_accepts_fork_f_prefix ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 717 filtered out; finished in 0.00s
+
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-13fb83281f3fe7ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+```
+
+Finish condition met: `cargo test -p rexymcp milestone_id_from_path` → 3 passed; `cargo test -p rexymcp` unit-test line → 720 passed. Grep for the new doc-comment literal confirms it landed:
+
+```text
+$ grep -n "F07-completion-entry-date" mcp/src/runner.rs
+180:/// `…/milestones/F07-completion-entry-date/phase-01.md` → `Some("F07-completion-entry-date")`.
+621:        let path = Path::new("docs/dev/milestones/F07-completion-entry-date/phase-01-dated-completion-entry.md");
+624:            Some("F07-completion-entry-date".to_string())
+```
+
+Full verification commands all passed: `cargo fmt --all --check` (FMT_OK, no output), `cargo build` (Finished, 0 warnings), `cargo clippy --all-targets --all-features -- -D warnings` (Finished), `cargo test` (720 passed / 2 integration passed, 0 failed).
