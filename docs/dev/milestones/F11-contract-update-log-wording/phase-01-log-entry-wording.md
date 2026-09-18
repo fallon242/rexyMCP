@@ -1,7 +1,7 @@
 # Phase 1: log entry wording
 
 **Milestone:** F11 — Contract Update Log wording
-**Status:** in-progress
+**Status:** review
 **Depends on:** none
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -216,3 +216,110 @@ test agent::contract::tests::substitutes_all_four_commands_when_set ... ok
 
 test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 1209 filtered out; finished in 0.00s
 ```
+
+### Update — 2026-09-18 17:45 (complete, server-authored)
+
+**Summary:** All done. Working tree clean, everything committed.
+
+**Summary**
+
+Phase 1 of F11 — log entry wording. Made the four exact replacements in `executor/templates/executor_contract.md` so the contract no longer claims the started entry is the executor's "only Update Log entry": step 2 now says the executor also writes progress/blocker entries and one end-to-end entry (never a `(complete)` entry); step 5 now requires a `### Update … (end-to-end verification)` entry with pasted output and states the Summary doesn't replace it; step 7 now references "doc changes … your Update Log entries"; and the completion checklist gained a line requiring the started entry plus the end-to-end verification entry. Added two tests in `executor/src/agent/contract.rs` (`contract_does_not_limit_executor_to_one_log_entry`, `contract_requires_end_to_end_entry`) — written first, and their failures against the unedited contract are quoted in the started Update Log entry.
+
+**Verification:** `cargo fmt --all --check`, `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings` all clean. `cargo test -p rexymcp-executor contract -- --nocapture` → `test result: ok. 13 passed; 0 failed` (pinned 13). Full `cargo test` → `test result: ok. 727 passed`, `2 passed`, `1212 passed` (pinned 727/2/1212). E2E output captured to a file and pasted into an `(end-to-end verification)` Update Log entry.
+
+**Notes for review:** No deviations from the spec; both new tests are the only test changes, no existing tests touched, and no new `{…}` placeholders added (the `placeholder_set_is_exactly_the_four_authorized` test still passes).
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+onexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::symbols::tests::references_exclude_strings_and_comments ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1212 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.20s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F11-contract-update-log-wording/README.md` — +1 -1
+- `docs/dev/milestones/F11-contract-update-log-wording/phase-01-log-entry-wording.md` — +61 -1
+- `executor/src/agent/contract.rs` — +30 -0
+- `executor/templates/executor_contract.md` — +8 -3
+
+**Commit:** 90b57f8e5e17cfde06d7440c153c5b7cb3e8e29e
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
