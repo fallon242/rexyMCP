@@ -19,7 +19,7 @@ an open item since.
 
 | #  | Phase                                                                        | Status |
 |----|------------------------------------------------------------------------------|--------|
-| 01 | drop-debug-print ([phase-01-drop-debug-print.md](phase-01-drop-debug-print.md)) | todo   |
+| 01 | drop-debug-print ([phase-01-drop-debug-print.md](phase-01-drop-debug-print.md)) | review |
 
 ## Notes
 
