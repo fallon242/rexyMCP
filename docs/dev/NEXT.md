@@ -15,8 +15,8 @@ Single source of truth for which phase is active. The principal engineer
 `approved_first_try`. The contract now requires an `(end-to-end verification)`
 entry and no longer calls the started entry the only one. Retrospective in
 [F11/README.md](milestones/F11-contract-update-log-wording/README.md).
-**Rebuild pending:** F11 takes effect after the release binary is rebuilt and
-`serve` restarted.
+**Rebuilt 2026-09-18 13:51** with F11; `serve` restarted. The next dispatch
+is the first live check of the F11 wording.
 
 **Next milestone needs human sign-off before it opens.** Do not draft or
 dispatch anything until the user names one.
