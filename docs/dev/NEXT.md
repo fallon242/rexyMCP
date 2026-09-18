@@ -24,7 +24,7 @@ dispatch anything until the user names one.
 `approved_first_try`. `read_all` counts unusable current-schema lines and
 `rexymcp costs` prints them. Retrospective in
 [F12/README.md](milestones/F12-telemetry-unparsed-count/README.md).
-**Rebuild pending** for F12 to reach the installed `rexymcp`.
+**Rebuilt 2026-09-18 18:56** with F12; `serve` restarted.
 
 **F11 — Contract Update Log wording: DONE 2026-09-18** at one phase,
 `approved_first_try`. The contract now requires an `(end-to-end verification)`
