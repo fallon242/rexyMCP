@@ -579,7 +579,6 @@ mod tests {
         let idx = build_egress_index(&repo, &privacy).await.unwrap();
         let terms = idx.terms;
         let normalized: Vec<String> = terms.iter().map(|(t, _)| normalize(t)).collect();
-        eprintln!("live terms: {terms:?}");
 
         assert!(
             terms.iter().any(|(t, _)| t.contains("Alice")),
