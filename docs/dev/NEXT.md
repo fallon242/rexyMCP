@@ -10,27 +10,26 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F05 — Privacy and security hardening.** **Active phase:
-[03 — vault container](milestones/F05-privacy-security-hardening/phase-03-vault-container.md)
-(`todo`, dispatch on a LOCAL executor only — it edits `executor/src/privacy/**`).**
-Phases 01, 02, 05, 06, 07, 08, 09, 10 and 11 are done, closing findings 1, 2, 5,
-6, 7, 8, 9, 10 and 11. Phase 03 is finding 3: the vault key is `0600` but the
-vault directory (`0755`), `vault.enc`, the sealed index and the registry
-(`0644`) are not, and nothing verifies that git actually ignores the vault.
-Measured on 2026-09-18 before the phase: `dir=755 .gitignore=644 key=600
-vault.enc=644`. Only phase 04 (prompt guard) remains after it.
+[04 — prompt guard](milestones/F05-privacy-security-hardening/phase-04-prompt-guard.md)
+(`todo`, dispatch on a LOCAL executor only).** It is the **last** F05 phase:
+every other one (01, 02, 03, 05, 06, 07, 08, 09, 10, 11) is `done`, closing
+findings 1, 2, 3, 5, 6, 7, 8, 9, 10 and 11. Phase 04 is finding 4: the
+`UserPromptSubmit` guard fails open three ways, misses AmEx and Diners and
+unpunctuated SSN/phone, and is not installed by the plugin. When it lands, run
+`/rexymcp:architect` to close the milestone — do not write the retrospective
+before then.
 
-**Executor routing, updated 2026-09-18 after the first cloud dispatch.**
-`deepseek-flash` scored 30/30 on a greenfield benchmark but `hard_fail`ed
-(oscillation) on phase 05, inventing an unrelated edit and truncating a comment
-mid-word; the local model finished the same phase in 89 turns. Route cloud work
-to greenfield or additive phases; keep in-place edits in dense existing code on
-the local executor. Cloud dispatch goes through the CLI
+**Executor routing (2026-09-18).** Local first. `deepseek-flash` scored 30/30 on
+a greenfield benchmark but `hard_fail`ed on phase 05, inventing an unrelated
+edit and truncating a comment mid-word; the local model finished the same phase
+in 89 turns. Route cloud work to greenfield or additive phases; keep in-place
+edits in dense existing code local. Cloud goes through the CLI
 (`REXYMCP_API_KEY=$DEEPSEEK_API_KEY REXYMCP_BASE_URL=https://api.deepseek.com/v1 REXYMCP_MODEL=deepseek-flash rexymcp run-phase …`);
-the pre-scan index is now cached, so it no longer costs 90 minutes. A cloud
-executor still cannot commit inside a git worktree, and gate-command output
-still reaches the model. A debug `eprintln!` of the PII dictionary remains in
-`executor/src/privacy/egress.rs` (bug-08-1, waived). The NER engine is on port
-8000, model `RedHatAI/Qwen3.8-27B-INT4`.
+the pre-scan index is cached now. A cloud executor still cannot commit inside a
+git worktree, and gate output still reaches the model. A debug `eprintln!` of
+the PII dictionary remains in `executor/src/privacy/egress.rs` (bug-08-1,
+waived). `max_turns` is 220 as of 2026-09-18. The NER engine is on port 8000,
+model `RedHatAI/Qwen3.8-27B-INT4`.
 
 **F06 — Compaction pairing: DONE 2026-09-16** at one phase,
 `approved_first_try` (code `7273fc7`, approval `29e1c3f`). Compaction no longer
