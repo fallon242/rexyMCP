@@ -276,7 +276,7 @@ dispatch run with reduced protection.
 | 01 | terms-file ([phase-01-terms-file.md](phase-01-terms-file.md)) | done        |
 | 02 | session-log-privacy ([phase-02-session-log-privacy.md](phase-02-session-log-privacy.md)) | done        |
 | 03 | vault-container ([phase-03-vault-container.md](phase-03-vault-container.md)) | done        |
-| 04 | prompt-guard ([phase-04-prompt-guard.md](phase-04-prompt-guard.md)) | in-progress |
+| 04 | prompt-guard ([phase-04-prompt-guard.md](phase-04-prompt-guard.md)) | review      |
 | 05 | config-and-doc-truth ([phase-05-config-and-doc-truth.md](phase-05-config-and-doc-truth.md)) | done        |
 | 06 | prescan-fails-closed ([phase-06-prescan-fails-closed.md](phase-06-prescan-fails-closed.md)) | done        |
 | 07 | bash-confinement ([phase-07-bash-confinement.md](phase-07-bash-confinement.md)) | done        |

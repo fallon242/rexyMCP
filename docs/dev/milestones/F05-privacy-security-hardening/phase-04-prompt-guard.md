@@ -1,7 +1,7 @@
 # Phase 4: make the prompt guard fail closed, and ship it
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** nothing in F05.
 **Estimated diff:** ~180 lines: a script rewrite, one new file, one doc section.
 **Tags:** language=bash, kind=security, size=s
@@ -297,3 +297,114 @@ $ grep -n 'Requires jq' docs/privacy.md
 $ grep -n 'settings.json' docs/privacy.md
 129:nothing to register in `.claude/settings.json`.   (negation only; no copy-in instructions remain)
 ```
+
+### Update — ts=1789740574249 (complete, server-authored)
+
+**Summary:** All work is complete and committed. Final verification summary:
+
+**Built:**
+1. `plugin/hooks/pii-guard.sh` — rewritten to scan the raw stdin payload (no `.user_input` key, no `jq`), gated on `[privacy] enabled = true`, with AmEx/Diners/standard card patterns and keyword-gated bare digit runs. Strips real newlines, carriage returns, and the JSON `\n` escape so PII split across a line break still matches.
+2. `plugin/hooks/hooks.json` — the `UserPromptSubmit` install via `${CLAUDE_PLUGIN_ROOT}`.
+3. `docs/privacy.md` — hook section rewritten: plugin installs the hook, no `jq`, no copy-in instructions, inert-unless-enabled.
+
+**Deviation from spec:** the flattening uses `tr -d '\n\r' | sed 's/\\n//g'` (adds the `sed` strip of the two-char JSON escape `\n`). Without it, a newline *inside* a JSON string — what a real hook receives — left `mail jane@\nacme.com` un-matched (the "split email" row would exit 0 instead of 2).
+
+**E2E verification:** the full 14-row payload table ran against the real script twice — full PATH and with `jq` hidden behind a shim PATH (`jq resolves under shim? NO-JQ`). All rows match in both runs. The `renamed key` row (fail-closed proof) and `epoch no keyword` row (false-positive guard) both behave correctly.
+
+**Gates:** `cargo fmt --all --check` clean; `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test` all pass (716 / 2 / 1206, 10 ignored — unchanged counts). `git status` clean; commit `1f3662c`.
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.49s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+
+
+TEST
+ests::rejects_max_results_zero ... ok
+test tools::symbols::tests::rejects_nonexistent_path ... ok
+test tools::symbols::tests::rejects_path_outside_root ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1206 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.21s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/README.md` — +1 -1
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-04-prompt-guard.md` — +78 -1
+- `docs/privacy.md` — +13 -17
+- `plugin/hooks/hooks.json` — +16 -0
+- `plugin/hooks/pii-guard.sh` — +47 -23
+
+**Commit:** 1f3662c9bc5f1ef9e601e7818824f51345c6ae23
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
