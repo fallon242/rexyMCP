@@ -62,6 +62,7 @@ impl Registry {
         let tmp = self.path.with_extension("json.tmp");
         fs::write(&tmp, &bytes)?;
         fs::rename(&tmp, &self.path)?;
+        super::seal::set_owner_only(&self.path)?;
         Ok(())
     }
 }
@@ -227,5 +228,19 @@ mod tests {
             }
             _ => panic!("both ingests should have scrubbed"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registry_file_is_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("egress-registry.json");
+        let mut reg = Registry::load(&path).unwrap();
+        reg.mark("src/main.rs", "content");
+        reg.save().unwrap();
+
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }

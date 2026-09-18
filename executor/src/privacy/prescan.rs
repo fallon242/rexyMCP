@@ -48,7 +48,9 @@ impl PiiIndex {
     /// Seal and atomically write the index to `dir/egress-index.enc`.
     pub fn save(&self, dir: &Path) -> Result<()> {
         fs::create_dir_all(dir)?;
+        seal::set_dir_owner_only(dir)?;
         fs::write(dir.join(".gitignore"), "*\n")?;
+        seal::set_owner_only(&dir.join(".gitignore"))?;
         let key = seal::load_or_create_key(dir)?;
         let plaintext = serde_json::to_vec(self)
             .map_err(|e| Error::Privacy(format!("serialize egress index: {e}")))?;
@@ -56,6 +58,7 @@ impl PiiIndex {
         let tmp = dir.join("egress-index.enc.tmp");
         fs::write(&tmp, &blob)?;
         fs::rename(&tmp, dir.join(INDEX_FILE))?;
+        seal::set_owner_only(&dir.join(INDEX_FILE))?;
         Ok(())
     }
 
@@ -311,5 +314,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(mock.calls().len(), 2, "changed content must re-run NER");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn index_files_are_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("vault");
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        fs::write(dir.path().join(".gitignore"), "vault/\n").unwrap();
+
+        let index = PiiIndex::default();
+        index.save(&target).unwrap();
+
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        let mode = fs::metadata(target.join(INDEX_FILE))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }

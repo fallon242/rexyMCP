@@ -64,15 +64,65 @@ pub fn unseal(key: &Key, blob: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| Error::Privacy(format!("unseal: {e}")))
 }
 
+/// `0600` on unix; a no-op elsewhere. Every file rexymcp writes into the vault
+/// goes through this — the key, the sealed vault, the sealed index, the
+/// registry, the `.gitignore`.
 #[cfg(unix)]
-fn set_owner_only(path: &Path) -> Result<()> {
+pub(crate) fn set_owner_only(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn set_owner_only(_path: &Path) -> Result<()> {
+pub(crate) fn set_owner_only(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// `0700` on unix; a no-op elsewhere. The vault directory itself.
+#[cfg(unix)]
+pub(crate) fn set_dir_owner_only(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub(crate) fn set_dir_owner_only(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Fail when `dir` sits inside a git work tree that does **not** ignore it.
+/// A vault is a honeypot; one about to be committed is worse than no vault.
+///
+/// Probes `<dir>/vault.enc` with `git check-ignore` (checked by hand
+/// 2026-09-18): exit 0 = ignored, exit 1 = inside a work tree and not
+/// ignored, exit 128 = not a work tree. `check-ignore` answers on the path,
+/// not the file, so the probe need not exist. A missing `git`, or any other
+/// status, leaves the vault alone: this check reports a certainty, never a
+/// suspicion.
+pub(crate) fn ensure_git_ignored(dir: &Path) -> Result<()> {
+    let probe = dir.join("vault.enc");
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("check-ignore")
+        .arg("-q")
+        .arg(&probe)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if let Ok(s) = status
+        && s.code() == Some(1)
+    {
+        return Err(Error::Privacy(format!(
+            "{} is inside a git work tree and is not ignored — the vault holds every \
+             original value the tokenizer replaced, so committing it would publish them. \
+             Add it to .gitignore, or set [privacy] vault_dir to a path outside the repo.",
+            dir.display()
+        )));
+    }
     Ok(())
 }
 
