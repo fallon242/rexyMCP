@@ -29,7 +29,7 @@ change, not a repair.
 
 | #  | Phase                                                                  | Status |
 |----|------------------------------------------------------------------------|--------|
-| 01 | count-unparsed ([phase-01-count-unparsed.md](phase-01-count-unparsed.md)) | in-progress |
+| 01 | count-unparsed ([phase-01-count-unparsed.md](phase-01-count-unparsed.md)) | review      |
 
 ## Notes
 
