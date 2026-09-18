@@ -1,7 +1,7 @@
 # Phase 1: dated completion entry
 
 **Milestone:** F07 — Completion-entry date
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~40 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=xs
@@ -283,3 +283,16 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 77d192b04dc7e28f83d96d7cadd5f93583daebd5
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 54 turns
+- **Scope deviations:** none. The executor's commit `77d192b` also swept in the
+  architect's uncommitted F07 docs and `NEXT.md`; all belong to this milestone,
+  so left as is.
+- **Calibration:** none. Note: the `(complete, server-authored)` entry above
+  still reads `ts=1789743238937` (= 2026-09-18 14:53 UTC) because the running
+  `serve` binary predates this fix; new headers appear once `serve` is rebuilt
+  and restarted.

@@ -29,7 +29,7 @@ hand to order entries.
 
 | #  | Phase                                                                    | Status |
 |----|--------------------------------------------------------------------------|--------|
-| 01 | dated-completion-entry ([phase-01-dated-completion-entry.md](phase-01-dated-completion-entry.md)) | review      |
+| 01 | dated-completion-entry ([phase-01-dated-completion-entry.md](phase-01-dated-completion-entry.md)) | done        |
 
 ## Notes
 
