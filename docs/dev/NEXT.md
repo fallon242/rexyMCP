@@ -54,6 +54,15 @@ Live state only. Anything resolved has been removed — see § History.
   `ModelOverride` has no `thinking` field, but `a2fdbe2` merged
   `pub thinking: Option<String>`, so its end-to-end step (expecting
   `thinking = "disabled"` to be rejected) would now fail.
+- **Telemetry readers swallow schema mismatches silently.** The
+  `filter_map(|l| serde_json::from_str::<Value>(l).ok())` pairs in
+  `executor/src/store/telemetry.rs` (lines 244/249, 429/434, 548/553, 647/652,
+  verified 2026-09-18) drop both malformed lines *and* records whose schema no
+  longer matches, so a future field rename or type change goes equally quiet.
+  Named rather than scheduled: if a numbers discrepancy ever appears with no
+  obvious cause, look here first.
+- **Two open nits**, neither blocking: the `missing_spec_test` / broken-fixture
+  failure shape (M37 phase-06), and the `$`-less `executor_val` debit (M38).
 - **`generic-array` 0.14.9** was dropped as unreachable, not deferred:
   `crypto-common 0.1.7` pins `=0.14.7` and is the last release in its line.
   Reopening trigger is `cargo tree -i generic-array` showing a dependent that is
@@ -62,7 +71,9 @@ Live state only. Anything resolved has been removed — see § History.
 ## Calibration counters (below fold threshold)
 
 Kept here because deleting them resets the clock. Fold at 3; see
-`WORKFLOW.md` § Calibration.
+`WORKFLOW.md` § Calibration. The model-misreport fold is already known and
+mechanical if it recurs: stop asking the executor to write that field and let
+the server own it, as it already owns the completion tail.
 
 | Pattern | Count | Last seen |
 |---|---|---|
@@ -70,6 +81,7 @@ Kept here because deleting them resets the clock. Fold at 3; see
 | Architect E2E-block syntax errors | 2× | M46 |
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
+| Executor misreports its own model in its Update Log | 2× | M44 phase-01 |
 
 ## Candidate milestones (none opened, none drafted)
 
