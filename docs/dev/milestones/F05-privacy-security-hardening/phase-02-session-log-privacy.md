@@ -1,7 +1,7 @@
 # Phase 2: redact the session log, and make it owner-only
 
 **Milestone:** F05 — Privacy and security hardening
-**Status:** in-progress
+**Status:** review
 **Depends on:** phase 01 (done) — `LiteralTerms` and `redact_pii` are what this
 phase reuses.
 **Estimated diff:** ~300 lines, about half of it tests
@@ -525,3 +525,109 @@ Grep for the spec-pinned literals:
     $ grep -c '\[SITE_1\]' executor/src/agent/log.rs executor/src/privacy/redact.rs
     (both files contain the `[SITE_1]` marker in the new tests)
 
+### Update — ts=1789700147004 (complete, server-authored)
+
+**Summary:** Done. The commit is in and the tree is clean.
+
+**Summary.** Resumed the phase and finished the tail the prior run left: added `egress_scrub: None,` to the 8 remaining `LoopDeps` literals in `executor/src/agent/tests.rs` and the 7 remaining `Seams` literals in `mcp/src/runner.rs`, removed the orphaned `Redactor` import in `progress.rs` (architect-authorized), fixed formatting in `log.rs`/`jsonl.rs`, and added the loop-level `session_log_is_scrubbed_when_egress_is_engaged` test on top of the unit tests the prior run already had on disk.
+
+**Notes for review.** Two spec literals adapted to the real API surface (named in the Update Log): `PiiKind::PersonName`'s marker is `[REDACTED:name]`, not `[REDACTED:person]`; and `LiteralTerms::mask` re-emits the newline inside a masked span (phase-01 line-count preservation), so the wrapped-alias test asserts `"at [SITE_1]\n today"`. Gates: fmt clean, build zero warnings, clippy clean, `cargo test` → 716 / 2 / 1197 (10 ignored), 0 failed (executor-lib up from 1188). Revert check: with the egress walk disabled, `redact_event_masks_terms_and_literals` fails on the plaintext. E2E run 1 (redaction on): `dir_mode=700`, `file_mode=600`, `log_site_code=1`, `log_plaintext=0`, `wire_plaintext=0`; run 2 (positive control, no `terms_file`): `log_site_code=0`, `log_plaintext=1` — proving the check reads a log that really holds the text. Status left at `in-progress`; committed as `feat: scrub and lock down the session log` (11 files).
+
+**Executor:** RedHatAI/Qwen3.8-27B-INT4
+
+**Gates:** format=run, build=run, lint=run, test=run
+
+**Command output tails:**
+
+```
+FORMAT
+
+
+BUILD
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+
+
+LINT
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+
+TEST
+s_path_outside_root ... ok
+test tools::symbols::tests::references_python_identifier ... ok
+test tools::symbols::tests::metadata_carries_definitions_and_files_count ... ok
+test tools::symbols::tests::single_file_unsupported_extension_advisory_error ... ok
+test tools::symbols::tests::references_respects_max_results ... ok
+test tools::symbols::tests::type_mismatch_returns_recovery_hint ... ok
+test tools::update_task::tests::flips_active_task_to_done ... ok
+test tools::update_task::tests::flips_pending_task_to_active ... ok
+test tools::update_task::tests::invalid_args_hint_lists_incomplete_ids ... ok
+test tools::update_task::tests::invalid_args_hint_reports_all_complete ... ok
+test tools::update_task::tests::invalid_state_returns_advisory_error ... ok
+test tools::update_task::tests::malformed_args_returns_advisory_error ... ok
+test tools::update_task::tests::metadata_shape_is_unchanged ... ok
+test tools::update_task::tests::null_args_returns_recovery_hint ... ok
+test tools::update_task::tests::result_flags_redundant_remark ... ok
+test tools::update_task::tests::result_lists_remaining_incomplete_ids ... ok
+test tools::symbols::tests::references_no_matches_advisory ... ok
+test tools::update_task::tests::result_reports_all_complete_when_last_done ... ok
+test tools::update_task::tests::success_output_names_task ... ok
+test tools::update_task::tests::unknown_id_returns_advisory_error ... ok
+test tools::write_file::tests::append_creates_file_if_missing ... ok
+test tools::write_file::tests::append_false_overwrites ... ok
+test tools::write_file::tests::appends_to_existing_file ... ok
+test tools::write_file::tests::missing_path_returns_recovery_hint ... ok
+test tools::write_file::tests::creates_new_file ... ok
+test tools::write_file::tests::non_object_args_do_not_panic ... ok
+test tools::write_file::tests::overwrites_existing_file ... ok
+test tools::write_file::tests::rejects_malformed_args ... ok
+test tools::write_file::tests::scope_escape_returns_advisory_error_and_writes_nothing ... ok
+test tools::write_file::tests::reports_missing_parent_dir ... ok
+test tools::write_file::tests::success_output_includes_line_count ... ok
+test tools::symbols::tests::references_truncation_note_omits_kind_filter ... ok
+test tools::symbols::tests::references_single_file_path ... ok
+test tools::symbols::tests::references_across_multiple_files ... ok
+test tools::symbols::tests::references_snippet_shows_source_line ... ok
+test tools::symbols::tests::reports_line_and_column ... ok
+test tools::symbols::tests::finds_rust_struct_and_trait ... ok
+test tools::symbols::tests::respects_gitignore ... ok
+test tools::symbols::tests::unsupported_extension_skipped_in_dir_walk ... ok
+test tools::bash::tests::cargo_command_output_is_filtered_through_cargo_filter ... ok
+test store::telemetry::tests::append_is_atomic_under_concurrent_appenders ... ok
+test ai::backends::openai::tests::first_token_stall_retries_then_succeeds ... ok
+test ai::backends::openai::tests::midstream_stall_is_not_retried ... ok
+test ai::tests::stream_next_uses_supplied_timeout ... ok
+test tools::bash::tests::arg_timeout_overrides_constructor_default ... ok
+test tools::bash::tests::default_timeout_used_when_arg_absent ... ok
+test tools::bash::tests::times_out_advisory_failure ... ok
+test ai::backends::openai::tests::first_token_stall_exhausts_retries_then_errors ... ok
+test health::tests::check_returns_unreachable_on_connection_error ... ok
+
+test result: ok. 1197 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.19s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/main.rs (target/debug/deps/rexymcp-3de3446ef9b6a3ce)
+     Running tests/readme_config_reference.rs (target/debug/deps/readme_config_reference-22f887757c17cb2b)
+     Running unittests src/lib.rs (target/debug/deps/executor-0c52bf72536f9e8e)
+   Doc-tests executor
+
+```
+
+**Files changed:**
+
+- `docs/dev/milestones/F05-privacy-security-hardening/phase-02-session-log-privacy.md` — +58 -0
+- `executor/src/agent/log.rs` — +9 -12
+- `executor/src/agent/mod.rs` — +1 -1
+- `executor/src/agent/progress.rs` — +1 -2
+- `executor/src/agent/tests.rs` — +81 -0
+- `executor/src/privacy/redact.rs` — +1 -1
+- `executor/src/store/sessions/jsonl.rs` — +6 -20
+- `mcp/src/runner.rs` — +7 -0
+
+**Commit:** 3adbefaa9d0b4ae10284a606977b9ed263612498
+
+**Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
