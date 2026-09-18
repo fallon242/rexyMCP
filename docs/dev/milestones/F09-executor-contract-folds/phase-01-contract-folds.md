@@ -1,7 +1,7 @@
 # Phase 1: contract folds
 
 **Milestone:** F09 — Executor-contract calibration folds
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~40 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -157,3 +157,47 @@ output in a `(end-to-end verification)` entry.
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-18 17:17 (started)
+
+**Executor:** executor (F09 phase-01)
+
+Started the four contract replacements and the two pinned-count tests. All four
+`executor/templates/executor_contract.md` patches applied; both tests added to
+`executor/src/agent/contract.rs`. Verification pending; this entry is the
+executor's started attribution only.
+
+### Update — 2026-09-18 17:17 (end-to-end verification)
+
+Ran `cargo test -p rexymcp-executor contract -- --nocapture`:
+
+```
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 11 tests
+test agent::contract::tests::contract_contains_resuming_a_phase ... ok
+test agent::contract::tests::output_starts_with_contract_preamble ... ok
+test agent::contract::tests::contract_does_not_ask_executor_to_name_itself ... ok
+test agent::contract::tests::contract_requires_pasting_pinned_counts ... ok
+test agent::contract::tests::contract_omits_lint_fix ... ok
+test agent::contract::tests::placeholder_set_is_exactly_the_four_authorized ... ok
+test agent::prompt::tests::system_prompt_order_is_contract_then_standards_then_phase_doc ... ok
+test agent::prompt::tests::system_prompt_includes_substituted_contract ... ok
+test agent::prompt::tests::assembles_system_prompt_in_contract_standards_phase_order ... ok
+test agent::contract::tests::substitutes_all_four_commands_when_set ... ok
+test agent::contract::tests::unset_command_renders_as_unconfigured_sentinel ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 1209 filtered out; finished in 0.00s
+```
+
+Full `cargo test` produced:
+
+```
+test result: ok. 727 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.17s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1210 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`cargo fmt --all --check`, `cargo build`, and `cargo clippy --all-targets
+--all-features -- -D warnings` all completed without warnings or errors.

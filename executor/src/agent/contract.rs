@@ -168,4 +168,32 @@ mod tests {
             "contract must contain the 'Resuming a phase' section"
         );
     }
+
+    #[test]
+    fn contract_does_not_ask_executor_to_name_itself() {
+        let commands = CommandConfig::default();
+        let output = assemble_executor_contract(&commands);
+        assert!(
+            !output.contains("naming yourself"),
+            "contract must not instruct the executor to name itself"
+        );
+        assert!(
+            output.contains("Do **not** name yourself or a model"),
+            "contract must tell the executor not to name itself or a model"
+        );
+    }
+
+    #[test]
+    fn contract_requires_pasting_pinned_counts() {
+        let commands = CommandConfig::default();
+        let output = assemble_executor_contract(&commands);
+        assert!(
+            output.contains("Never write \"matches\" in place of the output"),
+            "contract must forbid claiming a count matches without pasting it"
+        );
+        assert!(
+            output.contains("Every pinned count in your Summary is a pasted result line"),
+            "checklist must require pasted result lines for pinned counts"
+        );
+    }
 }

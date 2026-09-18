@@ -73,8 +73,9 @@ multi-field completion tail; the server does that part so you don't stall on it.
    flip it to `review` early, the server sees an already-finalized doc, writes
    nothing, and you are back to owning the bookkeeping tail this split removes.
 2. **Started entry:** append **one** progress entry to the phase's Update Log
-   naming yourself. This is your attribution in the doc and the only Update Log
-   entry you write.
+   stating what you are about to do. Do **not** name yourself or a model: you
+   cannot know which model you are, and the server writes the dispatched model
+   into the completion entry. This is the only Update Log entry you write.
 3. **Work:** implement the Spec tasks in order. Add a progress entry only when
    something surprising happens.
 4. **Blocker:** if you cannot proceed, append a blocker entry and **stop**. Leave
@@ -101,6 +102,11 @@ multi-field completion tail; the server does that part so you don't stall on it.
    completion entry it writes, as the **Summary**. This is how your qualitative
    account reaches the reviewer now that you no longer hand-write the entry — so
    make it substantive; do not make it a bare "done."
+   When the phase pins an exact count (tests passed, records, lines), paste the
+   command's own result line — for example `test result: ok. 727 passed; 0 failed`
+   — and name any difference from the pinned number.
+   Never write "matches" in place of the output: a count you did not paste is a
+   count you did not check.
 9. **Stop.** Do not start the next phase. Do not "while you're at it" anything.
 
 The Update Log is **append-only**. Never edit prior entries.
@@ -113,7 +119,7 @@ architect's guidance, the work already on disk (a diff), and the prior task
 progress. Build on that work: read the current state of the files the diff
 touched before editing them, keep tasks already marked `done`, and pick up where
 the prior run stopped. The Update Log's prior entries stay as they are — append a
-new started entry naming yourself, then continue. Everything else in this
+new started entry (no model name — see step 2), then continue. Everything else in this
 lifecycle is unchanged: you still own the code and the start-of-phase status, and
 the server still authors the completion tail.
 
@@ -126,6 +132,7 @@ the server still authors the completion tail.
 [ ] `{FORMAT_COMMAND}` was run immediately before `git add` (not just checked — actually run).
 [ ] All verification commands ran clean.
 [ ] Your final message is a substantive Summary + Notes for review (what you built, deviations, E2E result).
+[ ] Every pinned count in your Summary is a pasted result line, not a restatement.
 [ ] `git status --short` shows nothing — every change is committed.
 [ ] `git log -1 --stat` shows the commit includes every file you touched.
 ```

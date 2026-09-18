@@ -29,7 +29,7 @@
 
 | #  | Phase                                                                | Status |
 |----|----------------------------------------------------------------------|--------|
-| 01 | contract-folds ([phase-01-contract-folds.md](phase-01-contract-folds.md)) | todo   |
+| 01 | contract-folds ([phase-01-contract-folds.md](phase-01-contract-folds.md)) | in-progress |
 
 ## Notes
 
