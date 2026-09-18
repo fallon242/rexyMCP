@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F08 — Architect tokens by milestone** ([README](milestones/F08-architect-tokens-by-milestone/README.md)), opened 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-fork-milestone-ids](milestones/F08-architect-tokens-by-milestone/phase-01-fork-milestone-ids.md)** — `todo`, route local.
+**Active phase: none drafted.** Phase-01 `done` 2026-09-18; phase-02 (ledger milestone dimension) is next, via `/rexymcp:architect next`.
 
 **F07 — Completion-entry date: DONE 2026-09-18** at one phase,
 `approved_first_try`, 54 local turns. Server completion entries now head
@@ -81,7 +81,7 @@ the server own it, as it already owns the completion tail.
 | Architect E2E-block syntax errors | 2× | M46 |
 | Executor undisclosed scope deviation | 1× | M46 |
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
-| Executor misreports its own model in its Update Log | 2× | M44 phase-01 |
+| Executor misreports its own model in its Update Log | **3× — at threshold** | F08 phase-01 |
 
 ## Candidate milestones (none opened, none drafted)
 

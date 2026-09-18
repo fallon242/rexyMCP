@@ -1,7 +1,7 @@
 # Phase 1: fork milestone ids
 
 **Milestone:** F08 — Architect tokens by milestone
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~50 lines, most of it tests
 **Tags:** language=rust, kind=bugfix, size=xs
@@ -295,3 +295,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 6d2327964cf3f0125bb85e43e25f38338ca80cfb
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-18
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 27 turns
+- **Scope deviations:** none
+- **Calibration:** executor misreports its own model — **3×** (headed its
+  started entry "By: Claude Opus 4.6"). Nothing in the executor contract or
+  `WORKFLOW.md` asks for a "By:" line; the model adds it unprompted. The
+  server-authored `**Executor:**` line is correct, so no data was wrong. At
+  threshold: fold proposal for the milestone close.
