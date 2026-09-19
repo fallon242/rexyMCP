@@ -1,7 +1,7 @@
 # Phase 1: log phase doc
 
 **Milestone:** F15 — Dashboard session milestone
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~130 lines, about half tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -652,3 +652,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 10f0bb898af0b8ebfb21fb7f3d47c7c09d5b67b8
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-19
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 49 turns
+- **Scope deviations:** none — all 8 code files equal the spec applied to `df4c20b`, byte for byte (`10f0bb8`).
+- **Verification:** gates 734 / 2 / 1220; `dashboard::` 184, `status::` 46. Mutation at review: logging an empty path fails `logs_session_start_first_then_prompt`; the label ignoring the logged doc fails `session_milestone_uses_logged_phase_doc_over_guess` (all four pieces were shown red at draft).
+- **Calibration:** started entry placed above the `<!-- entries appended below this line -->` marker again — **2×** (F12 phase-01, F15 phase-01). Header left intact this time.

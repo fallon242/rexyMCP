@@ -25,7 +25,7 @@ F and M numbers overlap. The session log records only the phase id.
 
 | #  | Phase                                                          | Status |
 |----|----------------------------------------------------------------|--------|
-| 01 | log-phase-doc ([phase-01-log-phase-doc.md](phase-01-log-phase-doc.md)) | review        |
+| 01 | log-phase-doc ([phase-01-log-phase-doc.md](phase-01-log-phase-doc.md)) | done   |
 
 ## Notes
 

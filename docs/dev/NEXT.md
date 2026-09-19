@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F15 — Dashboard session milestone** ([README](milestones/F15-dashboard-session-milestone/README.md)), opened 2026-09-19 on human go-ahead.
-**Active phase: [phase-01-log-phase-doc](milestones/F15-dashboard-session-milestone/phase-01-log-phase-doc.md)** — `todo`, route local.
+**Active phase: none.** Phase-01 `done` 2026-09-19 — milestone awaiting close via `/rexymcp:architect`.
 
 **F14 — Dashboard unparsed count: DONE 2026-09-19** at one phase,
 `approved_first_try`. The Budget panel shows `Unreadable telemetry: N` when
@@ -132,7 +132,7 @@ the fold did not hold.
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
-| Executor places entries above the Update Log marker | 1× | F12 phase-01 |
+| Executor places entries above the Update Log marker | 2× | F15 phase-01 (also F12) |
 | Executor mangles phase-doc lines via line-number patches | 1× | F14 phase-01 |
 
 ## Candidate milestones (none opened, none drafted)
