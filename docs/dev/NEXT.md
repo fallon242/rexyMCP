@@ -9,8 +9,16 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F15 — Dashboard session milestone** ([README](milestones/F15-dashboard-session-milestone/README.md)), opened 2026-09-19 on human go-ahead.
-**Active phase: none.** Phase-01 `done` 2026-09-19 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F15 — Dashboard session milestone: DONE 2026-09-19** at one phase,
+`approved_first_try`. Session logs record the phase doc; the dashboard names
+the milestone from it. **Rebuild pending**; the screenshot needs one new
+dispatch after it. Retrospective in
+[F15/README.md](milestones/F15-dashboard-session-milestone/README.md).
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F14 — Dashboard unparsed count: DONE 2026-09-19** at one phase,
 `approved_first_try`. The Budget panel shows `Unreadable telemetry: N` when
@@ -98,8 +106,8 @@ Live state only. Anything resolved has been removed — see § History.
   executor's inability to write think tags (JSON-escape workaround probed
   2026-09-19 and failed) and on a live thinking-mode endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
-  is a live-capture chore carried from the M46 close. **Blocked 2026-09-19** on
-  F15 (dashboard session milestone): a fresh capture would show the wrong
+  is a live-capture chore carried from the M46 close. **Unblocked by F15**
+  once rebuilt and one phase has run; before that, a fresh capture would show the wrong
   milestone label. Capture works headlessly (`tmux` 150×58 → `capture-pane -e`
   → `aha` → headless Firefox screenshot).
 - **Telemetry readers swallow schema mismatches silently.** The

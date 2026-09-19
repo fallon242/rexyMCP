@@ -2,7 +2,8 @@
 
 **Goal:** the dashboard names the milestone a session actually belongs to.
 
-**Status:** open — opened 2026-09-19 on human go-ahead.
+**Status:** done — opened and closed 2026-09-19. One phase,
+`approved_first_try`.
 
 **Depends on:** none.
 
@@ -15,11 +16,11 @@ F and M numbers overlap. The session log records only the phase id.
 
 **Exit criteria:**
 
-- [ ] Each session log records its phase doc path (`phase_doc` event).
-- [ ] The dashboard names the milestone from that path; old logs still fall
+- [x] Each session log records its phase doc path (`phase_doc` event).
+- [x] The dashboard names the milestone from that path; old logs still fall
       back to the guess.
-- [ ] `F<n>-…` directories format as `F14 — Dash Count`.
-- [ ] All four gates pass.
+- [x] `F<n>-…` directories format as `F14 — Dash Count`.
+- [x] All four gates pass.
 
 ## Phases
 
@@ -37,3 +38,30 @@ F and M numbers overlap. The session log records only the phase id.
 - **Compatible both ways.** The installed binary reads a log containing the new
   event without error (checked 2026-09-19).
 - **Unblocks** the `docs/rexymcp_dashboard.png` refresh.
+
+## F15 retrospective
+
+**Closed 2026-09-19 at one phase**, `approved_first_try`: 49 turns on the
+local `RedHatAI/Qwen3.8-27B-INT4` (code `10f0bb8`, approval `a7ec227`). All 8
+code files equal the spec byte for byte. Gates 734 + 2 + 1220.
+
+**Found by a chore, not a report.** The bug surfaced while capturing the README
+screenshot, which would otherwise have published a wrong milestone label.
+
+**Design chosen by counting sites.** A new `PhaseDoc` event (4 exhaustive
+matches) instead of a `SessionStart` field (~17 sites). The prototype also
+caught a second order-sensitive test the architect's grep missed, and the
+drafted end-to-end check failed on its first run (the JSON is pretty-printed;
+the `grep` assumed compact) — both fixed before dispatch. Both catches came
+from running the spec, not reading it.
+
+**Calibration — held as data:**
+
+- Executor places its started entry above the Update Log marker: **2×**
+  (F12 phase-01, F15 phase-01).
+- Architect end-to-end check that could not pass as written: 1× (caught at
+  draft by running it).
+
+**Takes effect after a rebuild and one new dispatch** — the dashboard needs a
+session log that carries the `phase_doc` event. That unblocks the README
+screenshot.
