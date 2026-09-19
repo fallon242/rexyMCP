@@ -13,8 +13,8 @@ Single source of truth for which phase is active. The principal engineer
 
 **F15 — Dashboard session milestone: DONE 2026-09-19** at one phase,
 `approved_first_try`. Session logs record the phase doc; the dashboard names
-the milestone from it. **Rebuild pending**; the screenshot needs one new
-dispatch after it. Retrospective in
+the milestone from it. **Rebuilt 2026-09-19 01:15**; `serve` restarted. The
+screenshot needs one new dispatch first. Retrospective in
 [F15/README.md](milestones/F15-dashboard-session-milestone/README.md).
 
 **Next milestone needs human sign-off before it opens.** Do not draft or
