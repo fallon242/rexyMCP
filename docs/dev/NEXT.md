@@ -9,16 +9,14 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F14 — Dashboard unparsed count** ([README](milestones/F14-dashboard-unparsed-count/README.md)), opened 2026-09-19 on human go-ahead.
+**Active phase: [phase-01-budget-warning](milestones/F14-dashboard-unparsed-count/phase-01-budget-warning.md)** — `todo`, route local.
 
 **F01 — Thinking-mode round-trip: PARKED 2026-09-19** after phase-01 (done,
 escalated — architect takeover). Unknown model-override keys now fail loudly;
 reasoning blocks open with `<think>`. Phase-02 is parked: the local executor
 cannot write think tags. See [F01/README.md](milestones/F01-thinking-mode-round-trip/README.md).
 **Rebuilt 2026-09-19 00:22** with F01 phase-01; `serve` restarted.
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F13 — PII guard false positives: DONE 2026-09-18** at one phase,
 `approved_first_try`. The prompt guard strips payload UUIDs, requires Luhn for
