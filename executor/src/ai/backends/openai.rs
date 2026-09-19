@@ -275,28 +275,7 @@ impl AiClient for OpenAiClient {
                                             first_token_seen = true;
                                         }
 
-                                        let reasoning_chunk = delta
-                                            .get("reasoning")
-                                            .or_else(|| delta.get("reasoning_content"))
-                                            .and_then(|r| r.as_str())
-                                            .filter(|r| !r.is_empty());
-                                        if let Some(chunk) = reasoning_chunk {
-                                            if !in_reasoning {
-                                                out.push_str("</think>");
-                                                in_reasoning = true;
-                                            }
-                                            out.push_str(chunk);
-                                        }
-                                        if let Some(content) =
-                                            delta.get("content").and_then(|c| c.as_str())
-                                            && !content.is_empty()
-                                        {
-                                            if in_reasoning {
-                                                out.push_str("</think>\n");
-                                                in_reasoning = false;
-                                            }
-                                            out.push_str(content);
-                                        }
+                                        push_delta_text(&mut out, &mut in_reasoning, delta);
                                         if let Some(tool_calls) =
                                             delta.get("tool_calls").and_then(|t| t.as_array())
                                             && let Some(tc) = tool_calls.first()
@@ -442,6 +421,37 @@ fn stream_retry_backoff(attempt: u32) -> Duration {
     Duration::from_millis(ms)
 }
 
+/// Append one streamed delta's reasoning and content text to `out`. A run of
+/// reasoning chunks is wrapped in `<think>` … `</think>\n`; the block closes
+/// when content arrives (tool calls and end-of-stream close it at the call site).
+fn push_delta_text(
+    out: &mut String,
+    in_reasoning: &mut bool,
+    delta: &serde_json::Map<String, Value>,
+) {
+    let reasoning_chunk = delta
+        .get("reasoning")
+        .or_else(|| delta.get("reasoning_content"))
+        .and_then(|r| r.as_str())
+        .filter(|r| !r.is_empty());
+    if let Some(chunk) = reasoning_chunk {
+        if !*in_reasoning {
+            out.push_str("<think>");
+            *in_reasoning = true;
+        }
+        out.push_str(chunk);
+    }
+    if let Some(content) = delta.get("content").and_then(|c| c.as_str())
+        && !content.is_empty()
+    {
+        if *in_reasoning {
+            out.push_str("</think>\n");
+            *in_reasoning = false;
+        }
+        out.push_str(content);
+    }
+}
+
 /// Whether a delta carries a real token (non-empty content, reasoning, or tool calls).
 fn delta_carries_token(delta: &serde_json::Map<String, Value>) -> bool {
     let has_content = delta
@@ -528,8 +538,8 @@ mod tests {
     use super::super::super::types::{AiEvent, Message, ToolCall, ToolResult, ToolSchema};
     use super::{
         build_chat_body, convert_messages, delta_carries_token, drain_stream_with_retry,
-        emit_tool_call_generic, is_retriable_transport, parse_openai_usage, render_openai_tools,
-        select_timeout, should_retry_stall, stream_retry_backoff,
+        emit_tool_call_generic, is_retriable_transport, parse_openai_usage, push_delta_text,
+        render_openai_tools, select_timeout, should_retry_stall, stream_retry_backoff,
     };
     use crate::ai::SamplingParams;
     use futures_util::{StreamExt, stream};
@@ -1001,6 +1011,24 @@ mod tests {
     #[test]
     fn should_retry_stall_returns_false_after_token_seen() {
         assert!(!should_retry_stall(true, 0, 2));
+    }
+
+    #[test]
+    fn push_delta_text_opens_reasoning_with_think_tag() {
+        let mut out = String::new();
+        let mut in_reasoning = false;
+        let reasoning = json!({ "reasoning_content": "plan the edit" });
+        let content = json!({ "content": "done" });
+        push_delta_text(&mut out, &mut in_reasoning, reasoning.as_object().unwrap());
+        push_delta_text(&mut out, &mut in_reasoning, content.as_object().unwrap());
+        let open = out
+            .find("<think>")
+            .expect("reasoning must open with <think>");
+        let close = out
+            .find("</think>")
+            .expect("reasoning must close with </think>");
+        assert!(open < close, "<think> must precede </think>: {out:?}");
+        assert!(!in_reasoning, "content must close the reasoning block");
     }
 
     #[test]

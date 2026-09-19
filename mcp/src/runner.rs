@@ -1097,24 +1097,7 @@ mod tests {
             "override-model".into(),
             rexymcp_executor::config::ModelOverride {
                 temperature: Some(0.2),
-                seed: None,
-                task_tracking: None,
-                max_tokens: None,
-                enable_thinking: None,
-                identical_call_threshold: None,
-                verifier_persistence_threshold: None,
-                runaway_output_bytes: None,
-                empty_completion_threshold: None,
-                gate_feedback_repeat_threshold: None,
-                thinking: None,
-                oscillation_window: None,
-                oscillation_distinct_max: None,
-                output_window: None,
-                output_window_bytes: None,
-                read_only_stall_threshold: None,
-                novelty_window: None,
-                novelty_distinct_floor: None,
-                novelty_action: None,
+                ..Default::default()
             },
         );
         let mock = MockAiClient::new(vec!["Done.".to_string()]);
@@ -1235,24 +1218,7 @@ mod tests {
             "override-model".into(),
             rexymcp_executor::config::ModelOverride {
                 temperature: Some(0.2),
-                seed: None,
-                task_tracking: None,
-                max_tokens: None,
-                enable_thinking: None,
-                identical_call_threshold: None,
-                verifier_persistence_threshold: None,
-                runaway_output_bytes: None,
-                empty_completion_threshold: None,
-                gate_feedback_repeat_threshold: None,
-                thinking: None,
-                oscillation_window: None,
-                oscillation_distinct_max: None,
-                output_window: None,
-                output_window_bytes: None,
-                read_only_stall_threshold: None,
-                novelty_window: None,
-                novelty_distinct_floor: None,
-                novelty_action: None,
+                ..Default::default()
             },
         );
 

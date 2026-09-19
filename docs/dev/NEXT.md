@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F01 — Thinking-mode round-trip** ([README](milestones/F01-thinking-mode-round-trip/README.md)), unparked 2026-09-18 on human go-ahead.
-**Active phase: [phase-01-reject-unknown-keys-and-fix-think-tag](milestones/F01-thinking-mode-round-trip/phase-01-reject-unknown-keys-and-fix-think-tag.md)** — `todo`, route local.
+**Active phase: none drafted.** Phase-01 `done` 2026-09-19 (escalated — architect takeover). Phase-02 (`reasoning_content` round-trip) needs a live thinking-mode endpoint and is blocked on the candidate below.
 
 **F13 — PII guard false positives: DONE 2026-09-18** at one phase,
 `approved_first_try`. The prompt guard strips payload UUIDs, requires Luhn for
@@ -115,7 +115,13 @@ the fold did not hold.
 
 ## Candidate milestones (none opened, none drafted)
 
-- None listed.
+- **Executor cannot write `<think>` tags.** `executor/src/parser/mod.rs`
+  strips every `<think>…</think>` block from the model's whole response before
+  tool calls are parsed, so a tool call whose arguments contain the tag is
+  mangled (an unclosed `<think>` discards the rest). F01 phase-01 hit it: the
+  model wrote `{think}` instead. Fix direction: strip reasoning only outside
+  tool-call payloads. Blocks any phase that edits think-tag code — including
+  F01 phase-02. Local only.
 
 ## History
 

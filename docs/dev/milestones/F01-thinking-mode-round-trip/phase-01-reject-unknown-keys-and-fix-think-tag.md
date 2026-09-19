@@ -1,7 +1,7 @@
 # Phase 1: Reject unknown model-override keys; fix the `<think>` open tag
 
 **Milestone:** F01 — Thinking-mode round-trip
-**Status:** todo
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~90 lines, mostly tests and a small extraction
 **Tags:** language=rust, kind=fix, size=s
@@ -397,3 +397,46 @@ dummy endpoint is closed).
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-19 04:17 (escalation)
+
+**Chosen lever:** session takeover
+**Rationale:** the executor cannot emit the literal text `<think>`. `executor/src/parser/mod.rs:12-23` strips every `<think>…</think>` block from model output before tool calls are parsed, so any tool call carrying the tag — file edit, patch or bash — is mangled; the model wrote `{think}`/`{/think}` instead and deleted one closer. No spec refinement reaches those bytes. Separately, 200 of 220 turns went on shrinking the two `runner.rs` literals line by line, which left that file broken. The run ended `budget_exceeded` with no gate run. The broken tree is kept as `git stash` "F01 phase-01 executor attempt (budget_exceeded, {think} + corrupted runner.rs) 2026-09-19". The architect applied the already-verified Spec blocks to `ecb0887`.
+
+### Update — 2026-09-19 04:17 (end-to-end verification)
+
+Full `cargo test` after the takeover:
+
+```
+test result: ok. 729 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.13s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1220 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 6.22s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+Mutation checks and the End-to-end block, run as written:
+
+```
+$ (mutation) opener reverted to "</think>"; cargo test -p rexymcp-executor push_delta_text
+test ai::backends::openai::tests::push_delta_text_opens_reasoning_with_think_tag ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1229 filtered out; finished in 0.00s
+$ (mutation) deny_unknown_fields removed; cargo test -p rexymcp-executor model_override_rejects_unknown_key
+test config::tests::model_override_rejects_unknown_key ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1229 filtered out; finished in 0.00s
+$ (End-to-end verification block, as written in this doc)
+== thinkng = "disabled"
+unknown field `thinkng`, expected one of `task_tracking`, `temperature`, `seed`, `max_tokens`, `enable_thinking`, `ident
+== thinking = "disabled"
+unreachable: http://127.0.0.1:9/v1
+== output_per_mtok = 1.0
+unreachable: http://127.0.0.1:9/v1
+```
+
+### Review verdict — 2026-09-19
+
+- **Verdict:** escalated
+- **Bounces:** none (one executor run, `budget_exceeded` after 220 turns)
+- **Executor:** Claude (direct) — session takeover after RedHatAI/Qwen3.8-27B-INT4 hit the budget
+- **Scope deviations:** none. The committed code is the Spec applied to `ecb0887`, byte for byte.
+- **Verification:** gates 729 / 2 / 1220; each fix's test fails when its line is reverted; a typo key errors, `thinking` and a leftover rate key still load.
+- **Calibration:** new, 1× — **the executor cannot write `<think>` tags** (parser strips them from tool-call text). Candidate milestone filed in `NEXT.md`. Also 1× — the "count the construction sites" churn recurred on two 18-line test literals even with the replacement given verbatim; a line-oriented patch tool deletes one line per turn.

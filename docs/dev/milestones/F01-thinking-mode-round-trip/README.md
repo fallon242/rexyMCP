@@ -67,7 +67,7 @@ ignored fields so `deny_unknown_fields` does not break existing configs.
 
 | #  | Phase                                                          | Status |
 |----|----------------------------------------------------------------|--------|
-| 01 | reject unknown model-override keys; fix the `<think>` open tag ([phase-01](phase-01-reject-unknown-keys-and-fix-think-tag.md)) | todo   |
+| 01 | reject unknown model-override keys; fix the `<think>` open tag ([phase-01](phase-01-reject-unknown-keys-and-fix-think-tag.md)) | done (escalated) |
 | 02 | round-trip `reasoning_content` on assistant turns               | todo   |
 
 Split because phase-01 is two verified one-line changes needing only tests,
