@@ -142,6 +142,9 @@ pub(crate) fn record_lines_with_lang(
             false,
             None,
         ),
+        SessionEvent::PhaseDoc { path } => {
+            (format!("phase doc — {path}"), Color::Cyan, false, None)
+        }
         SessionEvent::Prompt { rendered } => (
             format!("prompt ({} chars)", rendered.chars().count()),
             Color::Rgb(200, 200, 200),

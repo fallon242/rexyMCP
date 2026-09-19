@@ -46,7 +46,9 @@ impl Default for ActivityFilter {
 impl ActivityFilter {
     pub(crate) fn allows(&self, event: &SessionEvent) -> bool {
         match event {
-            SessionEvent::SessionStart { .. } | SessionEvent::SessionEnd { .. } => self.session,
+            SessionEvent::SessionStart { .. }
+            | SessionEvent::PhaseDoc { .. }
+            | SessionEvent::SessionEnd { .. } => self.session,
             SessionEvent::Prompt { .. } => self.prompt,
             SessionEvent::Completion { .. } => self.completion,
             SessionEvent::Parsed { .. } => self.tool_call,

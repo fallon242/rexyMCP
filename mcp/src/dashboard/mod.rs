@@ -118,9 +118,9 @@ pub fn load_data(
             match status::load_records(repo, session) {
                 Ok(records) => {
                     let summary = status::summarize(&records);
-                    let milestone = resolve_milestone(repo, summary.phase.as_deref());
-                    let milestone_costs = resolve_milestone_dir(repo, summary.phase.as_deref())
-                        .map(|milestone_dir| {
+                    let milestone = session_milestone(repo, &summary);
+                    let milestone_costs =
+                        session_milestone_dir(repo, &summary).map(|milestone_dir| {
                             costs::scope_costs(
                                 &phase_runs,
                                 &ledgers,
@@ -163,7 +163,7 @@ pub fn load_data(
             match status::load_records(repo, session) {
                 Ok(records) => {
                     let summary = status::summarize(&records);
-                    let milestone = resolve_milestone(repo, summary.phase.as_deref());
+                    let milestone = session_milestone(repo, &summary);
                     DashboardData {
                         summary,
                         records,
@@ -287,11 +287,32 @@ fn resolve_milestone(repo: &Path, phase: Option<&str>) -> Option<String> {
     resolve_milestone_dir(repo, phase).map(|dir| format_milestone_name(&dir))
 }
 
-/// Parse the leading `M<n>` milestone number from a directory name like
-/// `M15-dashboard-polish-2`. `None` if the name doesn't start with `M` followed
-/// by digits and a `-`.
+/// The milestone directory a session belongs to. The session log's `phase_doc`
+/// event names the phase doc exactly, and its parent directory is the
+/// milestone. Logs written before that event existed fall back to guessing from
+/// the phase id.
+fn session_milestone_dir(repo: &Path, summary: &StatusSummary) -> Option<String> {
+    summary
+        .phase_doc_path
+        .as_deref()
+        .and_then(|p| Path::new(p).parent()?.file_name()?.to_str())
+        .map(str::to_string)
+        .or_else(|| resolve_milestone_dir(repo, summary.phase.as_deref()))
+}
+
+/// Display label for the session's milestone; see `session_milestone_dir`.
+fn session_milestone(repo: &Path, summary: &StatusSummary) -> Option<String> {
+    match summary.phase_doc_path {
+        Some(_) => session_milestone_dir(repo, summary).map(|d| format_milestone_name(&d)),
+        None => resolve_milestone(repo, summary.phase.as_deref()),
+    }
+}
+
+/// Parse the leading milestone number from a directory name like
+/// `M15-dashboard-polish-2` or `F07-completion-entry-date`. `None` if the name
+/// doesn't start with an uppercase letter followed by digits.
 fn milestone_number(dir: &str) -> Option<u32> {
-    let rest = dir.strip_prefix('M')?;
+    let rest = dir.strip_prefix(|c: char| c.is_ascii_uppercase())?;
     let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
         return None;
@@ -725,6 +746,44 @@ mod tests {
         assert_eq!(milestone_number("M7-scorecard"), Some(7));
         assert_eq!(milestone_number("scratch"), None);
         assert_eq!(milestone_number("MX-foo"), None);
+        assert_eq!(milestone_number("F14-dashboard-unparsed-count"), Some(14));
+        assert_eq!(milestone_number("f14-lower"), None);
+    }
+
+    #[test]
+    fn session_milestone_uses_logged_phase_doc_over_guess() {
+        let dir = TempDir::new().unwrap();
+        let milestones = dir.path().join("docs/dev/milestones");
+        // The guess would pick M46: highest number with a phase-01 doc.
+        for (m, doc) in [
+            ("M46-token-first", "phase-01-a.md"),
+            ("F14-dash-count", "phase-01-b.md"),
+        ] {
+            std::fs::create_dir_all(milestones.join(m)).unwrap();
+            std::fs::write(milestones.join(m).join(doc), "**Status:** done\n").unwrap();
+        }
+        let summary = StatusSummary {
+            phase: Some("phase-01".into()),
+            phase_doc_path: Some("docs/dev/milestones/F14-dash-count/phase-01-b.md".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            session_milestone(dir.path(), &summary),
+            Some("F14 — Dash Count".to_string())
+        );
+        assert_eq!(
+            session_milestone_dir(dir.path(), &summary),
+            Some("F14-dash-count".to_string())
+        );
+        // Without the logged path (an old log), the guess still runs.
+        let old = StatusSummary {
+            phase: Some("phase-01".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            session_milestone(dir.path(), &old),
+            Some("M46 — Token First".to_string())
+        );
     }
 
     #[test]

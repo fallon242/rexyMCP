@@ -35,6 +35,12 @@ pub enum SessionEvent {
         model: String,
         phase: String,
     },
+    /// The phase doc this session runs, logged right after `session_start`.
+    /// Lets readers name the milestone exactly instead of guessing from the
+    /// phase id, which repeats across milestones.
+    PhaseDoc {
+        path: String,
+    },
     Prompt {
         rendered: String,
     },

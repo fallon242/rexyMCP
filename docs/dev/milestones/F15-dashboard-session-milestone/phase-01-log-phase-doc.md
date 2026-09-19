@@ -1,7 +1,7 @@
 # Phase 1: log phase doc
 
 **Milestone:** F15 — Dashboard session milestone
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~130 lines, about half tests
 **Tags:** language=rust, kind=bugfix, size=s
@@ -519,4 +519,27 @@ Expected (the JSON is pretty-printed): `"phase_doc_path": "docs/dev/milestones/F
 
 ## Update Log
 
+### Update — 2026-09-19 04:59 (started)
+
+**Starting:** Add `SessionEvent::PhaseDoc { path }`, logged right after
+`session_start` in `executor/src/agent/mod.rs` with `input.phase_doc_path`.
+`summarize` fills `StatusSummary.phase_doc_path`; the dashboard resolves the
+milestone from that path's parent directory (with the phase-id guess as
+fallback), and `milestone_number` generalizes from `M`-only to any uppercase
+letter + digits. Two existing executor tests updated for the new index-1
+record; the four exhaustive `SessionEvent` matches get the new arm.
+
 <!-- entries appended below this line -->
+
+### Update — 2026-09-19 05:02 (end-to-end verification)
+
+```bash
+$ cargo build -q -p rexymcp
+$ T=$(mktemp -d); mkdir -p "$T/.rexymcp/sessions"
+$ printf '%s\n%s\n' \
+>   '{"ts":1,"turn":0,"event":{"event_type":"session_start","session_id":"s1","model":"m","phase":"phase-01"}}' \
+>   '{"ts":2,"turn":0,"event":{"event_type":"phase_doc","path":"docs/dev/milestones/F14-dash-count/phase-01-b.md"}}' \
+>   > "$T/.rexymcp/sessions/session-phase-01-s1.jsonl"
+$ ./target/debug/rexymcp status --repo "$T" --json | grep '"phase_doc_path"'
+  "phase_doc_path": "docs/dev/milestones/F14-dash-count/phase-01-b.md",
+```

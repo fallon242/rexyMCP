@@ -14,6 +14,7 @@ pub struct SearchFilter<'a> {
 pub fn event_type_str(event: &SessionEvent) -> &'static str {
     match event {
         SessionEvent::SessionStart { .. } => "session_start",
+        SessionEvent::PhaseDoc { .. } => "phase_doc",
         SessionEvent::Prompt { .. } => "prompt",
         SessionEvent::Completion { .. } => "completion",
         SessionEvent::Parsed { .. } => "parsed",

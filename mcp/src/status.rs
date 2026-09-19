@@ -31,6 +31,8 @@ pub struct TaskRow {
 pub struct StatusSummary {
     pub session_id: Option<String>,
     pub phase: Option<String>,
+    /// From the `phase_doc` event; `None` on logs written before it existed.
+    pub phase_doc_path: Option<String>,
     pub model: Option<String>,
     pub latest_turn: usize,
     pub latest_stage: Option<String>,
@@ -150,6 +152,9 @@ pub fn summarize(records: &[SessionRecord]) -> StatusSummary {
                 summary.session_id = Some(session_id.clone());
                 summary.model = Some(model.clone());
                 summary.phase = Some(phase.clone());
+            }
+            SessionEvent::PhaseDoc { path } => {
+                summary.phase_doc_path = Some(path.clone());
             }
             SessionEvent::Progress {
                 turn,
@@ -436,6 +441,25 @@ mod tests {
 
     fn rec(ts: u64, turn: usize, event: SessionEvent) -> SessionRecord {
         SessionRecord { ts, turn, event }
+    }
+
+    #[test]
+    fn summarize_reads_phase_doc_path() {
+        let recs = vec![
+            rec(1, 0, start()),
+            rec(
+                2,
+                0,
+                SessionEvent::PhaseDoc {
+                    path: "docs/dev/milestones/F14-x/phase-01-y.md".into(),
+                },
+            ),
+        ];
+        let s = summarize(&recs);
+        assert_eq!(
+            s.phase_doc_path.as_deref(),
+            Some("docs/dev/milestones/F14-x/phase-01-y.md")
+        );
     }
 
     fn start() -> SessionEvent {

@@ -263,6 +263,15 @@ pub async fn execute_phase(input: &PhaseInput, deps: LoopDeps<'_>) -> Result<Pha
         &redactor,
         deps.clock,
         0,
+        SessionEvent::PhaseDoc {
+            path: input.phase_doc_path.clone(),
+        },
+    );
+    log_event(
+        &log_handle,
+        &redactor,
+        deps.clock,
+        0,
         SessionEvent::Prompt {
             rendered: system.clone(),
         },

@@ -775,7 +775,11 @@ async fn logs_session_start_first_then_prompt() {
 
     let recs = records(dir.path());
     assert!(matches!(recs[0].event, SessionEvent::SessionStart { .. }));
-    assert!(matches!(recs[1].event, SessionEvent::Prompt { .. }));
+    match &recs[1].event {
+        SessionEvent::PhaseDoc { path } => assert_eq!(path, &input().phase_doc_path),
+        other => panic!("second record must be phase_doc, got {other:?}"),
+    }
+    assert!(matches!(recs[2].event, SessionEvent::Prompt { .. }));
     match &recs[0].event {
         SessionEvent::SessionStart {
             session_id,
@@ -812,7 +816,7 @@ async fn logs_completion_parsed_and_tool_result_for_dispatched_turn() {
     let kinds: Vec<&str> = records(dir.path())
         .iter()
         .map(|r| event_kind(&r.event))
-        .filter(|k| *k != "progress" && *k != "metrics")
+        .filter(|k| *k != "progress" && *k != "metrics" && *k != "phase_doc")
         .collect();
     // SessionStart, Prompt, then turn 1: Completion, Parsed, ToolResult, then
     // turn 2 Completion, then SessionEnd.
@@ -1003,6 +1007,7 @@ async fn injected_clock_sets_record_ts() {
 fn event_kind(event: &SessionEvent) -> &'static str {
     match event {
         SessionEvent::SessionStart { .. } => "session_start",
+        SessionEvent::PhaseDoc { .. } => "phase_doc",
         SessionEvent::Prompt { .. } => "prompt",
         SessionEvent::Completion { .. } => "completion",
         SessionEvent::Parsed { .. } => "parsed",
