@@ -110,11 +110,6 @@ Live state only. Anything resolved has been removed — see § History.
 - **F01 phase-02 is parked** (`reasoning_content` round-trip). Blocked on the
   executor's inability to write think tags (JSON-escape workaround probed
   2026-09-19 and failed) and on a live thinking-mode endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
-- **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
-  is a live-capture chore carried from the M46 close. **Unblocked 2026-09-19**:
-  F16's run (`6aae1b61`) produced the first log with `phase_doc`; before that, a fresh capture would show the wrong
-  milestone label. Capture works headlessly (`tmux` 150×58 → `capture-pane -e`
-  → `aha` → headless Firefox screenshot).
 - **Telemetry readers swallow schema mismatches silently.** The
   `filter_map(|l| serde_json::from_str::<Value>(l).ok())` pairs in
   `executor/src/store/telemetry.rs` (lines 244/249, 429/434, 548/553, 647/652,
