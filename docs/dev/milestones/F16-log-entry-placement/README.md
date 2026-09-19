@@ -21,7 +21,7 @@ marker.
 
 | #  | Phase                                                              | Status |
 |----|--------------------------------------------------------------------|--------|
-| 01 | marker-rule ([phase-01-marker-rule.md](phase-01-marker-rule.md))   | in-progress   |
+| 01 | marker-rule ([phase-01-marker-rule.md](phase-01-marker-rule.md))   | review        |
 
 ## Notes
 
