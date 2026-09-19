@@ -9,8 +9,15 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F14 — Dashboard unparsed count** ([README](milestones/F14-dashboard-unparsed-count/README.md)), opened 2026-09-19 on human go-ahead.
-**Active phase: none.** Phase-01 `done` 2026-09-19 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F14 — Dashboard unparsed count: DONE 2026-09-19** at one phase,
+`approved_first_try`. The Budget panel shows `Unreadable telemetry: N` when
+N > 0. **Rebuild pending.** Retrospective in
+[F14/README.md](milestones/F14-dashboard-unparsed-count/README.md).
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F01 — Thinking-mode round-trip: PARKED 2026-09-19** after phase-01 (done,
 escalated — architect takeover). Unknown model-override keys now fail loudly;
@@ -127,6 +134,7 @@ the fold did not hold.
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
 | Executor places entries above the Update Log marker | 1× | F12 phase-01 |
+| Executor mangles phase-doc lines via line-number patches | 1× | F14 phase-01 |
 
 ## Candidate milestones (none opened, none drafted)
 
