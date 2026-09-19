@@ -15,6 +15,7 @@ Single source of truth for which phase is active. The principal engineer
 escalated — architect takeover). Unknown model-override keys now fail loudly;
 reasoning blocks open with `<think>`. Phase-02 is parked: the local executor
 cannot write think tags. See [F01/README.md](milestones/F01-thinking-mode-round-trip/README.md).
+**Rebuilt 2026-09-19 00:22** with F01 phase-01; `serve` restarted.
 
 **Next milestone needs human sign-off before it opens.** Do not draft or
 dispatch anything until the user names one.
