@@ -2,7 +2,7 @@
 
 **Milestone:** F14 — Dashboard unparsed count
 **Status:** todo
-**Depends on:** none
+**Status:** in-progress
 **Estimated diff:** ~60 lines, half tests
 **Tags:** language=rust, kind=feature, size=xs
 
@@ -311,3 +311,48 @@ output of `cargo test -p rexymcp unparsed -- --nocapture`.
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-19 04:32 (started)
+
+Implementing phase 1: carry `StoreRecords::unparsed` from `load_data` into
+`DashboardData` as `unparsed_records`, and render `Unreadable telemetry: N` in
+the Budget panel after the "Top skill" line (only when N > 0). Adding the three
+tests per the spec's replace blocks.
+
+### Update — 2026-09-19 04:35 (end-to-end verification)
+
+`cargo test -p rexymcp unparsed -- --nocapture`:
+
+```
+running 5 tests
+test dashboard::render::tests::unparsed_line_hidden_when_zero ... ok
+test dashboard::render::tests::unparsed_line_shows_count ... ok
+test costs::tests::format_costs_omits_unparsed_line_when_zero ... ok
+test costs::tests::format_costs_reports_unparsed_records ... ok
+test dashboard::tests::load_data_counts_unparsed_telemetry_lines ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 727 filtered out; finished in 0.00s
+```
+
+Grep proving the new Budget-panel literal landed in `render.rs`:
+
+```
+$ grep -n "Unreadable telemetry: " mcp/src/dashboard/render.rs
+219:            format!("  Unreadable telemetry: {n}"),
+459:        assert!(text.contains("Unreadable telemetry: 3"), "got: {text}");
+```
+
+(The `costs.rs` hits use the distinct string `Unreadable telemetry records:`.)
+
+Gate results (separate invocations):
+
+```
+cargo fmt --all --check          → clean (exit 0)
+cargo build                      → Finished `dev` profile, 0 warnings
+cargo clippy --all-targets --all-features -- -D warnings → clean (exit 0)
+cargo test -p rexymcp dashboard:: → test result: ok. 183 passed; 0 failed
+cargo test (full)                → 732 / 2 / 1220 passed
+```
+`DashboardData` as `unparsed_records`, and render `Unreadable telemetry: N` in
+the Budget panel after the "Top skill" line (only when N > 0). Adding the three
+tests per the spec's replace blocks.

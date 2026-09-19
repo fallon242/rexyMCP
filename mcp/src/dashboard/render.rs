@@ -211,6 +211,17 @@ fn top_skill_line(ts: Option<&crate::costs::SkillCost>) -> Option<Line<'static>>
     )))
 }
 
+/// Budget-panel warning when the telemetry store holds lines that no longer
+/// parse — the same count `rexymcp costs` prints. Hidden at zero.
+fn unparsed_line(n: usize) -> Option<Line<'static>> {
+    (n > 0).then(|| {
+        Line::from(Span::styled(
+            format!("  Unreadable telemetry: {n}"),
+            Style::new().fg(Color::Yellow),
+        ))
+    })
+}
+
 /// Render the dashboard into a three-panel header band (Session · Budget ·
 /// Compactions) above a body (Activity wide-left · Files right), or a
 /// single error pane when `data.error` is set.
@@ -272,6 +283,9 @@ pub(crate) fn render_dashboard(
         data.arch_cache_1h,
     ));
     if let Some(line) = top_skill_line(data.top_skill.as_ref()) {
+        budget.push(line);
+    }
+    if let Some(line) = unparsed_line(data.unparsed_records) {
         budget.push(line);
     }
 
@@ -436,6 +450,18 @@ mod tests {
             tokens: 0,
         }));
         assert!(line.is_none(), "zero-token top skill must be omitted");
+    }
+
+    #[test]
+    fn unparsed_line_shows_count() {
+        let line = unparsed_line(3).expect("non-zero count renders a line");
+        let text = format!("{line}");
+        assert!(text.contains("Unreadable telemetry: 3"), "got: {text}");
+    }
+
+    #[test]
+    fn unparsed_line_hidden_when_zero() {
+        assert!(unparsed_line(0).is_none(), "zero must render nothing");
     }
 
     // --- visible_offset tests ---

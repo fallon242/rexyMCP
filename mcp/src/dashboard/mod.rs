@@ -43,6 +43,9 @@ pub struct DashboardData {
     /// the folded ledgers (see `ArchitectLedger.cache_creation_5m/1h`).
     pub arch_cache_5m: u64,
     pub arch_cache_1h: u64,
+    /// `StoreRecords::unparsed` — telemetry lines that no longer parse. Shown in
+    /// the Budget panel when non-zero, the same count `rexymcp costs` prints.
+    pub unparsed_records: usize,
 }
 
 /// Cheap change-detection stamp for the files `load_data` reads. Comparing two
@@ -98,6 +101,7 @@ pub fn load_data(
     let store = telemetry_dir
         .map(|dir| telemetry::read_all(&dir.join("phase_runs.jsonl")).unwrap_or_default())
         .unwrap_or_default();
+    let unparsed_records = store.unparsed;
     let phase_runs: Vec<PhaseRun> = store.runs;
 
     match project_id {
@@ -135,6 +139,7 @@ pub fn load_data(
                         top_skill: skill_costs(&ledgers, pid).into_iter().next(),
                         arch_cache_5m,
                         arch_cache_1h,
+                        unparsed_records,
                     }
                 }
                 Err(e) => DashboardData {
@@ -148,6 +153,7 @@ pub fn load_data(
                     top_skill: None,
                     arch_cache_5m,
                     arch_cache_1h,
+                    unparsed_records,
                 },
             }
         }
@@ -169,6 +175,7 @@ pub fn load_data(
                         top_skill: None,
                         arch_cache_5m: 0,
                         arch_cache_1h: 0,
+                        unparsed_records,
                     }
                 }
                 Err(e) => DashboardData {
@@ -182,6 +189,7 @@ pub fn load_data(
                     top_skill: None,
                     arch_cache_5m: 0,
                     arch_cache_1h: 0,
+                    unparsed_records,
                 },
             }
         }
@@ -520,6 +528,30 @@ mod tests {
             ScopeCosts::default(),
             "project costs must be default when no project_id is configured"
         );
+    }
+
+    #[test]
+    fn load_data_counts_unparsed_telemetry_lines() {
+        let dir = TempDir::new().unwrap();
+        let sessions = sessions_dir(dir.path());
+        std::fs::create_dir_all(&sessions).unwrap();
+        let telemetry_dir = dir.path().join("telemetry");
+        std::fs::create_dir_all(&telemetry_dir).unwrap();
+        // A current-schema ledger line missing `session_id`, plus a non-JSON line.
+        std::fs::write(
+            telemetry_dir.join("phase_runs.jsonl"),
+            "{\"record\":\"architect_ledger\",\"schema_version\":1,\"model\":\"m\"}\nnot json\n",
+        )
+        .unwrap();
+
+        let data = load_data(
+            dir.path(),
+            None,
+            Some(&telemetry_dir),
+            Some("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+            &default_architect_cfg(),
+        );
+        assert_eq!(data.unparsed_records, 2, "both unusable lines are counted");
     }
 
     #[test]
