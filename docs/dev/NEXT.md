@@ -9,8 +9,15 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F16 — Log entry placement** ([README](milestones/F16-log-entry-placement/README.md)), opened 2026-09-19 on human sign-off (fold at 2×).
-**Active phase: none.** Phase-01 `done` 2026-09-19 — milestone awaiting close via `/rexymcp:architect`.
+**Active milestone: none. Active phase: none.**
+
+**F16 — Log entry placement: DONE 2026-09-19** at one phase,
+`approved_first_try`. The executor contract names the Update Log marker.
+**Rebuild pending.** Retrospective in
+[F16/README.md](milestones/F16-log-entry-placement/README.md).
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F15 — Dashboard session milestone: DONE 2026-09-19** at one phase,
 `approved_first_try`. Session logs record the phase doc; the dashboard names
@@ -104,8 +111,8 @@ Live state only. Anything resolved has been removed — see § History.
   executor's inability to write think tags (JSON-escape workaround probed
   2026-09-19 and failed) and on a live thinking-mode endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
-  is a live-capture chore carried from the M46 close. **Unblocked by F15**
-  once rebuilt and one phase has run; before that, a fresh capture would show the wrong
+  is a live-capture chore carried from the M46 close. **Unblocked 2026-09-19**:
+  F16's run (`6aae1b61`) produced the first log with `phase_doc`; before that, a fresh capture would show the wrong
   milestone label. Capture works headlessly (`tmux` 150×58 → `capture-pane -e`
   → `aha` → headless Firefox screenshot).
 - **Telemetry readers swallow schema mismatches silently.** The
@@ -138,7 +145,6 @@ the fold did not hold.
 | Environment failure looks like a bad spec | 1× | F05 phase 01 |
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
-| Executor places entries above the Update Log marker | 2× | F15 phase-01 (also F12) |
 | Executor mangles phase-doc lines via line-number patches | 1× | F14 phase-01 |
 
 ## Candidate milestones (none opened, none drafted)

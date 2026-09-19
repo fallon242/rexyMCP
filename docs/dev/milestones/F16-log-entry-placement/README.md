@@ -2,7 +2,8 @@
 
 **Goal:** the executor adds Update Log entries below the log marker.
 
-**Status:** open — opened 2026-09-19 on human sign-off (fold at 2×).
+**Status:** done — opened and closed 2026-09-19. One phase,
+`approved_first_try`.
 
 **Depends on:** none.
 
@@ -13,9 +14,9 @@ marker.
 
 **Exit criteria:**
 
-- [ ] The contract says where new entries go.
-- [ ] A test pins the wording.
-- [ ] All four gates pass.
+- [x] The contract says where new entries go.
+- [x] A test pins the wording.
+- [x] All four gates pass.
 
 ## Phases
 
@@ -28,3 +29,20 @@ marker.
 - **Routing: local.** One contract line and one test.
 - **Its run doubles as the fresh session log** the README screenshot needs
   (F15's `phase_doc` event).
+
+## F16 retrospective
+
+**Closed 2026-09-19 at one phase**, `approved_first_try`: 32 turns on the
+local `RedHatAI/Qwen3.8-27B-INT4` (code `93f3ea1`, approval `a58ab34`). Both
+files equal the spec byte for byte. Gates 734 + 2 + 1221; `contract` 14.
+
+**Fold landed at 2×** on human sign-off: the contract now names the marker and
+says entries go below it. The run placed its own entries correctly even though
+the phase doc quoted the marker four times inside code blocks.
+
+**Doubled as F15's live check.** Its session log (`6aae1b61`) is the first
+carrying the `phase_doc` event, which unblocks the README screenshot.
+
+**Calibration:** started entry heading missing its `(started)` label — nit,
+1×. The "entries above the marker" counter is closed; restart at 1× if it
+recurs after the rebuild.
