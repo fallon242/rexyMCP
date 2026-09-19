@@ -105,6 +105,11 @@ rexyMCP's own parser; that was wrong and was corrected in `3433874`.
 
 **Why parked.** Phase-02 (replay `reasoning_content` on assistant turns) edits
 the same think-tag code, so the local executor cannot do it either, and it
-needs a live thinking-mode endpoint to verify end to end. Unpark when either a
-different executor is available for it or the untested JSON-escape workaround
-(`\u003cthink\u003e` in tool arguments) is shown to work.
+needs a live thinking-mode endpoint to verify end to end. Unpark when a
+different executor (one without think-tag special tokens) is available for it.
+
+**JSON-escape workaround: tried 2026-09-19, does not work.** Probed the local
+endpoint with a `write_file` tool, thinking on and off. Without a hint the
+arguments stop at the tag. Told to write `\u003cthink\u003e`, the model
+double-escapes it (the file would get the literal text `\u003cthink\u003e`), and
+for `</think>` it still emits the real token and the arguments are cut off.

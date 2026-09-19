@@ -92,8 +92,8 @@ for this reason.
 Live state only. Anything resolved has been removed — see § History.
 
 - **F01 phase-02 is parked** (`reasoning_content` round-trip). Blocked on the
-  executor's inability to write think tags and on a live thinking-mode
-  endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
+  executor's inability to write think tags (JSON-escape workaround probed
+  2026-09-19 and failed) and on a live thinking-mode endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
   is a live-capture chore carried from the M46 close.
 - **Telemetry readers swallow schema mismatches silently.** The
