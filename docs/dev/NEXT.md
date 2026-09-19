@@ -13,7 +13,7 @@ Single source of truth for which phase is active. The principal engineer
 
 **F16 — Log entry placement: DONE 2026-09-19** at one phase,
 `approved_first_try`. The executor contract names the Update Log marker.
-**Rebuild pending.** Retrospective in
+**Rebuilt 2026-09-19 01:28**; `serve` restarted. Retrospective in
 [F16/README.md](milestones/F16-log-entry-placement/README.md).
 
 **Next milestone needs human sign-off before it opens.** Do not draft or
