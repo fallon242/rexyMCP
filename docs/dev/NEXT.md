@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F14 — Dashboard unparsed count** ([README](milestones/F14-dashboard-unparsed-count/README.md)), opened 2026-09-19 on human go-ahead.
-**Active phase: [phase-01-budget-warning](milestones/F14-dashboard-unparsed-count/phase-01-budget-warning.md)** — `todo`, route local.
+**Active phase: none.** Phase-01 `done` 2026-09-19 — milestone awaiting close via `/rexymcp:architect`.
 
 **F01 — Thinking-mode round-trip: PARKED 2026-09-19** after phase-01 (done,
 escalated — architect takeover). Unknown model-override keys now fail loudly;

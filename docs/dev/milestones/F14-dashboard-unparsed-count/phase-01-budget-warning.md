@@ -1,8 +1,8 @@
 # Phase 1: budget warning
 
 **Milestone:** F14 — Dashboard unparsed count
-**Status:** review
-**Status:** in-progress
+**Status:** done
+**Depends on:** none
 **Estimated diff:** ~60 lines, half tests
 **Tags:** language=rust, kind=feature, size=xs
 
@@ -467,3 +467,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 3ed61b9499a7e49784a8fc5a7b1c350828c950bb
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-19
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 35 turns
+- **Scope deviations:** none in code — the committed `mod.rs` and `render.rs` equal the spec applied to `c4e31de`, byte for byte (`3ed61b9`).
+- **Verification:** gates 732 / 2 / 1220; `dashboard::` 183. Mutation at review: dropping the count in `load_data` fails `load_data_counts_unparsed_telemetry_lines`; never showing the line fails `unparsed_line_shows_count` (the zero case was shown red at draft).
+- **Calibration:** the executor's line-number patch replaced the header's `**Depends on:** none` with a second `**Status:** in-progress`, and left a 3-line stray fragment after its end-to-end entry. Header restored at review; the fragment is left (append-only log). Executor mangles phase-doc lines via line-number patches: 1×. First run under the mutation-check fold: no bounce, fastest run on this code today.
