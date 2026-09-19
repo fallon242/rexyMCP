@@ -114,6 +114,7 @@ multi-field completion tail; the server does that part so you don't stall on it.
 9. **Stop.** Do not start the next phase. Do not "while you're at it" anything.
 
 The Update Log is **append-only**. Never edit prior entries.
+Add every new entry at the end of the file, below the `<!-- entries appended below this line -->` marker — never above it.
 
 ### Resuming a phase
 

@@ -214,6 +214,18 @@ mod tests {
     }
 
     #[test]
+    fn contract_places_entries_below_the_marker() {
+        let commands = CommandConfig::default();
+        let output = assemble_executor_contract(&commands);
+        assert!(
+            output.contains(
+                "below the `<!-- entries appended below this line -->` marker — never above it"
+            ),
+            "contract must say where new Update Log entries go"
+        );
+    }
+
+    #[test]
     fn contract_requires_pasting_pinned_counts() {
         let commands = CommandConfig::default();
         let output = assemble_executor_contract(&commands);

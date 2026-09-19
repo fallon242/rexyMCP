@@ -1,7 +1,7 @@
 # Phase 1: marker rule
 
 **Milestone:** F16 — Log entry placement
-**Status:** todo
+**Status:** in-progress
 **Depends on:** none
 **Estimated diff:** ~15 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -118,3 +118,30 @@ Paste `cargo test -p rexymcp-executor contract_places -- --nocapture` in a
 ## Update Log
 
 <!-- entries appended below this line -->
+
+### Update — 2026-09-19 05:19
+
+Started F16 phase-01 (marker rule): flipping status to in-progress, then adding the
+"entries go below the `<!-- entries appended below this line -->` marker — never above
+it" sentence to the executor contract template and pinning it with
+`contract_places_entries_below_the_marker`.
+
+### Update — 2026-09-19 05:19 (end-to-end verification)
+
+Pinned literal landed in the template (grep):
+
+```
+executor/templates/executor_contract.md:117:Add every new entry at the end of the file, below the `<!-- entries appended below this line -->` marker — never above it.
+```
+
+End-to-end verification — `cargo test -p rexymcp-executor contract_places -- --nocapture`:
+
+```
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/executor-090557a76b736c2e)
+
+running 1 test
+test agent::contract::tests::contract_places_entries_below_the_marker ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1230 filtered out; finished in 0.00s
+```
