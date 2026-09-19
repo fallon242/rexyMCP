@@ -9,15 +9,13 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F15 — Dashboard session milestone** ([README](milestones/F15-dashboard-session-milestone/README.md)), opened 2026-09-19 on human go-ahead.
+**Active phase: [phase-01-log-phase-doc](milestones/F15-dashboard-session-milestone/phase-01-log-phase-doc.md)** — `todo`, route local.
 
 **F14 — Dashboard unparsed count: DONE 2026-09-19** at one phase,
 `approved_first_try`. The Budget panel shows `Unreadable telemetry: N` when
 N > 0. **Rebuilt 2026-09-19 00:45**; `serve` restarted. Retrospective in
 [F14/README.md](milestones/F14-dashboard-unparsed-count/README.md).
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F01 — Thinking-mode round-trip: PARKED 2026-09-19** after phase-01 (done,
 escalated — architect takeover). Unknown model-override keys now fail loudly;
@@ -101,7 +99,7 @@ Live state only. Anything resolved has been removed — see § History.
   2026-09-19 and failed) and on a live thinking-mode endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
   is a live-capture chore carried from the M46 close. **Blocked 2026-09-19** on
-  the dashboard-milestone candidate: a fresh capture would show the wrong
+  F15 (dashboard session milestone): a fresh capture would show the wrong
   milestone label. Capture works headlessly (`tmux` 150×58 → `capture-pane -e`
   → `aha` → headless Firefox screenshot).
 - **Telemetry readers swallow schema mismatches silently.** The
@@ -139,16 +137,7 @@ the fold did not hold.
 
 ## Candidate milestones (none opened, none drafted)
 
-- **Dashboard shows the wrong milestone for F runs.** Found 2026-09-19 while
-  capturing the README screenshot: an F14 run is labelled "M46 — Token First
-  Accounting", and the Milestone column shows M46's numbers.
-  `mcp/src/dashboard/mod.rs:293` `milestone_number` accepts only `M<n>`, and
-  `resolve_milestone_dir` guesses the milestone from the bare phase id
-  (`phase-01`) by highest number — ambiguous even if `F` were accepted, since
-  F and M numbers overlap. The session log's `session_start` records only
-  `phase`, not the doc path. Fix direction: record the phase doc path (or
-  milestone id) in `session_start`; the dashboard uses it, with the current
-  guess as fallback for old logs. Blocks the screenshot below.
+- None listed.
 
 ## History
 
