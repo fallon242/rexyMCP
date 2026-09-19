@@ -9,16 +9,14 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F16 — Log entry placement** ([README](milestones/F16-log-entry-placement/README.md)), opened 2026-09-19 on human sign-off (fold at 2×).
+**Active phase: [phase-01-marker-rule](milestones/F16-log-entry-placement/phase-01-marker-rule.md)** — `todo`, route local.
 
 **F15 — Dashboard session milestone: DONE 2026-09-19** at one phase,
 `approved_first_try`. Session logs record the phase doc; the dashboard names
 the milestone from it. **Rebuilt 2026-09-19 01:15**; `serve` restarted. The
 screenshot needs one new dispatch first. Retrospective in
 [F15/README.md](milestones/F15-dashboard-session-milestone/README.md).
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F14 — Dashboard unparsed count: DONE 2026-09-19** at one phase,
 `approved_first_try`. The Budget panel shows `Unreadable telemetry: N` when
