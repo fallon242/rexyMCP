@@ -1,7 +1,7 @@
 # Phase 1: marker rule
 
 **Milestone:** F16 — Log entry placement
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~15 lines
 **Tags:** language=rust, kind=docs, size=xs
@@ -257,3 +257,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 **Commit:** 93f3ea18a5d6b8dc719396f25b81e635f501b143
 
 **Notes:** server-authored completion entry (executor no longer owns the bookkeeping tail; see M27 phase-03).
+
+### Review verdict — 2026-09-19
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** RedHatAI/Qwen3.8-27B-INT4 (local), 32 turns
+- **Scope deviations:** none — both files equal the spec applied to `9402cc1`, byte for byte (`93f3ea1`).
+- **Verification:** gates 734 / 2 / 1221; `contract` 14. Mutation: the pre-phase contract fails `contract_places_entries_below_the_marker`. This run's own entries all sit below the real marker (line 120) with four copies of the marker text earlier in the Spec left untouched. First live log carrying F15's `phase_doc` event (session `6aae1b61`).
+- **Calibration:** the started entry's heading has no `(started)` label — nit.

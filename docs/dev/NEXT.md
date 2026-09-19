@@ -10,7 +10,7 @@ Single source of truth for which phase is active. The principal engineer
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
 **Active milestone: F16 — Log entry placement** ([README](milestones/F16-log-entry-placement/README.md)), opened 2026-09-19 on human sign-off (fold at 2×).
-**Active phase: [phase-01-marker-rule](milestones/F16-log-entry-placement/phase-01-marker-rule.md)** — `todo`, route local.
+**Active phase: none.** Phase-01 `done` 2026-09-19 — milestone awaiting close via `/rexymcp:architect`.
 
 **F15 — Dashboard session milestone: DONE 2026-09-19** at one phase,
 `approved_first_try`. Session logs record the phase doc; the dashboard names
