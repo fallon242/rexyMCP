@@ -932,6 +932,30 @@ phase doc says so and asks the executor to establish the baseline as its first
 Spec task — an unverified assertion is never pinned as an acceptance criterion.
 (Folded 2026-09-18 after three occurrences in one milestone.)
 
+### Mutation-check every pinned test before dispatch
+
+A test the spec pins must be shown **by the architect, at draft time** to fail
+against the bug it targets. A test that still passes with the fix removed
+certifies nothing — and the executor will write it faithfully, gates will go
+green, and review is the first place anyone finds out.
+
+**The rule:** apply the spec in a scratch worktree (`git worktree add --detach`),
+run the gates, then remove only the fix line(s) and run each pinned test. Every
+one must go red. Quote the red run in the phase doc. A row in a payload table
+counts as a test and gets the same check.
+
+Two occurrences, both architect error:
+
+- **F06 phase-01** pinned `tool_call_id == "c1"` against a helper that only ever
+  produces `"c1"` — the assertion held with or without the fix.
+- **F13 phase-01**'s `all-digit uuid` row passed with the UUID strip deleted,
+  because its digit groups formed no Luhn-valid run. The row that discriminates
+  is `41111111-1111-1111-1111-111111111111`. Caught only by mutation at review.
+
+This extends the worktree dry run that already caught spec errors before
+dispatch in F09, F12, F13 and F01: one more step — take the fix out, expect
+red. (Folded 2026-09-19 at two occurrences, on human sign-off.)
+
 ### Prefer additive change shapes; avoid wide-blast-radius breaking changes
 
 When a phase requires modifying a type used at many call sites (an enum variant,

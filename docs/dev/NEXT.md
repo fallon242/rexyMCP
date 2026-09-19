@@ -118,6 +118,8 @@ Kept here because deleting them resets the clock. Fold at 3; see
 removed: executor misreports its own model, and executor claims a verification
 it did not run. If either recurs after the rebuild, restart it at 1× and note
 the fold did not hold.
+"Spec test that cannot fail against the bug it targets" folded 2026-09-19
+(`WORKFLOW.md` § "Mutation-check every pinned test before dispatch").
 
 | Pattern | Count | Last seen |
 |---|---|---|
@@ -127,7 +129,6 @@ the fold did not hold.
 | Executor skips the spec's test-first step | 1× | F09 phase-01 |
 | Architect edit deletes adjacent doc text | 1× | F09 open |
 | Executor places entries above the Update Log marker | 1× | F12 phase-01 |
-| Spec test that cannot fail against the bug it targets (architect) | 2× | F13 phase-01 (also F06 phase-01) |
 
 ## Candidate milestones (none opened, none drafted)
 
