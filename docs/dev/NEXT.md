@@ -9,16 +9,14 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: none. Active phase: none.**
+**Active milestone: F01 — Thinking-mode round-trip** ([README](milestones/F01-thinking-mode-round-trip/README.md)), unparked 2026-09-18 on human go-ahead.
+**Active phase: [phase-01-reject-unknown-keys-and-fix-think-tag](milestones/F01-thinking-mode-round-trip/phase-01-reject-unknown-keys-and-fix-think-tag.md)** — `todo`, route local.
 
 **F13 — PII guard false positives: DONE 2026-09-18** at one phase,
 `approved_first_try`. The prompt guard strips payload UUIDs, requires Luhn for
 cards, matches `tel` as a word, ignores git remotes, and names the rule it
 matched. Live now (no rebuild). Retrospective in
 [F13/README.md](milestones/F13-pii-guard-false-positives/README.md).
-
-**Next milestone needs human sign-off before it opens.** Do not draft or
-dispatch anything until the user names one.
 
 **F12 — Telemetry unparsed count: DONE 2026-09-18** at one phase,
 `approved_first_try`. `read_all` counts unusable current-schema lines and
@@ -82,12 +80,6 @@ Live state only. Anything resolved has been removed — see § History.
 
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
   is a live-capture chore carried from the M46 close.
-- **F01 is parked, not blocked** — it is not a prerequisite for anything, and
-  `deny_unknown_fields` on `ModelOverride` does not gate F02's `[privacy]`
-  config. **Before landing it, reconcile its phase-01 doc:** it claims
-  `ModelOverride` has no `thinking` field, but `a2fdbe2` merged
-  `pub thinking: Option<String>`, so its end-to-end step (expecting
-  `thinking = "disabled"` to be rejected) would now fail.
 - **Telemetry readers swallow schema mismatches silently.** The
   `filter_map(|l| serde_json::from_str::<Value>(l).ok())` pairs in
   `executor/src/store/telemetry.rs` (lines 244/249, 429/434, 548/553, 647/652,

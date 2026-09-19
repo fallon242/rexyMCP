@@ -1,10 +1,10 @@
-# M43 — Thinking-mode round-trip
+# F01 — Thinking-mode round-trip
 
 **Goal:** Let the executor work with reasoning models that require their
 `reasoning_content` echoed back, instead of only being able to switch thinking
 off — and make a config key that does not exist say so.
 
-**Status:** in-progress
+**Status:** in-progress — unparked 2026-09-18 on human go-ahead; phase-01 redrafted.
 
 ## Why this milestone, now
 
@@ -39,26 +39,18 @@ emits `</think>` — there is no `<think>` anywhere in the file — so a streame
 reasoning block renders as `</think>…</think>` and downstream consumers that
 strip `<think>…</think>` pairs cannot match it.
 
-## The `feat/executor-thinking-and-autocomplete` branch already knows
+## The `thinking` key is now real
 
-Before drafting, read that branch. It is 6 commits ahead of `master` on the
-`fallon242` fork and touches the same files. It does **not** fix any of the
-three defects above, but it is directly relevant:
+The `feat/executor-thinking-and-autocomplete` branch this section used to
+describe was merged (`a2fdbe2`): `ModelOverride` has a `thinking:
+Option<String>` field, so `thinking = "disabled"` is a **valid** key. Phase-01's
+unknown-key test uses a genuine typo (`thinkng`) instead. Switching thinking off
+remains the workaround; phase-02's round-trip is the fix.
 
-- It **adds `thinking: Option<String>`** to `[executor]` and to `[models."…"]`,
-  emitted verbatim as `"thinking": {"type": <value>}`. So `thinking = "disabled"`
-  is a *real key on that branch* and an *unknown key on `master`* — which is
-  exactly how a config could look correct and do nothing.
-- Its own doc comment states the case plainly: DeepSeek-style APIs require
-  thinking-mode tool-call turns to carry something *"rexyMCP does not
-  implement,"* so it disables thinking to take the non-thinking path instead.
-
-**That branch is the workaround; this milestone is the fix.** They are
-complementary, not competing: being able to switch thinking off is worth having
-regardless. Whoever lands M43 should decide whether that branch merges first —
-if it does, phase-01's `deny_unknown_fields` will start rejecting configs that
-were silently tolerated, which is the point but is also a breaking change worth
-sequencing deliberately.
+**Leftover rate keys stay accepted.** The pricing removal (`8901564`) promised
+that old `input_per_mtok` / `output_per_mtok` / `cache_read_per_mtok` /
+`cache_creation_per_mtok` keys are ignored. Phase-01 declares those four as
+ignored fields so `deny_unknown_fields` does not break existing configs.
 
 ## Exit criteria
 
@@ -75,7 +67,7 @@ sequencing deliberately.
 
 | #  | Phase                                                          | Status |
 |----|----------------------------------------------------------------|--------|
-| 01 | reject unknown model-override keys; fix the `<think>` open tag  | todo   | ← active
+| 01 | reject unknown model-override keys; fix the `<think>` open tag ([phase-01](phase-01-reject-unknown-keys-and-fix-think-tag.md)) | todo   |
 | 02 | round-trip `reasoning_content` on assistant turns               | todo   |
 
 Split because phase-01 is two verified one-line changes needing only tests,
@@ -85,7 +77,7 @@ keys are rejected, a config typo can masquerade as a round-trip bug.
 
 ## Notes
 
-- **Baseline is 1761 tests** (685 + 2 + 1074) on `master` at `a2fdbe2`.
+- **Baseline is 729 / 2 / 1218** on `master` at `ea67993` (2026-09-18; was 1761 at `a2fdbe2`).
 - **Phase-01 was prototyped and verified; phase-02 was not.** Phase-02 needs a
   live thinking-mode endpoint to confirm end to end, which the architect did not
   have. Its spec is derived from the API error and the code, and says so.
