@@ -9,8 +9,15 @@ Single source of truth for which phase is active. The principal engineer
 > M43–M46) before the 2026-09-16 merge, so fork work was renumbered F01–F05 and
 > upstream's M numbers were left alone. Never open a new `M` milestone here.
 
-**Active milestone: F01 — Thinking-mode round-trip** ([README](milestones/F01-thinking-mode-round-trip/README.md)), unparked 2026-09-18 on human go-ahead.
-**Active phase: none drafted.** Phase-01 `done` 2026-09-19 (escalated — architect takeover). Phase-02 (`reasoning_content` round-trip) needs a live thinking-mode endpoint.
+**Active milestone: none. Active phase: none.**
+
+**F01 — Thinking-mode round-trip: PARKED 2026-09-19** after phase-01 (done,
+escalated — architect takeover). Unknown model-override keys now fail loudly;
+reasoning blocks open with `<think>`. Phase-02 is parked: the local executor
+cannot write think tags. See [F01/README.md](milestones/F01-thinking-mode-round-trip/README.md).
+
+**Next milestone needs human sign-off before it opens.** Do not draft or
+dispatch anything until the user names one.
 
 **F13 — PII guard false positives: DONE 2026-09-18** at one phase,
 `approved_first_try`. The prompt guard strips payload UUIDs, requires Luhn for
@@ -83,6 +90,9 @@ for this reason.
 
 Live state only. Anything resolved has been removed — see § History.
 
+- **F01 phase-02 is parked** (`reasoning_content` round-trip). Blocked on the
+  executor's inability to write think tags and on a live thinking-mode
+  endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
   is a live-capture chore carried from the M46 close.
 - **Telemetry readers swallow schema mismatches silently.** The

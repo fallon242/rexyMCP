@@ -4,7 +4,7 @@
 `reasoning_content` echoed back, instead of only being able to switch thinking
 off — and make a config key that does not exist say so.
 
-**Status:** in-progress — unparked 2026-09-18 on human go-ahead; phase-01 redrafted.
+**Status:** parked 2026-09-19 after phase-01 (done, escalated). Phase-02 not drafted.
 
 ## Why this milestone, now
 
@@ -54,9 +54,9 @@ ignored fields so `deny_unknown_fields` does not break existing configs.
 
 ## Exit criteria
 
-- [ ] An unknown key in a `[models."…"]` table is a **loud config error** naming
+- [x] An unknown key in a `[models."…"]` table is a **loud config error** naming
       the valid keys, not a silent no-op.
-- [ ] A streamed reasoning block opens with `<think>` and closes with `</think>`.
+- [x] A streamed reasoning block opens with `<think>` and closes with `</think>`.
 - [ ] An assistant turn carrying reasoning is replayed with its
       `reasoning_content` intact, so a thinking-mode dispatch survives past turn
       one.
@@ -88,3 +88,23 @@ keys are rejected, a config typo can masquerade as a round-trip bug.
   written as "M35" against a clone that was 238 commits behind and had a stale
   remote-tracking ref. M35–M42 already existed upstream. The defects were
   re-verified against `659d321` before this renumber; all three still present.
+
+## Phase-01 retrospective (milestone parked, not closed)
+
+**Phase-01 landed 2026-09-19 by architect takeover** (`be6019b`, verdict
+`escalated`). Unknown `[models."…"]` keys now fail loudly; reasoning blocks
+open with `<think>`; the four removed `*_per_mtok` rate keys stay accepted.
+Gates 729 + 2 + 1220; each fix's test fails when its line is reverted.
+
+**Why takeover.** The executor ran out of 220 turns. Two causes: the local
+model cannot emit `<think>` / `</think>` at all — they are special tokens and
+the vLLM reasoning parser consumes them (probed: `A<think>B</think>C` comes
+back as `A`) — so it wrote `{think}` instead; and it spent ~200 turns deleting
+two 18-line test literals one line at a time. The first escalation note blamed
+rexyMCP's own parser; that was wrong and was corrected in `3433874`.
+
+**Why parked.** Phase-02 (replay `reasoning_content` on assistant turns) edits
+the same think-tag code, so the local executor cannot do it either, and it
+needs a live thinking-mode endpoint to verify end to end. Unpark when either a
+different executor is available for it or the untested JSON-escape workaround
+(`\u003cthink\u003e` in tool arguments) is shown to work.
