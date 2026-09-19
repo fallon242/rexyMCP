@@ -13,7 +13,7 @@ Single source of truth for which phase is active. The principal engineer
 
 **F14 — Dashboard unparsed count: DONE 2026-09-19** at one phase,
 `approved_first_try`. The Budget panel shows `Unreadable telemetry: N` when
-N > 0. **Rebuild pending.** Retrospective in
+N > 0. **Rebuilt 2026-09-19 00:45**; `serve` restarted. Retrospective in
 [F14/README.md](milestones/F14-dashboard-unparsed-count/README.md).
 
 **Next milestone needs human sign-off before it opens.** Do not draft or
