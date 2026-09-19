@@ -100,7 +100,10 @@ Live state only. Anything resolved has been removed — see § History.
   executor's inability to write think tags (JSON-escape workaround probed
   2026-09-19 and failed) and on a live thinking-mode endpoint. The executor's failed phase-01 attempt is kept in `git stash`.
 - **`docs/rexymcp_dashboard.png` is a Jul 20 capture**, pre-M46. Regenerating it
-  is a live-capture chore carried from the M46 close.
+  is a live-capture chore carried from the M46 close. **Blocked 2026-09-19** on
+  the dashboard-milestone candidate: a fresh capture would show the wrong
+  milestone label. Capture works headlessly (`tmux` 150×58 → `capture-pane -e`
+  → `aha` → headless Firefox screenshot).
 - **Telemetry readers swallow schema mismatches silently.** The
   `filter_map(|l| serde_json::from_str::<Value>(l).ok())` pairs in
   `executor/src/store/telemetry.rs` (lines 244/249, 429/434, 548/553, 647/652,
@@ -136,7 +139,16 @@ the fold did not hold.
 
 ## Candidate milestones (none opened, none drafted)
 
-- None listed.
+- **Dashboard shows the wrong milestone for F runs.** Found 2026-09-19 while
+  capturing the README screenshot: an F14 run is labelled "M46 — Token First
+  Accounting", and the Milestone column shows M46's numbers.
+  `mcp/src/dashboard/mod.rs:293` `milestone_number` accepts only `M<n>`, and
+  `resolve_milestone_dir` guesses the milestone from the bare phase id
+  (`phase-01`) by highest number — ambiguous even if `F` were accepted, since
+  F and M numbers overlap. The session log's `session_start` records only
+  `phase`, not the doc path. Fix direction: record the phase doc path (or
+  milestone id) in `session_start`; the dashboard uses it, with the current
+  guess as fallback for old logs. Blocks the screenshot below.
 
 ## History
 
