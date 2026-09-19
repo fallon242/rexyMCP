@@ -109,8 +109,6 @@ Live state only. Anything resolved has been removed — see § History.
   **Partly closed by F12:** `read_all` now counts them and `rexymcp costs`
   prints the count. The four per-type readers (used by the scorecard,
   `runs`, `review`) stay silent by decision; `costs` is the canary.
-- **Two open nits**, neither blocking: the `missing_spec_test` / broken-fixture
-  failure shape (M37 phase-06), and the `$`-less `executor_val` debit (M38).
 - **`generic-array` 0.14.9** was dropped as unreachable, not deferred:
   `crypto-common 0.1.7` pins `=0.14.7` and is the last release in its line.
   Reopening trigger is `cargo tree -i generic-array` showing a dependent that is
