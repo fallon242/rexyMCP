@@ -94,8 +94,14 @@ edit and truncating a comment mid-word; the local model finished the same phase
 in 89 turns. Route cloud work to greenfield or additive phases; keep in-place
 edits in dense existing code local. Cloud goes through the CLI
 (`REXYMCP_API_KEY=$DEEPSEEK_API_KEY REXYMCP_BASE_URL=https://api.deepseek.com/v1 REXYMCP_MODEL=deepseek-flash rexymcp run-phase …`);
-the pre-scan index is cached now. A cloud executor still cannot commit inside a
-git worktree, and gate output still reaches the model. `max_turns` is 220 as of 2026-09-18. The NER engine is on port 8000,
+the pre-scan index is cached now. `REXYMCP_MODEL` only sets the model *name* —
+thinking mode still comes from config, so the `[models."deepseek-flash"]
+thinking = "disabled"` block in `rexymcp.toml` is load-bearing for cloud runs.
+Drop it and DeepSeek 400s on the second tool-calling turn (it wants
+`reasoning_content` echoed back, which rexyMCP does not do). Verified
+2026-09-21: env-overridden `run-phase` completed in 6 turns, zero
+`reasoning_content` in the session log. A cloud executor still cannot commit
+inside a git worktree, and gate output still reaches the model. `max_turns` is 220 as of 2026-09-18. The NER engine is on port 8000,
 model `RedHatAI/Qwen3.8-27B-INT4`.
 **The local executor cannot write `<think>` / `</think>`** — they are special
 tokens and vLLM's reasoning parser consumes them (probed 2026-09-19: asked to
