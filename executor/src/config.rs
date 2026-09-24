@@ -107,6 +107,15 @@ pub struct PrivacyConfig {
     /// must never reach a cloud model. A relative path is resolved against the
     /// repo root. `None` = no term file; the feature is off.
     pub terms_file: Option<PathBuf>,
+    /// llama.cpp `repeat_penalty` for the NER engine. `None` (default) sends no
+    /// such field, leaving the endpoint's own default — llama-server's is 1.0,
+    /// i.e. disabled. 1.1 is a mild setting that discourages the degenerate
+    /// repetition loop repetitive input can provoke (PRV-001 L-5). Raise it with
+    /// care: the reply is a JSON array whose elements legitimately repeat
+    /// structure, and a penalty stiff enough to mangle that makes `parse_items`
+    /// fail — which errors rather than passing text off as PII-free, but blocks
+    /// redaction until it is turned back down.
+    pub engine_repeat_penalty: Option<f64>,
 }
 
 /// What the low-novelty (churn) detector does when a full window collapses to

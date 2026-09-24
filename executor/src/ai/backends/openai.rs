@@ -160,6 +160,9 @@ pub fn build_chat_body(
     if let Some(t) = &sampling.thinking {
         body["thinking"] = json!({ "type": t });
     }
+    if let Some(p) = sampling.repeat_penalty {
+        body["repeat_penalty"] = json!(p);
+    }
     body
 }
 
@@ -819,6 +822,7 @@ mod tests {
                 max_tokens: 8192,
                 enable_thinking: false,
                 thinking: None,
+                repeat_penalty: None,
             },
         );
         assert_eq!(body["temperature"], 0.2);
@@ -831,6 +835,27 @@ mod tests {
         assert!(body.get("temperature").is_none());
         assert!(body.get("seed").is_none());
         assert!(body.get("thinking").is_none());
+        assert!(body.get("repeat_penalty").is_none());
+    }
+
+    /// `repeat_penalty` is llama.cpp-specific, so it must be absent unless asked
+    /// for — a cloud endpoint would see an unknown field.
+    #[test]
+    fn build_chat_body_includes_repeat_penalty_only_when_set() {
+        let body = build_chat_body(
+            "m",
+            "sys",
+            vec![],
+            None,
+            SamplingParams {
+                repeat_penalty: Some(1.1),
+                ..SamplingParams::default()
+            },
+        );
+        assert_eq!(body["repeat_penalty"], 1.1);
+
+        let off = build_chat_body("m", "sys", vec![], None, SamplingParams::default());
+        assert!(off.get("repeat_penalty").is_none());
     }
 
     #[test]
@@ -846,6 +871,7 @@ mod tests {
                 max_tokens: 8192,
                 enable_thinking: false,
                 thinking: None,
+                repeat_penalty: None,
             },
         );
         assert_eq!(body["temperature"], 0.7);
@@ -861,6 +887,7 @@ mod tests {
             None,
             SamplingParams {
                 thinking: Some("disabled".into()),
+                repeat_penalty: None,
                 ..SamplingParams::default()
             },
         );

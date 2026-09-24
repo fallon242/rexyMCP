@@ -573,6 +573,7 @@ mod tests {
             redact_executor_egress: None,
             scan_globs: vec![],
             terms_file: None,
+            engine_repeat_penalty: None,
         };
         privacy.vault_dir = Some(tmp.path().join("vault"));
 

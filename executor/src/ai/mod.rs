@@ -202,6 +202,10 @@ pub struct SamplingParams {
     /// Forwarded as `"thinking": {"type": <value>}` when set. See
     /// `ExecutorConfig::thinking` for why this exists.
     pub thinking: Option<String>,
+    /// llama.cpp's `repeat_penalty`, forwarded only when set. `None` omits the
+    /// field entirely, so endpoints that do not know it — the cloud executor —
+    /// are unaffected. 1.0 means disabled, which is llama-server's own default.
+    pub repeat_penalty: Option<f64>,
 }
 
 impl Default for SamplingParams {
@@ -212,6 +216,7 @@ impl Default for SamplingParams {
             max_tokens: 8192,
             enable_thinking: false,
             thinking: None,
+            repeat_penalty: None,
         }
     }
 }
@@ -229,6 +234,7 @@ pub fn make_client(cfg: &ExecutorConfig) -> Box<dyn AiClient> {
             max_tokens: cfg.max_tokens,
             enable_thinking: cfg.enable_thinking,
             thinking: cfg.thinking.clone(),
+            repeat_penalty: None,
         },
     ))
 }

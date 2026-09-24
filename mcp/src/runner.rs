@@ -390,6 +390,7 @@ pub async fn run_phase(inp: &RunPhaseConfig<'_>) -> rexymcp_executor::error::Res
             max_tokens: client_cfg.executor.max_tokens,
             enable_thinking: client_cfg.executor.enable_thinking,
             thinking: client_cfg.executor.thinking.clone(),
+            repeat_penalty: None,
         },
     );
 

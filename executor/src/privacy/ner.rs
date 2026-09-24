@@ -80,6 +80,7 @@ impl NerEngine {
                 max_tokens: 4096,
                 enable_thinking: false,
                 thinking: None,
+                repeat_penalty: cfg.engine_repeat_penalty,
             },
         );
         Ok(Self::new(Box::new(client)))
