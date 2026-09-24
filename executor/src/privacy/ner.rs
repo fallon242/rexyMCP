@@ -22,10 +22,20 @@ const MAX_CHUNK_BYTES: usize = 16_000;
 /// A piece this small that is still cut off is an error, not another split.
 const MIN_CHUNK_BYTES: usize = 512;
 
+/// Asks for each *distinct* artifact once, not one element per occurrence:
+/// [`spans_from_items`] locates every occurrence of each artifact itself, so
+/// repeats in the reply are discarded work. Enumerating them instead grows the
+/// reply with the repetition count until it hits `max_tokens`, and a cut-off
+/// reply costs a halve-and-retry that recurses on text that is still repetitive
+/// (PRV-001 L-5).
 const SYSTEM_PROMPT: &str = "You are a PII detector. Find every person name, \
-street address, and organization name in the user's text. Return ONLY a JSON \
+street address, and organization name in the user's text. Miss none: where names \
+stand next to each other in a list, a column, or a run of words, each one is a \
+separate artifact, not parts of a single longer name. Return ONLY a JSON \
 array; each element is {\"text\": <the exact substring>, \"type\": <\"person_name\" \
-| \"street_address\" | \"organization\">}. Copy each text exactly as it appears \
+| \"street_address\" | \"organization\">}. Give each distinct artifact one \
+element: when the same text occurs repeatedly, list it a single time — every \
+occurrence is found from your answer. Copy each text exactly as it appears \
 in the input. If there is none, return []. No prose, no markdown, no code fences.";
 
 #[derive(Debug, Deserialize)]
